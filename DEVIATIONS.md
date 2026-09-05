@@ -211,7 +211,38 @@ That is now **three** places where C's design assumed a write the executing iden
 the audit log, the token counter, and the policy read that needed `group_ai_user`. The pattern is
 worth stating once in the specification rather than rediscovering per session.
 
-### 🔴 Blocking for deployment: C §5.10's secret mechanism may not exist on Odoo.sh
+### 🔴 CONFIRMED BLOCKER: C §5.10's secret mechanism does not exist on Odoo.sh
+
+**Confirmed 2026-09-05** by inspecting the full Odoo.sh Project Settings page: there is **no
+Environment Variables, Variables or Secrets section**. The page offers Project Name, Collaborators,
+Session lifetime, Public Access, GitHub commit statuses, GitHub Key & Webhook, Submodules,
+Production Database Size, Database Workers, Workers Settings, Staging Branches, Development
+Branches, Firewall and Activation — and nothing else.
+
+**Decision memo prepared for George:** `docs/reviews/decision-request-credential-storage.md`. It
+states the one question (is the `sudo()` ban absolute, or "no `sudo()` in the guard or tool path
+with a documented allowlist"?), three options with honest costs, and a recommendation.
+
+**Nothing is being changed until he rules.** Session 6 is on hold. The architecture is untouched.
+
+Two facts that shape the options, both verified against source:
+
+- `ir.config_parameter`: one ACL row, `group_system`, and `get_param()` calls `check_access('read')`
+  (`ir.model.access.csv:118`, `ir_config_parameter.py:68`). So a DB-stored key needs `sudo()` **at
+  request time**.
+- `_register_hook()` is called from `odoo/modules/loading.py:594` under an environment built at
+  line 404 as `api.Environment(cr, api.SUPERUSER_ID, {})`. **That context is already superuser**, so
+  a read there is not an escalation we perform — which is the basis of the recommended option.
+
+### The B3 pattern, now four instances
+
+The credential is the fourth time the specification has assumed a write or read the executing
+identity cannot make: the audit log, the policy tables, the token counter, and now the secret. The
+first three were each solved by moving the data to a record whose ACL could safely be opened.
+**That cannot work for a credential**, because no ACL makes exposing a secret safe. George should
+state the rule once in the specification rather than have it rediscovered per session.
+
+### (Original note, superseded by the confirmation above)
 
 Document C §5.10 requires the API key to come from **the environment or `odoo.conf`, and nowhere
 else**, specifically so no `sudo()` is needed to read it. On the staging build:
