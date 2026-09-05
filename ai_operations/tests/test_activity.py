@@ -24,7 +24,7 @@ class TestActivities(AIOperationsCommon):
         return ExecutionContext(
             env=self.env, profile=profile, execution_user=self.env.user,
             execution_mode='INTERACTIVE', trigger='CRON',
-            company_ids=(self.company.id,), autonomy=2, tool_code='test',
+            company_ids=(self.company.id,), autonomy=2, tool_code='kt_test',
             correlation_id='corr-activity', session_id='s', audit_id=0,
             policy_version='1.0.0', budget=RunBudget())
 
@@ -76,7 +76,7 @@ class TestActivities(AIOperationsCommon):
         """No fallback to Administrator, to the service user, to the record's
         creator, or to an arbitrary member of a group. An AI task on the wrong
         desk is worse than no task: it is silently absorbed."""
-        profile = self._make_profile(code='noroute', active=False,
+        profile = self._make_profile(code='kt_noroute', active=False,
                                      default_review_user_id=False,
                                      default_escalation_user_id=False)
         before = self.Activity.search_count([])
@@ -85,7 +85,7 @@ class TestActivities(AIOperationsCommon):
         self.assertEqual(self.Activity.search_count([]), before)
 
     def test_an_unresolvable_assignee_is_audited(self):
-        profile = self._make_profile(code='noroute2', active=False,
+        profile = self._make_profile(code='kt_noroute2', active=False,
                                      default_review_user_id=False,
                                      default_escalation_user_id=False)
         self._create(ctx=self._ctx(profile), res_id=31)
@@ -101,7 +101,7 @@ class TestActivities(AIOperationsCommon):
         own check is belt to those braces."""
         from odoo.exceptions import ValidationError
         with self.assertRaises(ValidationError):
-            self._make_profile(code='crosscompany', active=False,
+            self._make_profile(code='kt_crosscompany', active=False,
                                default_review_user_id=self.outsider.id,
                                default_escalation_user_id=self.outsider.id)
 
@@ -117,7 +117,7 @@ class TestActivities(AIOperationsCommon):
         self.assertEqual(created, MAX_ACTIVITIES_PER_USER_PER_DAY)
 
     def test_the_ceiling_is_per_agent_not_global(self):
-        other = self._make_profile(code='otheragent')
+        other = self._make_profile(code='kt_otheragent')
         for index in range(MAX_ACTIVITIES_PER_USER_PER_DAY):
             self._create(reason='FLOOD2', res_id=200 + index)
         self.assertTrue(

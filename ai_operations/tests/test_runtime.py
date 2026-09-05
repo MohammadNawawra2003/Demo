@@ -295,7 +295,7 @@ class TestRuntime(AIOperationsCommon):
         provider_module.freeze_provider_registry()
         self.addCleanup(setattr, provider_module, '_PROVIDERS_FROZEN', False)
         with self.assertRaises(AIProviderRegistrationError):
-            @ai_provider(code='too_late', label='Too Late', models=(('m', 'M'),))
+            @ai_provider(code='kt_too_late', label='Too Late', models=(('m', 'M'),))
             class _Late:
                 def complete(self): pass
                 def get_models(self): pass
@@ -304,14 +304,14 @@ class TestRuntime(AIOperationsCommon):
     def test_a_provider_without_the_interface_is_refused(self):
         self.addCleanup(provider_module._PROVIDERS.pop, 'partial', None)
         with self.assertRaises(AIProviderRegistrationError):
-            @ai_provider(code='partial', label='Partial', models=(('m', 'M'),))
+            @ai_provider(code='kt_partial', label='Partial', models=(('m', 'M'),))
             class _Partial:
                 def complete(self): pass
 
     def test_a_provider_declaring_no_models_is_refused(self):
         self.addCleanup(provider_module._PROVIDERS.pop, 'empty', None)
         with self.assertRaises(AIProviderRegistrationError):
-            @ai_provider(code='empty', label='Empty', models=())
+            @ai_provider(code='kt_empty', label='Empty', models=())
             class _Empty:
                 def complete(self): pass
                 def get_models(self): pass
@@ -330,7 +330,7 @@ class TestRuntime(AIOperationsCommon):
 
     def test_t73_model_outside_the_adapters_declared_list_is_refused(self):
         self._install_null_adapter()
-        self.profile.provider_code = 'null'
+        self.profile.provider_code = 'kt_null'
         with self.assertRaises(Exception) as caught:
             self.profile.model_code = 'not-a-declared-model'
         self.assertIsInstance(caught.exception, (ValidationError, ValueError))
@@ -347,11 +347,12 @@ class TestRuntime(AIOperationsCommon):
     # -- the null adapter, and T-100 parity --------------------------------
 
     def _install_null_adapter(self):
-        if provider_module.has_provider('null'):
-            return provider_module.get_provider('null')
-        self.addCleanup(provider_module._PROVIDERS.pop, 'null', None)
+        # Registration is a module-level side effect, so a test that registered
+        # it earlier in the same run leaves it behind. Reuse rather than raise.
+        if provider_module.has_provider('kt_null'):
+            return provider_module.get_provider('kt_null')
 
-        @ai_provider(code='null', label='Null', models=(('null-1', 'Null One'),))
+        @ai_provider(code='kt_null', label='Null', models=(('null-1', 'Null One'),))
         class _Null:
             """A scripted test double: no vendor, no key, no network."""
             def complete(self, *args, **kwargs):
@@ -361,7 +362,7 @@ class TestRuntime(AIOperationsCommon):
                 return [('null-1', 'Null One')]
             def health_check(self):
                 return True, 'ok'
-        return provider_module.get_provider('null')
+        return provider_module.get_provider('kt_null')
 
     def test_t100_the_adapter_cannot_change_a_security_decision(self):
         """A provider may change how the LLM is called. It may never change
@@ -373,7 +374,7 @@ class TestRuntime(AIOperationsCommon):
         self.profile.max_autonomy_level = '1'
 
         outcomes = []
-        for code in (False, 'null'):
+        for code in (False, 'kt_null'):
             self.profile.provider_code = code
             try:
                 self._call('rt.parity')

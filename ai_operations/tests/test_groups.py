@@ -102,7 +102,7 @@ class TestSecurityGroups(AIOperationsCommon):
     def test_security_admin_can_create_a_profile(self):
         profile = self.Profile.with_user(self.security_admin).create({
             'name': 'Quality Intelligence',
-            'code': 'quality',
+            'code': 'kt_quality',
             'company_ids': [Command.set([self.company.id])],
             'default_review_user_id': self.reviewer.id,
             'default_escalation_user_id': self.escalation.id,

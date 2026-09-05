@@ -347,6 +347,14 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 continue
             company_ids = [companies[key].id for key in company_keys]
             group_ids = []
+            # AI Operations / User is mandatory for a service user: the guard
+            # reads its own policy as the executing identity, and sudo() is
+            # banned, so without it every autonomous run fails on configuration
+            # rather than on permission.
+            ai_user = self.env.ref('ai_operations.group_ai_user',
+                                   raise_if_not_found=False)
+            if ai_user:
+                group_ids.append(ai_user.id)
             for xmlid in group_xmlids:
                 group = self.env.ref(xmlid, raise_if_not_found=False)
                 if group:

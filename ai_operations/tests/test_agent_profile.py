@@ -9,7 +9,7 @@ from .common import AIOperationsCommon
 class TestAgentProfile(AIOperationsCommon):
 
     def test_valid_profile_is_creatable(self):
-        profile = self._make_profile(code='inventory', name='Inventory Intelligence')
+        profile = self._make_profile(code='kt_inventory', name='Inventory Intelligence')
         self.assertTrue(profile.active)
         self.assertEqual(profile.max_autonomy_level, '2')
         self.assertEqual(profile.audit_level, 'STANDARD')
@@ -21,29 +21,29 @@ class TestAgentProfile(AIOperationsCommon):
     def test_t66_autonomy_above_phase1_ceiling_raises(self):
         """Phase 1 permits no agent above level 2."""
         with self.assertRaises(ValidationError):
-            self._make_profile(code='too_autonomous', max_autonomy_level='3')
+            self._make_profile(code='kt_too_autonomous', max_autonomy_level='3')
 
     def test_t66_autonomy_level_four_raises(self):
         with self.assertRaises(ValidationError):
-            self._make_profile(code='way_too_autonomous', max_autonomy_level='4')
+            self._make_profile(code='kt_way_too_autonomous', max_autonomy_level='4')
 
     def test_autonomous_without_service_user_raises(self):
         """It must never fall back to the administrator or to sudo()."""
         with self.assertRaises(ValidationError):
-            self._make_profile(code='headless', allow_autonomous=True)
+            self._make_profile(code='kt_headless', allow_autonomous=True)
 
     def test_t65_service_user_in_group_system_raises(self):
         """An agent may never run as administrator."""
         with self.assertRaises(ValidationError):
             self._make_profile(
-                code='root_agent',
+                code='kt_root_agent',
                 allow_autonomous=True,
                 service_user_id=self.system_user.id,
             )
 
     def test_autonomous_with_service_user_is_allowed(self):
         profile = self._make_profile(
-            code='autonomous_ok',
+            code='kt_autonomous_ok',
             allow_autonomous=True,
             service_user_id=self.service_user.id,
         )
@@ -51,21 +51,21 @@ class TestAgentProfile(AIOperationsCommon):
 
     def test_t74b_active_profile_without_reviewer_raises(self):
         with self.assertRaises(ValidationError):
-            self._make_profile(code='no_reviewer', default_review_user_id=False)
+            self._make_profile(code='kt_no_reviewer', default_review_user_id=False)
 
     def test_t74b_active_profile_without_escalation_user_raises(self):
         with self.assertRaises(ValidationError):
-            self._make_profile(code='no_escalation', default_escalation_user_id=False)
+            self._make_profile(code='kt_no_escalation', default_escalation_user_id=False)
 
     def test_t74b_active_profile_without_company_scope_raises(self):
         with self.assertRaises(ValidationError):
-            self._make_profile(code='no_company', company_ids=[Command.clear()])
+            self._make_profile(code='kt_no_company', company_ids=[Command.clear()])
 
     def test_t74c_escalation_user_may_not_be_the_service_user(self):
         """An activity addressed to the agent itself is a task nobody owns."""
         with self.assertRaises(ValidationError):
             self._make_profile(
-                code='self_escalating',
+                code='kt_self_escalating',
                 allow_autonomous=True,
                 service_user_id=self.service_user.id,
                 default_escalation_user_id=self.service_user.id,
@@ -74,14 +74,14 @@ class TestAgentProfile(AIOperationsCommon):
     def test_t74c_escalation_user_may_not_be_an_administrator(self):
         with self.assertRaises(ValidationError):
             self._make_profile(
-                code='escalates_to_root',
+                code='kt_escalates_to_root',
                 default_escalation_user_id=self.system_user.id,
             )
 
     def test_t74c_review_user_may_not_be_an_administrator(self):
         with self.assertRaises(ValidationError):
             self._make_profile(
-                code='reviewed_by_root',
+                code='kt_reviewed_by_root',
                 default_review_user_id=self.system_user.id,
             )
 
@@ -89,7 +89,7 @@ class TestAgentProfile(AIOperationsCommon):
         """Fail closed: routing may never resolve outside the effective scope."""
         with self.assertRaises(ValidationError):
             self._make_profile(
-                code='cross_company_routing',
+                code='kt_cross_company_routing',
                 default_review_user_id=self.outsider.id,
             )
 
@@ -98,12 +98,12 @@ class TestAgentProfile(AIOperationsCommon):
 
         from odoo.tools import mute_logger
         with self.assertRaises(IntegrityError), mute_logger('odoo.sql_db'):
-            self._make_profile(code='kernel_test', name='Duplicate Code')
+            self._make_profile(code='kt_kernel', name='Duplicate Code')
             self.env.flush_all()
 
     def test_archived_profile_escapes_the_activation_constraints(self):
         """The requirement is on activation, not on existence."""
-        profile = self._make_profile(code='draft_profile', active=False,
+        profile = self._make_profile(code='kt_draft_profile', active=False,
                                      default_review_user_id=False,
                                      default_escalation_user_id=False)
         self.assertFalse(profile.active)

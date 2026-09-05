@@ -36,11 +36,11 @@ class TestHandoffs(AIOperationsCommon):
         cls.service = cls.env['ai.operations.handoff.service']
         cls.Handoff = cls.env['ai.operations.handoff']
 
-        cls.receiver = cls._make_profile(code='hoff_procurement',
+        cls.receiver = cls._make_profile(code='kt_hoff_procurement',
                                          name='Procurement (handoff test)')
-        cls.raiser_a = cls._make_profile(code='hoff_manufacturing',
+        cls.raiser_a = cls._make_profile(code='kt_hoff_manufacturing',
                                          name='Manufacturing (handoff test)')
-        cls.raiser_b = cls._make_profile(code='hoff_inventory',
+        cls.raiser_b = cls._make_profile(code='kt_hoff_inventory',
                                          name='Inventory (handoff test)')
 
         cls.shortage_type = cls.env['ai.operations.handoff.type'].create({
@@ -56,7 +56,7 @@ class TestHandoffs(AIOperationsCommon):
         return ExecutionContext(
             env=self.env, profile=profile, execution_user=self.env.user,
             execution_mode='INTERACTIVE', trigger='CHAT',
-            company_ids=(self.company.id,), autonomy=2, tool_code='test',
+            company_ids=(self.company.id,), autonomy=2, tool_code='kt_test',
             correlation_id='corr-handoff', session_id='s', audit_id=0,
             policy_version='1.0.0', budget=RunBudget())
 
@@ -179,7 +179,7 @@ class TestHandoffs(AIOperationsCommon):
     def test_a_different_receiver_is_a_different_unit_of_work(self):
         """Uniqueness is scoped to the receiver, not globally."""
         key = handoff_idempotency_key(self.company.id, 'shortage', 'X', 'RM', 'd')
-        other_receiver = self._make_profile(code='hoff_other', name='Other')
+        other_receiver = self._make_profile(code='kt_hoff_other', name='Other')
         other_type = self.env['ai.operations.handoff.type'].create({
             'code': 'TEST_OTHER', 'name': 'Other',
             'to_profile_id': other_receiver.id, 'payload_schema': SCHEMA})

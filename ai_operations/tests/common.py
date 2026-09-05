@@ -23,6 +23,11 @@ class AIOperationsCommon(TransactionCase):
         cls.reviewer = cls._make_user('ai.test.reviewer', 'Routine Reviewer')
         cls.escalation = cls._make_user('ai.test.escalation', 'Escalation Manager')
         cls.service_user = cls._make_user('ai.test.service', 'AI / Test Service')
+        # A service user must hold AI Operations / User. The guard reads its own
+        # policy as the executing identity and sudo() is banned, so without it
+        # every autonomous run dies on its own configuration.
+        cls.service_user.write({'group_ids': [
+            Command.link(cls.env.ref('ai_operations.group_ai_user').id)]})
         cls.outsider = cls._make_user(
             'ai.test.outsider', 'Other Company User', company=cls.other_company)
 
@@ -51,7 +56,7 @@ class AIOperationsCommon(TransactionCase):
             # collides with the unique constraint and takes every kernel test
             # down with it.
             'name': 'Kernel Test Agent',
-            'code': 'kernel_test',
+            'code': 'kt_kernel',
             'company_ids': [Command.set([cls.company.id])],
             'max_autonomy_level': '2',
             'default_review_user_id': cls.reviewer.id,

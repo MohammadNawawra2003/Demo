@@ -203,7 +203,9 @@ class TestRoleUIAccess(AIOperationsCommon):
             'model_id': self.env['ir.model']._get('res.partner').id,
             'perm_read': True})
         rows = self.ModelPerm.with_user(self.auditor).web_search_read(
-            [], {'profile_id': {'fields': {'display_name': {}}},
-                 'model_name': {}, 'perm_read': {}}, limit=80)
+            [('profile_id', '=', self.profile.id)],
+            {'profile_id': {'fields': {'display_name': {}}},
+             'model_name': {}, 'perm_read': {}}, limit=80)
         self.assertTrue(rows['length'])
-        self.assertEqual(rows['records'][0]['model_name'], 'res.partner')
+        self.assertIn('res.partner',
+                      [row['model_name'] for row in rows['records']])
