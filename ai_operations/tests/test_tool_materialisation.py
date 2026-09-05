@@ -42,15 +42,30 @@ class TestToolMaterialisation(AIOperationsCommon):
 
     # -- ...and they arrive inert -----------------------------------------
 
+    def _freshly_materialised(self, code='core.describe_scope'):
+        """Re-materialise from scratch.
+
+        These assert what the SYNC produces, not what the database happens to
+        hold: a Technical Administrator enabling a tool is a legitimate act and
+        must not break the suite. An earlier version of these tests read ambient
+        configuration and duly went red on staging the moment a tool was
+        enabled there.
+        """
+        self.Tool.with_context(active_test=False).search(
+            [('code', '=', code)]).unlink()
+        self.Tool._sync_from_registry()
+        return self.Tool.search([('code', '=', code)])
+
     def test_materialised_tools_are_disabled(self):
         """Registration makes a tool configurable. It never makes it available."""
-        tool = self.Tool.search([('code', '=', 'core.describe_scope')])
+        tool = self._freshly_materialised()
+        self.assertTrue(tool, "the sync must recreate the record")
         self.assertFalse(
             tool.enabled,
             "a tool must not become callable merely by existing in the code")
 
     def test_materialised_tools_have_no_assignment(self):
-        tool = self.Tool.search([('code', '=', 'core.describe_scope')])
+        tool = self._freshly_materialised()
         self.assertFalse(
             tool.assignment_ids,
             "no assignment means no access; materialisation grants nothing")
@@ -58,6 +73,7 @@ class TestToolMaterialisation(AIOperationsCommon):
     def test_a_materialised_tool_is_still_refused_until_enabled(self):
         """The whole point: the row exists and the guard still says no."""
         from ..services.exceptions import AIAccessDenied
+        self._freshly_materialised()
         with self.assertRaises(AIAccessDenied):
             self.Tool.record_for('core.describe_scope')
 
