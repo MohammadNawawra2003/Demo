@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!--
+        No groups= on the root, deliberately.
+
+        ir.ui.menu._visible_menu_ids() makes a menu visible only when it has an
+        action whose model the user may read, and then walks that visibility UP
+        to its ancestors. A parent is therefore already hidden when every
+        descendant is hidden, so an explicit group here adds nothing and can
+        only subtract: it hides the whole app from someone who legitimately has
+        a child menu. That is exactly what happened when this carried
+        group_ai_user while its only child required group_ai_auditor.
+    -->
     <menuitem id="menu_ai_operations_root"
               name="AI Operations"
               web_icon="ai_operations,static/description/icon.png"
-              sequence="90"
-              groups="ai_operations.group_ai_user"/>
+              sequence="90"/>
 
     <menuitem id="menu_ai_operations_configuration"
               name="Configuration"

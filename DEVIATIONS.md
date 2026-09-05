@@ -122,6 +122,61 @@ reasoning C §5.5 already applies to `code`, `models_used`, `actions_used` and `
 
 ---
 
+## Session 2 UI regression — the app tile never appeared (fixed in 19.0.1.2.0)
+
+Found by manual UI testing on Odoo.sh staging: `ai_operations` installed cleanly, the Apps page
+showed the icon and all seven menus, and **no AI Operations tile appeared on the home screen**.
+
+### How Odoo decides
+
+`ir.ui.menu._visible_menu_ids()` (`base/models/ir_ui_menu.py`) makes a menu visible only when it has
+an action whose model the user may read, then walks that visibility **upward** to its ancestors.
+Menus whose `group_ids` the user lacks are filtered out before any of that. So a tile appears only
+if the root survives the group filter *and* some descendant action survives the ACL check.
+
+### Root cause, confirmed against the staging database
+
+**Primary: nobody held any AI Operations group.** Querying the stage database for users holding any
+group owned by this module returned **zero rows** — `admin` included. That is Document C §11 working
+exactly as written (`base.group_system` deliberately implies no AI group), but nothing ever granted
+the groups to anyone, so the root menu's `groups="group_ai_user"` matched no user in the database.
+
+**Secondary, latent: the root menu restricted itself.** It carried `groups="group_ai_user"` while
+its only child, Configuration, required `group_ai_auditor`. A user holding only `group_ai_user`
+would therefore pass the root's own filter and still see nothing, because no descendant was visible
+and visibility only propagates upward. Not the cause of the reported symptom — once a user holds
+Security Administrator the implication chain satisfies `group_ai_user` anyway — but a real defect.
+
+### The fix
+
+1. **Bootstrap the administrator.** `base.user_admin` is linked into `group_ai_security_admin` and
+   `group_ai_technical_admin` via `user_ids` on the group records — the pattern every Odoo app uses.
+   This grants two groups to **one named user**, visibly and revocably. It does **not** add an
+   implication from `base.group_system`, which would hand the AI security model to every
+   administrator in every database. `test_group_system_still_implies_no_ai_group` and
+   `test_a_fresh_system_administrator_does_not_inherit_the_app` hold that line.
+2. **Removed `groups=` from the root menu.** It can never add visibility — Odoo already hides a
+   parent whose descendants are all hidden — so it can only subtract, hiding the app from someone
+   who legitimately has a child menu.
+
+**No ACL was widened and no group gained a member beyond the one administrator.** `Configuration`
+still requires `group_ai_auditor`; every Session 1 and 2 separation test still passes.
+
+### Regression cover
+
+`tests/test_menus.py`, ten tests asserting against `_visible_menu_ids()` itself rather than against
+a proxy such as the icon attachment, which was perfectly correct the whole time the tile was
+invisible. Verified by negative control: restoring `groups="ai_operations.group_ai_user"` on the
+root fails `test_root_menu_carries_no_group_of_its_own` and nothing else.
+
+### The lesson worth keeping
+
+A security model that grants nothing by default is correct and unusable at the same time. Every
+future group this kernel adds needs an explicit answer to "who holds this on day one", or the
+feature ships invisible.
+
+---
+
 ## Deferred to their own sessions — not deviations
 
 | Item | Session | Why not now |

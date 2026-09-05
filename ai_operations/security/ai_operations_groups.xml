@@ -47,6 +47,13 @@
         <field name="privilege_id" ref="privilege_ai_operations"/>
         <field name="sequence">30</field>
         <field name="implied_ids" eval="[Command.link(ref('ai_operations.group_ai_auditor'))]"/>
+        <!--
+            Somebody has to be able to open the app on the day it is installed.
+            base.group_system still implies NO AI group (Document C 11). This
+            grants the groups to one named user, visibly and revocably, which is
+            what every Odoo application does. It does not change the model.
+        -->
+        <field name="user_ids" eval="[Command.link(ref('base.user_admin'))]"/>
         <field name="comment">Create agents, model and action permissions, tool
             assignments, handoff types and service user linkage. Deliberately
             cannot enable a tool: tool registration confers business capability.</field>
@@ -57,6 +64,7 @@
         <field name="privilege_id" ref="privilege_ai_operations_technical"/>
         <field name="sequence">10</field>
         <field name="implied_ids" eval="[Command.link(ref('ai_operations.group_ai_auditor'))]"/>
+        <field name="user_ids" eval="[Command.link(ref('base.user_admin'))]"/>
         <field name="comment">Enable tools, select among installed providers,
             review provider configuration. Deliberately cannot widen an agent's
             data scope: no write on any permission record.</field>
