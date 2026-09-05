@@ -6,4 +6,5 @@ from . import tool_assignment
 from . import audit_log
 from . import budget
 from . import handoff
+from . import mail_activity
 from . import res_users

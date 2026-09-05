@@ -98,7 +98,7 @@ class TestAgentProfile(AIOperationsCommon):
 
         from odoo.tools import mute_logger
         with self.assertRaises(IntegrityError), mute_logger('odoo.sql_db'):
-            self._make_profile(code='procurement', name='Duplicate Code')
+            self._make_profile(code='kernel_test', name='Duplicate Code')
             self.env.flush_all()
 
     def test_archived_profile_escapes_the_activation_constraints(self):

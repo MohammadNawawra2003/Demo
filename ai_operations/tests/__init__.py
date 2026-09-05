@@ -13,3 +13,4 @@ from . import test_serializer
 from . import test_runtime
 from . import test_handoff
 from . import test_xml_hygiene
+from . import test_activity
