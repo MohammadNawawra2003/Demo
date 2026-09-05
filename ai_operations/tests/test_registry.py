@@ -45,6 +45,12 @@ class TestToolRegistry(AIOperationsCommon):
         return _tool
 
     def _tool_record(self, code, enabled=True):
+        """Get or create. Registered tools are now materialised at install, so
+        a test that creates one blindly would hit unique(code)."""
+        record = self.env['ai.operations.tool'].search([('code', '=', code)], limit=1)
+        if record:
+            record.enabled = enabled
+            return record
         return self.env['ai.operations.tool'].create({
             'name': code, 'code': code, 'enabled': enabled,
         })
@@ -208,9 +214,9 @@ class TestToolAssignmentSecurity(AIOperationsCommon):
         cls.technical_admin = cls._make_user('ai.t2.techadmin', 'AI Technical Admin')
         cls.technical_admin.write({'group_ids': [
             Command.link(cls.env.ref('ai_operations.group_ai_technical_admin').id)]})
-        cls.tool = cls.env['ai.operations.tool'].create({
-            'name': 'Describe Scope', 'code': 'core.describe_scope',
-        })
+        # Materialised by the install; use the real record rather than a copy.
+        cls.tool = cls.env['ai.operations.tool'].search(
+            [('code', '=', 'core.describe_scope')], limit=1)
 
     def test_technical_admin_can_enable_a_tool(self):
         self.tool.with_user(self.technical_admin).write({'enabled': True})

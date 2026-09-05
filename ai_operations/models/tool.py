@@ -1,9 +1,13 @@
+import logging
+
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 
 from ..services.enums import DenialReason
 from ..services.exceptions import AIAccessDenied
-from ..services.registry import get_tool, has_tool
+from ..services.registry import all_tools, get_tool, has_tool
+
+_logger = logging.getLogger(__name__)
 
 
 class AIOperationsTool(models.Model):
@@ -103,6 +107,69 @@ class AIOperationsTool(models.Model):
                     "Python. A tool record without executable code behind it is a "
                     "configuration surface with nothing under it." % tool.code
                 )
+
+    # ------------------------------------------------------------------
+    # Materialisation: the registry is the source of truth, these records
+    # are its mirror.
+    # ------------------------------------------------------------------
+
+    def _register_hook(self):
+        super()._register_hook()
+        self._sync_from_registry()
+
+    @api.model
+    def _sync_from_registry(self):
+        """Create a configuration record for every registered tool.
+
+        Every field describing what a tool *does* is computed from the decorator
+        and readonly, under Document C 5.5's rule that admins configure tools and
+        never author them. An administrator who first has to hand-create the
+        record is authoring it, and an XML record per tool would duplicate the
+        registry in a second place -- exactly the drift this design rejects when
+        it refuses the native app's editable ai_tool_schema.
+
+        **Records are created DISABLED.** Registration makes a tool
+        configurable, never available: enabling stays a Technical
+        Administrator's deliberate act, and it still needs an assignment before
+        any agent can call it. So this materialises configuration surface, not
+        capability.
+
+        Runs at ``loading.py`` STEP 9, once per registry load, after every module
+        has imported -- so tool packs registering after the kernel are picked up
+        without a migration per session.
+
+        A tool removed from the code keeps its record, flagged ``registered =
+        False`` and unable to be enabled (T-04). Deleting it would silently drop
+        its assignments; leaving it makes the orphan visible.
+        """
+        codes = set(all_tools())
+        if not codes:
+            return
+        existing = set(
+            self.with_context(active_test=False).search([]).mapped('code'))
+        missing = sorted(codes - existing)
+        if not missing:
+            return
+        try:
+            # Two workers can load a registry at once; the unique(code)
+            # constraint decides, and the loser must not poison the cursor.
+            with self.env.cr.savepoint():
+                self.create([
+                    {'code': code, 'name': self._default_tool_name(code),
+                     'enabled': False}
+                    for code in missing
+                ])
+            _logger.info("ai_operations: materialised %d tool(s): %s",
+                         len(missing), ', '.join(missing))
+        except Exception:                     # noqa: BLE001 - see docstring
+            _logger.info(
+                "ai_operations: tool materialisation skipped, another process "
+                "got there first")
+
+    @api.model
+    def _default_tool_name(self, code):
+        """'procurement.prepare_draft_rfq' -> 'Prepare Draft Rfq'."""
+        return code.split('.')[-1].replace('_', ' ').title()
 
     # ------------------------------------------------------------------
     # Guard support. Each check is independent so the security service can

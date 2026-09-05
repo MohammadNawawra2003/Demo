@@ -177,6 +177,58 @@ feature ships invisible.
 
 ---
 
+## Session 2 runtime gap — registered tools were never materialised (fixed in 19.0.1.4.0)
+
+Found by manual UI testing on staging: **Configuration → Tools showed "No tools registered yet"**
+while the registry on the running worker held `core.describe_scope`.
+
+### What it was not
+
+Checked on the staging worker before changing anything, because each of these was a plausible cause:
+
+| Hypothesis | Evidence |
+|---|---|
+| Not registered on the HTTP worker | Registry reported `['core.describe_scope']` |
+| The registry freeze closed too early | `is_frozen()` was **False**; the freeze is never called yet |
+| Record rules hiding it | **Zero** `ir.rule` rows on `ai.operations.tool` |
+| ACL hiding it from the Administrator | Row count as `base.user_admin` was 0, same as superuser |
+| Present in Postgres but invisible | `select count(*) from ai_operations_tool` → **0** |
+
+### What it was
+
+**Nothing ever created the row.** Session 2 assumed policy packs would ship `ai.operations.tool`
+records, the way they ship profiles and permissions. That was wrong, and Document C §5.5 says why:
+every field describing what a tool *does* is computed from the decorator and readonly, under the
+rule *"Admins may configure. They may never author."* An administrator who must hand-create the
+record is authoring it — and an XML record per tool duplicates the registry in a second place,
+which is exactly the drift this design refuses when it rejects the native app's editable
+`ai_tool_schema`. T-04 ("a record with no registry entry cannot be enabled") only makes sense as a
+guard against **stale** records, which presumes records are generated rather than written.
+
+### The fix
+
+`ai.operations.tool._register_hook()` calls `_sync_from_registry()`, which creates a record for every
+registered code it does not already have. `loading.py` STEP 9 calls `_register_hook` **exactly once
+per registry load, after every module has imported**, under `SUPERUSER_ID` — so it covers install,
+upgrade, and tool packs that register after the kernel, with no per-session migration to maintain.
+
+**Records are created disabled, with no assignment.** Registration makes a tool *configurable*, never
+*available*: enabling stays a Technical Administrator's act and a call still needs an assignment.
+`test_a_materialised_tool_is_still_refused_until_enabled` asserts the guard keeps refusing.
+Existing configuration is never touched, so an upgrade cannot reset what an administrator chose.
+
+A tool removed from the code keeps its record, flagged `registered = False` and unable to be
+enabled. Deleting it would silently drop its assignments; leaving it makes the orphan visible.
+
+### Regression cover
+
+`tests/test_tool_materialisation.py`, fifteen tests asserting the **database** state the install
+produced — the registry was correct the entire time the UI was empty, so testing the registry would
+have proved nothing. Includes a sweep over the whole registry, so a future tool pack cannot ship
+half-wired.
+
+---
+
 ## Session 3 — the audit log is append-only (this is the answer to finding B3)
 
 **Proposed deviation, pending George's ruling.** Document D §11 opens the audit row before the guard

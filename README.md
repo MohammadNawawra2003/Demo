@@ -24,7 +24,7 @@ The agent layer can only ever **subtract** from what the person running it could
 | Phase | 1 of 1 specified — Session **3 of 14** complete |
 | Target | Odoo 19.0, Odoo.sh (`mohammadnawawra2003-demo`) |
 | Kernel dependencies | `base`, `mail` — **nothing else, ever** |
-| Suite | **131 tests, 0 failed, 0 errors**, on install and on upgrade |
+| Suite | **145 tests, 0 failed, 0 errors**, on install and on upgrade |
 | Matrix ids covered | T-01…T-08, T-10…T-23, T-25, T-65, T-66, T-71, T-74b, T-74c |
 
 Specification: Documents A–D in `docs/`. Review: `docs/reviews/`.
