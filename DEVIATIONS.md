@@ -3,7 +3,7 @@
 The specification is **freeze-ready, not frozen**. Nothing below is a deviation from a frozen
 document; each is a proposed correction, raised now because Session 1's own definition of done
 depends on it. Every one traces to a finding in
-`ai_operations/reviews/ai_operations_review_2026-09-05.md` (currently in the `MohammadDemo` repo).
+`docs/reviews/ai_operations_review_2026-09-05.md`.
 
 ---
 

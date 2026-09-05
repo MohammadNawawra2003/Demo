@@ -26,7 +26,7 @@ The agent layer can only ever **subtract** from what the person running it could
 | Kernel dependencies | `base`, `mail` — **nothing else, ever** |
 | Session 1 suite | **54 tests, 0 failed, 0 errors**, on a bare Community database |
 
-Specification: Documents A–D, currently in `~/projects/MohammadDemo/ai_operations/`.
+Specification: Documents A–D in `docs/`. Review: `docs/reviews/`.
 They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this build changed and why.
 
 ## Modules
