@@ -9,3 +9,4 @@ from . import test_groups
 from . import test_menus
 from . import test_role_ui_access
 from . import test_guard
+from . import test_serializer

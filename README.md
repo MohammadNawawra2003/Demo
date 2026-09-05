@@ -21,11 +21,11 @@ The agent layer can only ever **subtract** from what the person running it could
 
 | | |
 |---|---|
-| Phase | 1 of 1 specified — Session **3 of 14** complete |
+| Phase | 1 of 1 specified — Session **4 of 14** complete |
 | Target | Odoo 19.0, Odoo.sh (`mohammadnawawra2003-demo`) |
 | Kernel dependencies | `base`, `mail` — **nothing else, ever** |
-| Suite | **165 tests, 0 failed, 0 errors**, on install and on upgrade |
-| Matrix ids covered | T-01…T-08, T-10…T-23, T-25, T-65, T-66, T-71, T-74b, T-74c |
+| Suite | **185 tests, 0 failed, 0 errors**, on install and on upgrade |
+| Matrix ids covered | T-01…T-08, T-10…T-23, T-25, T-41…T-45, T-65, T-66, T-71, T-74b, T-74c |
 
 Specification: Documents A–D in `docs/`. Review: `docs/reviews/`.
 They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this build changed and why.
@@ -40,6 +40,15 @@ They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this buil
 | `ai_operations_bridge` | `ai_operations`, `ai` | Optional. Discoverability only; routes no tool call |
 | `stock_security_warehouse` | `stock` — and nothing else | Separate product, ships alongside |
 | `alshayeb_demo_water` | domain apps — **not** `ai_operations` | Sessions 6–7 |
+
+## What Session 4 delivers
+
+- `services/serializer.py` — the output sanitiser. It works by **omission**: a schema declares what
+  may be emitted and nothing else can be. `bank_ids` is not excluded, it is unreachable. Every
+  relational hop re-checks the model permission on the *target* model, so a dotted path cannot walk
+  out of the agent's scope one dot at a time.
+- `services/blocklist.py` — defence in depth, never the defence. A hit means an output schema is
+  wrong, so it raises, audits as a security event, and fails the build.
 
 ## What Session 3 delivers
 

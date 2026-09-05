@@ -177,6 +177,57 @@ feature ships invisible.
 
 ---
 
+## Session 4 — the serialiser, and a hole in the audit guarantee
+
+Session 4 shipped the output sanitiser (`services/serializer.py`) and the global blocklist
+(`services/blocklist.py`). T-41 to T-45 pass. Two things came out of building it.
+
+### Finding B3-b — a denial CAN escape unlogged, under rollback
+
+Document C §5.9 states that the audit row is opened before the guard so *"a denial can never escape
+unlogged"*, and calls that the property T-80 depends on. Document C §7 step 20 executes the tool
+**inside a savepoint**, and step 24 **rolls back on any failure**.
+
+Those two cannot both hold while the audit row shares that transaction. **Rolling back the failure
+rolls back its own evidence.** Found because a test asserted the audit row after
+`assertRaises` — which Odoo wraps in a rolling-back savepoint — and the row was gone, having been
+demonstrably written first (verified by instrumenting the writer).
+
+This is the same family as B3: the audit log is the one record the product's credibility rests on,
+and the transaction semantics quietly undermine it. Odoo solves it for its own database logger by
+writing on an **independent connection** (`odoo/netsvc.py::PostgreSQLHandler`), so log rows survive
+whatever the main transaction does.
+
+**Not fixed in Session 4, deliberately.** `Registry.cursor()` in Odoo 19 opens a genuinely new
+connection with no test-mode redirection, so a naive durable writer would commit rows outside the
+test transaction and pollute every test database. Doing it properly is a Session 3 architectural
+change and belongs with Session 5's runtime, where the savepoint actually lives. Two tests document
+the current behaviour honestly rather than hiding it, one of which is written to **fail once the gap
+is closed**, so it cannot be forgotten:
+`test_an_audit_row_written_inside_a_rollback_does_not_survive`.
+
+**For George:** this makes three findings against the audit design (B3, B3-b) and it strengthens the
+case for the append-only decision, since durability and immutability are the same conversation.
+
+### CI check 11 fails on the code that implements the rule
+
+`grep -rn "ir.config_parameter" ai_operations*/` matches **the blocklist entry that blocks
+`ir.config_parameter`** — the single line enforcing the rule the check exists to protect. That is
+now the **third** frozen CI check that fails correct code, after check 1 (`sudo()` in comments) and
+check 16 (`_TOKEN` matching the spec's own token counters).
+
+**Proposed:** match usage, not the string.
+
+```bash
+grep -rnE "env\[['\"]ir\.config_parameter|\.get_param\(|\.set_param\(" ai_operations/
+```
+
+Verified PASS against this codebase. The pattern is worth taking seriously as a class: every one of
+these checks was written as a text search for a *word*, and each one fails on the code that
+documents or implements the very rule it guards.
+
+---
+
 ## `ir.model` is administrator-only metadata, and the AI roles are not administrators (19.0.1.5.0)
 
 Manual staging test as a genuine **AI Technical Admin** — Technical Administrator group, no Odoo
