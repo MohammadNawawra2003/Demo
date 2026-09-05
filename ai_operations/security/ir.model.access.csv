@@ -11,3 +11,4 @@ access_ai_tool_assignment_user,ai.operations.tool.assignment user,model_ai_opera
 access_ai_tool_assignment_security_admin,ai.operations.tool.assignment security admin,model_ai_operations_tool_assignment,group_ai_security_admin,1,1,1,1
 access_ai_audit_log_user,ai.operations.audit.log append only,model_ai_operations_audit_log,group_ai_user,1,0,1,0
 access_ai_audit_log_auditor,ai.operations.audit.log auditor,model_ai_operations_audit_log,group_ai_auditor,1,0,0,0
+access_ir_model_ai_security_admin,ir.model read for the AI Security Administrator,base.model_ir_model,group_ai_security_admin,1,0,0,0

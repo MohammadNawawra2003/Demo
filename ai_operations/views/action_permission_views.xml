@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <list string="Action Permissions">
                 <field name="profile_id"/>
-                <field name="model_id"/>
+                <field name="model_name" string="Model"/>
                 <field name="action_code"/>
                 <field name="method_name"/>
                 <field name="allowed"/>

@@ -177,6 +177,68 @@ feature ships invisible.
 
 ---
 
+## `ir.model` is administrator-only metadata, and the AI roles are not administrators (19.0.1.5.0)
+
+Manual staging test as a genuine **AI Technical Admin** — Technical Administrator group, no Odoo
+Settings or Access Rights — reported:
+
+> Failed to write field `ai.operations.tool.models_used`
+> You are not allowed to access 'Models' (`ir.model`) records.
+
+### What was reproducible, and what was not
+
+**On 19.0.1.4.0 the reported error could not be reproduced**: ORM read, `get_views`,
+`web_search_read`, `web_read`, `default_get` and `new()` all passed as a non-system Technical
+Administrator. The guards that make them pass — a `try/except AccessError` in the compute and
+`groups="base.group_erp_manager"` on the form field — both landed in 19.0.1.3.0, so the report almost
+certainly came from 1.1.0–1.2.1, where the form carried a bare `models_used` and the compute had no
+guard. Clicking **New** on the then-empty Tools list raises exactly that message.
+
+Guarded is not fixed. Both guards are the kind that hold until somebody edits the view.
+
+**A second defect was reproducible, and worse:** `ir.model.name_search` raises `AccessError` for a
+Security Administrator, so **the model picker is dead and a Security Administrator cannot configure a
+model permission at all** — the entire job of the role. Nobody had noticed, because every role test
+so far called `search()` and `write()` directly and never opened a screen.
+
+### Root cause
+
+`ir.model` grants `base.group_user` **`0,0,0,0`** in Odoo 19 — no read whatsoever. It is
+administrator-only metadata. The AI administrators are deliberately **not** Odoo administrators
+(Document C §11), so any relation or picker pointing at `ir.model` is unusable by exactly the roles
+meant to use it.
+
+### The fix
+
+1. **`models_used` (Many2many → `ir.model`) is deleted.** The declared names were the whole point,
+   and `models_used_names`, a computed `Char` from the registry, carries them with no privilege at
+   all. The guard never used the relation — it reads `spec.models` from the registry and the stored
+   `model_name` on permission records. Removing the field removes the failure mode instead of
+   defending it. `test_no_view_exposes_an_ir_model_relation_on_the_tool` sweeps every field on the
+   model so it cannot come back.
+2. **The permission *lists* now show the stored `model_name`** rather than the `model_id` relation,
+   so they render for any authorised role without touching metadata. `model_id` stays on the forms,
+   where a Security Administrator genuinely needs the picker.
+3. **One ACL row: `ir.model` read-only for `group_ai_security_admin`.** Not
+   `base.group_erp_manager` (which is `1,1,1,1` on `ir.model` plus all of Settings), not Access
+   Rights administration. You cannot define *which models an agent may touch* without seeing the
+   list of models; this is the minimum that makes the role's own job possible.
+   `test_security_admins_ir_model_grant_is_read_only` asserts write, create and unlink still refuse.
+
+**Nobody else gains metadata.** The Technical Administrator does not get `ir.model` — enabling a tool
+never needed it — nor does the Auditor, nor a plain user. Verified by negative control: deleting that
+single ACL row fails exactly the two tests that need the picker.
+
+### Why the automated tests missed it
+
+Every role test called `search()` and `write()` on the ORM. The browser calls `get_views`,
+`web_search_read`, `web_read` and `default_get`, and it was one of those that raised. Fixed by
+`tests/test_role_ui_access.py`: 20 tests that drive the **web read path** as genuine internal users,
+starting with an assertion that none of those users is an Odoo administrator — because if they were,
+nothing below it would prove anything.
+
+---
+
 ## Session 2 runtime gap — registered tools were never materialised (fixed in 19.0.1.4.0)
 
 Found by manual UI testing on staging: **Configuration → Tools showed "No tools registered yet"**

@@ -7,4 +7,5 @@ from . import test_registry
 from . import test_tool_materialisation
 from . import test_groups
 from . import test_menus
+from . import test_role_ui_access
 from . import test_guard

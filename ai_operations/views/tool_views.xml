@@ -43,7 +43,6 @@
                             <field name="idempotent"/>
                             <field name="actions_used"/>
                             <field name="models_used_names"/>
-                            <field name="models_used" widget="many2many_tags" groups="base.group_erp_manager"/>
                         </group>
                         <group string="Configuration">
                             <field name="enabled"/>

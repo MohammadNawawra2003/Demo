@@ -190,7 +190,7 @@ class TestToolRegistry(AIOperationsCommon):
         self.assertTrue(record.registered)
         self.assertEqual(record.category, ToolCategory.READ.value)
         self.assertEqual(record.autonomy_required, 0)
-        self.assertIn('res.company', record.models_used.mapped('model'))
+        self.assertEqual(record.models_used_names, 'res.company')
         self.assertIn('scope', record.description.lower())
 
     def test_no_registered_tool_takes_a_prohibited_parameter(self):

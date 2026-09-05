@@ -1,7 +1,7 @@
 import logging
 
 from odoo import api, fields, models
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import ValidationError
 
 from ..services.enums import DenialReason
 from ..services.exceptions import AIAccessDenied
@@ -42,12 +42,17 @@ class AIOperationsTool(models.Model):
              "docstring, so it cannot drift from the code it describes.")
     category = fields.Char(compute='_compute_from_registry')
     autonomy_required = fields.Integer(compute='_compute_from_registry')
-    models_used = fields.Many2many(
-        'ir.model', compute='_compute_from_registry',
-        help="Computed from the decorator. The guard checks every one of these.")
+    # No Many2many to ir.model, deliberately. ir.model grants base.group_user
+    # 0,0,0,0 in Odoo 19 -- it is administrator-only metadata -- so a relation
+    # to it makes this record unreadable by the very roles meant to configure
+    # it, and the AI administrators are deliberately NOT Odoo administrators.
+    # The declared names are the whole point of the field, and a Char carries
+    # them with no privilege at all. The guard never used the relation: it
+    # checks spec.models from the registry and the stored model_name on the
+    # permission records.
     models_used_names = fields.Char(
-        compute='_compute_from_registry',
-        help="The declared model names, readable without ir.model access.")
+        string='Models Used', compute='_compute_from_registry',
+        help="The models this tool declares, from the decorator.")
     actions_used = fields.Char(compute='_compute_from_registry')
     idempotent = fields.Boolean(compute='_compute_from_registry')
 
@@ -68,7 +73,6 @@ class AIOperationsTool(models.Model):
 
     @api.depends('code')
     def _compute_from_registry(self):
-        IrModel = self.env['ir.model']
         for tool in self:
             spec = None
             if tool.code and has_tool(tool.code):
@@ -83,19 +87,6 @@ class AIOperationsTool(models.Model):
                 '%s:%s' % (model, action) for model, action in spec.actions
             ) if spec else False
 
-            # ir.model grants base.group_user 0,0,0,0 in Odoo 19 -- no read at
-            # all. An ordinary agent user may read this record, so resolving the
-            # names to ir.model must degrade rather than raise. The declared
-            # names remain visible in models_used_names either way; the guard
-            # never reads this field.
-            if spec:
-                try:
-                    tool.models_used = IrModel.search(
-                        [('model', 'in', list(spec.models))])
-                except AccessError:
-                    tool.models_used = IrModel.browse()
-            else:
-                tool.models_used = IrModel.browse()
             tool.models_used_names = ', '.join(spec.models) if spec else False
 
     @api.constrains('enabled', 'code')

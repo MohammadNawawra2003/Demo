@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <list string="Model Permissions">
                 <field name="profile_id"/>
-                <field name="model_id"/>
+                <field name="model_name" string="Model"/>
                 <field name="perm_read"/>
                 <field name="perm_create"/>
                 <field name="perm_write"/>
