@@ -11,11 +11,20 @@
         only subtract: it hides the whole app from someone who legitimately has
         a child menu. That is exactly what happened when this carried
         group_ai_user while its only child required group_ai_auditor.
+
+        The leading minus is load bearing, not decoration. convert.py only
+        writes group_ids when the groups attribute is non-empty
+        (odoo/tools/convert.py, "if groups:"), so simply DELETING the attribute
+        leaves the old value untouched on every existing database. It clears on
+        a fresh install and silently persists on an upgrade. The "-xmlid" form
+        emits Command.unlink, which removes exactly this group and leaves any
+        other alone.
     -->
     <menuitem id="menu_ai_operations_root"
               name="AI Operations"
               web_icon="ai_operations,static/description/icon.png"
-              sequence="90"/>
+              sequence="90"
+              groups="-ai_operations.group_ai_user"/>
 
     <menuitem id="menu_ai_operations_configuration"
               name="Configuration"
