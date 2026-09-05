@@ -192,7 +192,115 @@ class AlshayebDemoHistory(models.AbstractModel):
         seeded['S-01'] = self._seed_bottle_shortage(company, products, anchor)
         seeded['S-03'] = self._seed_overdue_po(company, products, anchor)
         seeded['S-09'] = self._seed_bromate_exceedance(company, products, anchor)
+        seeded['S-10'] = self._seed_recall_chain(company, products, anchor)
         return seeded
+
+    def _seed_recall_chain(self, company, products, anchor):
+        """S-10 and S-11: the batch fed four finished lots, three of which
+        shipped to customers across branches.
+
+        Built as **real stock move lines**, not as a shortcut. Document A §5.3
+        is explicit that Odoo's genealogy follows lot links on
+        ``stock.move.line``: if the chain is faked, ``trace_forward`` walks
+        nothing and the headline demo is a slide rather than a demonstration.
+        """
+        Move = self.env['stock.move']
+        MoveLine = self.env['stock.move.line']
+        Lot = self.env['stock.lot']
+
+        treated = products['PR-WATER-TRT']
+        water_lot = Lot.search([('name', '=', bp.S09_LOT),
+                                ('product_id', '=', treated.id)], limit=1)
+        if not water_lot:
+            return False
+
+        warehouse = self.env['stock.warehouse'].search(
+            [('code', '=', 'FG'), ('company_id', '=', company.id)], limit=1)
+        if not warehouse:
+            return False
+        stock_location = warehouse.lot_stock_id
+        production_location = self.env['stock.location'].search(
+            [('usage', '=', 'production'), ('company_id', 'in', (False, company.id))],
+            limit=1)
+        customer_location = self.env.ref('stock.stock_location_customers')
+        if not production_location:
+            return False
+
+        # Four finished lots across two lines, per §13 S-10.
+        affected = [('L1', 'FG-330'), ('L1', 'FG-600'),
+                    ('L3', 'FG-1500'), ('L3', 'FG-5000')]
+        customers = self.env['res.partner'].search([('customer_rank', '>', 0)], limit=3)
+        created = []
+
+        for index, (line_code, product_code) in enumerate(affected):
+            product = products[product_code]
+            lot_name = 'NQ-%s-RECALL-%03d' % (line_code, index + 1)
+            fg_lot = Lot.search([('name', '=', lot_name),
+                                 ('product_id', '=', product.id)], limit=1)
+            if fg_lot:
+                created.append(fg_lot.id)
+                continue
+            fg_lot = Lot.create({'name': lot_name, 'product_id': product.id,
+                                 'company_id': company.id})
+
+            # Consumption: treated water into production. This is the link.
+            consume = Move.create({
+                'product_id': treated.id,
+                'product_uom_qty': 15840.0,
+                'location_id': stock_location.id,
+                'location_dest_id': production_location.id,
+                'company_id': company.id,
+            })
+            MoveLine.create({
+                'move_id': consume.id,
+                'product_id': treated.id,
+                'lot_id': water_lot.id,
+                'quantity': 15840.0,
+                'location_id': stock_location.id,
+                'location_dest_id': production_location.id,
+                'company_id': company.id,
+            })
+
+            # Production: the finished lot out of the same production location.
+            produce = Move.create({
+                'product_id': product.id,
+                'product_uom_qty': 1000.0,
+                'location_id': production_location.id,
+                'location_dest_id': stock_location.id,
+                'company_id': company.id,
+            })
+            MoveLine.create({
+                'move_id': produce.id,
+                'product_id': product.id,
+                'lot_id': fg_lot.id,
+                'quantity': 1000.0,
+                'location_id': production_location.id,
+                'location_dest_id': stock_location.id,
+                'company_id': company.id,
+            })
+
+            # Three of the four already shipped, to customers across branches.
+            if index < 3 and customers:
+                customer = customers[index % len(customers)]
+                deliver = Move.create({
+                    'product_id': product.id,
+                    'product_uom_qty': 400.0,
+                    'location_id': stock_location.id,
+                    'location_dest_id': customer_location.id,
+                    'partner_id': customer.id,
+                    'company_id': company.id,
+                })
+                MoveLine.create({
+                    'move_id': deliver.id,
+                    'product_id': product.id,
+                    'lot_id': fg_lot.id,
+                    'quantity': 400.0,
+                    'location_id': stock_location.id,
+                    'location_dest_id': customer_location.id,
+                    'company_id': company.id,
+                })
+            created.append(fg_lot.id)
+        return created
 
     def _seed_bottle_shortage(self, company, products, anchor):
         """S-01: 330 ml empty bottles fall below safety stock against confirmed

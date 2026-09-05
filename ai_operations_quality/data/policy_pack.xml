@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="profile_quality" model="ai.operations.agent.profile">
+        <field name="name">Quality Intelligence</field>
+        <field name="code">quality</field>
+        <field name="active" eval="False"/>
+        <field name="max_autonomy_level">2</field>
+        <field name="policy_version">1.0.0</field>
+        <field name="description">Out-of-spec detection, lot trace in both
+            directions, recall impact assessment. You can say who received
+            affected product. You cannot say what it was worth, and that refusal
+            is the point.</field>
+    </record>
+
+    <record id="perm_stock_lot" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="stock.model_stock_lot"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_move_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="stock.model_stock_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_move_line_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="stock.model_stock_move_line"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_quant_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_location_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="stock.model_stock_location"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_product_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="product.model_product_product"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_mrp_production_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="mrp.model_mrp_production"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_res_partner_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+</odoo>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="profile_inventory" model="ai.operations.agent.profile">
+        <field name="name">Inventory Intelligence</field>
+        <field name="code">inventory</field>
+        <field name="active" eval="False"/>
+        <field name="max_autonomy_level">2</field>
+        <field name="policy_version">1.0.0</field>
+        <field name="description">Stock position, movement exceptions, expiry and
+            shortage detection across plant and branches. The only Phase 1 agent
+            spanning both companies: quantities cross the boundary, values do
+            not.</field>
+    </record>
+
+    <record id="perm_stock_quant_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_picking_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_move_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_lot_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_lot"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_orderpoint_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_warehouse_orderpoint"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_product_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="product.model_product_product"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_location_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_location"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+</odoo>
