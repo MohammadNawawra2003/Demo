@@ -115,50 +115,25 @@ class TestSerializer(AIOperationsCommon):
         with self.assertRaises(AIBlocklistViolation):
             self.serializer.assert_clean(self._ctx(), {'api_key': 'sk-live-xxx'})
 
-    def test_t43_blocklist_hit_is_audited_as_a_security_event(self):
-        """The audit row is written BEFORE the exception propagates.
-
-        Deliberately not ``assertRaises``: Odoo wraps that in a savepoint which
-        rolls back when the exception fires, taking the audit row with it. That
-        is not a test artefact -- it is a real property of the design, recorded
-        in DEVIATIONS.md as finding B3-b, because Document C §7 step 24 rolls
-        back on failure too. Catching the exception directly is what a caller
-        that does not roll back sees.
-        """
-        Log = self.env['ai.operations.audit.log']
-        raised = False
-        try:
+    def test_t43_a_blocklisted_key_stops_serialisation(self):
+        """Auditing it is the runtime's job, outside the savepoint (B3-b)."""
+        with self.assertRaises(AIBlocklistViolation):
             self.serializer.serialize(self._ctx(), {'id': 1, 'api_key': 'x'}, LeakyOutput)
-        except AIBlocklistViolation:
-            raised = True
-        self.assertTrue(raised, "a blocklisted key must stop serialisation")
 
-        self.env.flush_all()
-        row = Log.search([('correlation_id', '=', 'corr-ser'),
-                          ('denial_reason', '=', DenialReason.BLOCKLIST_HIT.value)])
-        self.assertTrue(row, "a blocklist hit must reach the audit log")
-        self.assertEqual(row.retention_class, 'SECURITY')
+    def test_the_serialiser_does_not_audit_from_inside_the_savepoint(self):
+        """Finding B3-b, closed by ordering rather than infrastructure.
 
-    def test_an_audit_row_written_inside_a_rollback_does_not_survive(self):
-        """Finding B3-b, asserted rather than assumed.
-
-        Document C §5.9 says a denial can never escape unlogged, and Document
-        C §7 executes the tool inside a savepoint that step 24 rolls back on
-        failure. Those two cannot both hold while the audit row shares the
-        transaction: rolling back the failure rolls back its own evidence.
-
-        Odoo's own database logger solves this with an independent connection
-        (``netsvc.PostgreSQLHandler``). The kernel does not yet, and this test
-        documents the gap honestly instead of hiding it.
+        Serialisation runs inside the savepoint a failure rolls back, so a row
+        written here would be rolled back with the failure it records. The
+        runtime audits after the rollback instead --
+        ``test_a_failure_inside_the_savepoint_is_still_audited`` proves the row
+        survives.
         """
         Log = self.env['ai.operations.audit.log']
         with self.assertRaises(AIBlocklistViolation):
             self.serializer.assert_clean(self._ctx(), {'password': 'hunter2'})
         self.env.flush_all()
-        self.assertFalse(
-            Log.search([('correlation_id', '=', 'corr-ser')]),
-            "if this ever passes, audit durability has been fixed -- delete "
-            "this test and finding B3-b with it")
+        self.assertFalse(Log.search([('correlation_id', '=', 'corr-ser')]))
 
     def test_t43_nested_and_listed_keys_are_scanned_too(self):
         with self.assertRaises(AIBlocklistViolation):

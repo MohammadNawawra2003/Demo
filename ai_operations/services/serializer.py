@@ -16,7 +16,6 @@ import logging
 from odoo import api, models
 
 from . import blocklist
-from .enums import Decision, DenialReason
 from .exceptions import AIBlocklistViolation
 
 _logger = logging.getLogger(__name__)
@@ -94,11 +93,10 @@ class AISerializer(models.AbstractModel):
             return payload
 
         detail = 'blocklisted key(s) reached serialisation: %s' % ', '.join(hits)
-        if ctx is not None and getattr(ctx, 'correlation_id', None):
-            self.env['ai.operations.audit'].record_decision(
-                ctx.correlation_id, Decision.DENIED, profile=ctx.profile,
-                reason=DenialReason.BLOCKLIST_HIT, detail=detail,
-                tool_code=ctx.tool_code)
+        # Deliberately does NOT audit here. Serialisation happens inside the
+        # savepoint that a failure rolls back, so a row written now would be
+        # rolled back with the failure it records. The runtime audits this
+        # outside the savepoint instead -- review finding B3-b.
         raise AIBlocklistViolation(
             "%s. An output schema is wrong: this is a defect, not something to "
             "filter out." % detail)

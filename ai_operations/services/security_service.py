@@ -159,11 +159,12 @@ class AISecurityService(models.AbstractModel):
         """Step 5. Fails closed: over budget, the run stops."""
         if not profile.max_daily_tokens:
             return
-        today = fields_date_today(self)
-        if profile.tokens_date == today and profile.tokens_today >= profile.max_daily_tokens:
+        used = self.env['ai.operations.budget'].tokens_used_today(profile)
+        if used >= profile.max_daily_tokens:
             raise AIAccessDenied(
                 DenialReason.BUDGET_EXCEEDED,
-                detail='daily token ceiling reached')
+                detail='daily token ceiling reached (%s of %s)'
+                       % (used, profile.max_daily_tokens))
 
     def check_autonomy(self, profile, spec, action_floor=0):
         """Step 6. A ceiling against floors, never a min()."""
@@ -423,8 +424,3 @@ class AISecurityService(models.AbstractModel):
         for part in field_path.split('.'):
             value = value[part]
         return value
-
-
-def fields_date_today(service):
-    from odoo import fields
-    return fields.Date.context_today(service)

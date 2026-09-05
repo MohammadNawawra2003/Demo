@@ -52,10 +52,13 @@
                             <field name="max_write_ops"/>
                             <field name="timeout_seconds"/>
                         </group>
+                        <group string="Provider">
+                            <field name="provider_code"/>
+                            <field name="model_code"/>
+                        </group>
                         <group string="Spend Ceiling">
                             <field name="max_daily_tokens"/>
                             <field name="tokens_today"/>
-                            <field name="tokens_date"/>
                         </group>
                         <group string="Governance">
                             <field name="audit_level"/>
@@ -91,6 +94,15 @@
                                     <field name="variance_bound_pct"/>
                                     <field name="variance_ceiling_pct"/>
                                     <field name="risk_level"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Tools" name="tools">
+                            <field name="tool_assignment_ids">
+                                <list editable="bottom">
+                                    <field name="tool_id"/>
+                                    <field name="enabled"/>
+                                    <field name="max_calls_per_run"/>
                                 </list>
                             </field>
                         </page>

@@ -67,8 +67,24 @@ class AIOperationsAgentProfile(models.Model):
         default=2000000,
         help="0 means unlimited and requires an explicit decision-log entry.",
     )
-    tokens_today = fields.Integer(readonly=True)
-    tokens_date = fields.Date(readonly=True)
+    # Counted on ai.operations.budget, not here: the runtime increments it as
+    # the executing identity, and that identity must never hold write on the
+    # record carrying max_autonomy_level. See models/budget.py.
+    tokens_today = fields.Integer(
+        compute='_compute_tokens_today', string="Tokens Used Today")
+
+    provider_code = fields.Selection(
+        selection='_selection_provider_code',
+        help="Resolved through the frozen provider registry. Phase 1 offers "
+             "only what is installed.")
+    model_code = fields.Selection(
+        selection='_selection_model_code',
+        help="From the selected adapter's declared list. Never free text: a "
+             "typo must be a configuration error at save time, not a runtime "
+             "failure at 07:00.")
+
+    tool_assignment_ids = fields.One2many(
+        'ai.operations.tool.assignment', 'profile_id', string='Tool Assignments')
 
     default_review_user_id = fields.Many2one(
         'res.users', string='Routine Reviewer', ondelete='restrict',
@@ -92,6 +108,21 @@ class AIOperationsAgentProfile(models.Model):
              "Unrelated to action approval, which does not exist.",
     )
 
+    @api.model
+    def _selection_provider_code(self):
+        from ..services.provider import provider_selection
+        return provider_selection()
+
+    @api.model
+    def _selection_model_code(self):
+        from ..services.provider import model_selection
+        return model_selection()
+
+    def _compute_tokens_today(self):
+        Budget = self.env['ai.operations.budget']
+        for profile in self:
+            profile.tokens_today = Budget.tokens_used_today(profile) if profile.id else 0
+
     _code_uniq = models.Constraint(
         'unique(code)',
         'An agent profile with this code already exists.',
@@ -100,6 +131,23 @@ class AIOperationsAgentProfile(models.Model):
     # ------------------------------------------------------------------
     # Constraints -- every one fails closed.
     # ------------------------------------------------------------------
+
+    @api.constrains('provider_code', 'model_code')
+    def _check_provider(self):
+        from ..services.provider import get_provider, has_provider
+        for profile in self:
+            if not profile.provider_code:
+                continue
+            if not has_provider(profile.provider_code):
+                raise ValidationError(
+                    "No provider adapter named %r is installed. Installing one "
+                    "is a deployment act, not a configuration change."
+                    % profile.provider_code)
+            declared = {code for code, _label in get_provider(profile.provider_code).models}
+            if profile.model_code and profile.model_code not in declared:
+                raise ValidationError(
+                    "%r is not a model declared by the %r adapter."
+                    % (profile.model_code, profile.provider_code))
 
     @api.constrains('max_autonomy_level')
     def _check_phase1_autonomy_ceiling(self):
