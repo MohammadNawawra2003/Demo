@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!--
+        noupdate="1" so client tuning survives an upgrade. Document C §15.
+
+        The profile ships INACTIVE. C §5.1 requires an active profile to carry a
+        company scope and both routing users, and those are deployment facts,
+        not product facts: a policy pack cannot know which company or which
+        reviewer a client will use. Activation is a deliberate step once the
+        company exists.
+
+        Note what is NOT here, and why. Document D §13's sample carries
+        state_restriction "draft" and a domain of
+        [('company_id','in',allowed_company_ids)]. Both are rejected by the
+        kernel's own validator (C §5.2): a bare state value cannot work because
+        these models do not agree on a field name, and allowed_company_ids is a
+        non-literal that ast.literal_eval refuses. Review finding B2. Company
+        scoping is left to allowed_company_ids on the execution env, which the
+        guard already intersects at steps 8 and 14, so a domain repeating it
+        would be a second source of truth for the same restriction.
+    -->
+
+    <record id="profile_procurement" model="ai.operations.agent.profile">
+        <field name="name">Procurement Intelligence</field>
+        <field name="code">procurement</field>
+        <field name="active" eval="False"/>
+        <field name="max_autonomy_level">2</field>
+        <field name="policy_version">1.0.0</field>
+        <field name="max_tool_calls">12</field>
+        <field name="max_write_ops">3</field>
+        <field name="description">Keeps the plant supplied with packaging and
+            process materials at defensible cost and timing. Odoo computes the
+            shortage; you decide which shortage matters, compare the vendors, and
+            put a draft in front of a human.</field>
+    </record>
+
+    <!-- Read scope. Document B §4.1. -->
+    <record id="perm_purchase_order" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="purchase.model_purchase_order"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="state_restriction">state=draft</field>
+    </record>
+
+    <record id="perm_purchase_order_line" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="purchase.model_purchase_order_line"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_write" eval="True"/>
+    </record>
+
+    <record id="perm_product_product" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="product.model_product_product"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_supplierinfo" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="product.model_product_supplierinfo"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_res_partner" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="perm_read" eval="True"/>
+        <field name="domain">[('supplier_rank', '&gt;', 0)]</field>
+    </record>
+
+    <record id="perm_stock_quant" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_stock_move" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="stock.model_stock_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_orderpoint" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="stock.model_stock_warehouse_orderpoint"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_mail_message" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="mail.model_mail_message"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
+    <!--
+        Action permissions. Confirming, cancelling and invoicing are absent, and
+        absence is the mechanism: the guard denies anything not listed.
+    -->
+    <record id="action_create_draft_po" model="ai.operations.action.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="purchase.model_purchase_order"/>
+        <field name="action_code">CREATE_DRAFT</field>
+        <field name="allowed" eval="True"/>
+        <field name="autonomy_required">2</field>
+        <field name="variance_bound_pct">20.0</field>
+        <field name="variance_ceiling_pct">100.0</field>
+        <field name="risk_level">MEDIUM</field>
+    </record>
+
+    <record id="action_create_message" model="ai.operations.action.permission">
+        <field name="profile_id" ref="profile_procurement"/>
+        <field name="model_id" ref="mail.model_mail_message"/>
+        <field name="action_code">CREATE_DRAFT</field>
+        <field name="allowed" eval="True"/>
+        <field name="autonomy_required">2</field>
+        <field name="risk_level">LOW</field>
+    </record>
+
+</odoo>

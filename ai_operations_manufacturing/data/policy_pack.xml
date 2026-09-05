@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!--
+        Manufacturing may assess and report. It may not change a single
+        production state: action_confirm, button_mark_done, action_cancel, any
+        BoM write and stock.scrap CREATE are all absent, and absence is the
+        mechanism. Document B §4.3.
+
+        No cost field is readable, and none is declared by any output schema.
+    -->
+
+    <record id="profile_manufacturing" model="ai.operations.agent.profile">
+        <field name="name">Manufacturing Intelligence</field>
+        <field name="code">manufacturing</field>
+        <field name="active" eval="False"/>
+        <field name="max_autonomy_level">2</field>
+        <field name="policy_version">1.0.0</field>
+        <field name="description">Production readiness, capacity exceptions,
+            scrap analysis and shortage origination. Odoo computes the component
+            gap; you say which gap matters and hand it on.</field>
+    </record>
+
+    <record id="perm_mrp_production" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="mrp.model_mrp_production"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_mrp_bom" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="mrp.model_mrp_bom"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_mrp_bom_line" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="mrp.model_mrp_bom_line"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_mrp_workcenter" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="mrp.model_mrp_workcenter"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_stock_move_mfg" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="stock.model_stock_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_stock_quant_mfg" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_stock_scrap_mfg" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="stock.model_stock_scrap"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_product_mfg" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="product.model_product_product"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_mail_message_mfg" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="mail.model_mail_message"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
+    <record id="action_post_note" model="ai.operations.action.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="mail.model_mail_message"/>
+        <field name="action_code">CREATE_DRAFT</field>
+        <field name="allowed" eval="True"/>
+        <field name="autonomy_required">2</field>
+        <field name="risk_level">LOW</field>
+    </record>
+
+</odoo>
