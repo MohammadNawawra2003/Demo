@@ -46,8 +46,12 @@ class AIOperationsCommon(TransactionCase):
     @classmethod
     def _make_profile(cls, **overrides):
         values = {
-            'name': 'Procurement Intelligence',
-            'code': 'procurement',
+            # Deliberately not 'procurement'. Once the real tool packs ship
+            # their policy profiles, a fixture squatting on a production code
+            # collides with the unique constraint and takes every kernel test
+            # down with it.
+            'name': 'Kernel Test Agent',
+            'code': 'kernel_test',
             'company_ids': [Command.set([cls.company.id])],
             'max_autonomy_level': '2',
             'default_review_user_id': cls.reviewer.id,

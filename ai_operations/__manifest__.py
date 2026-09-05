@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations',
-    'version': '19.0.1.7.0',
+    'version': '19.0.1.8.0',
     'category': 'Productivity/AI',
     'summary': 'Secure execution platform for departmental AI agents',
     'author': 'AlShayeb Partners',
@@ -15,6 +15,7 @@
         'security/ai_operations_groups.xml',
         'security/ir.model.access.csv',
         'security/ir_rule.xml',
+        'data/ir_sequence.xml',
         'views/agent_profile_views.xml',
         'views/model_permission_views.xml',
         'views/action_permission_views.xml',
@@ -22,6 +23,7 @@
         'views/menus.xml',
         # after menus.xml: it hangs the Audit Log entry off the root menu
         'views/audit_log_views.xml',
+        'views/handoff_views.xml',
     ],
     'installable': True,
     'application': True,

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="seq_ai_operations_handoff" model="ir.sequence">
+        <field name="name">AI Operations Handoff</field>
+        <field name="code">ai.operations.handoff</field>
+        <field name="prefix">AIH/%(year)s/</field>
+        <field name="padding">5</field>
+        <field name="company_id" eval="False"/>
+    </record>
+</odoo>

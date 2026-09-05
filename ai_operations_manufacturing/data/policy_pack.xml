@@ -83,4 +83,20 @@
         <field name="risk_level">LOW</field>
     </record>
 
+
+    <!--
+        The nine declared fields of MATERIAL_SHORTAGE. Anything outside this set
+        is rejected at write time, not filtered: filtering would silently
+        normalise an attempted leak into a success. Note what is absent — no
+        cost, no price, no conversation history, no record dump.
+    -->
+    <record id="handoff_type_material_shortage" model="ai.operations.handoff.type">
+        <field name="code">MATERIAL_SHORTAGE</field>
+        <field name="name">Material Shortage</field>
+        <field name="from_profile_ids" eval="[Command.link(ref('profile_manufacturing'))]"/>
+        <field name="to_profile_id" ref="ai_operations_procurement.profile_procurement"/>
+        <field name="priority_default">2</field>
+        <field name="payload_schema">{"product_id": "int", "qty_required": "float", "qty_available": "float", "qty_shortage": "float", "uom_id": "int", "required_date": "date", "origin_ref": "str", "warehouse_id": "int", "priority": "str"}</field>
+    </record>
+
 </odoo>
