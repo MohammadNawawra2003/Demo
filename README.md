@@ -21,11 +21,11 @@ The agent layer can only ever **subtract** from what the person running it could
 
 | | |
 |---|---|
-| Phase | 1 of 1 specified — Session **2 of 14** complete |
+| Phase | 1 of 1 specified — Session **3 of 14** complete |
 | Target | Odoo 19.0, Odoo.sh (`mohammadnawawra2003-demo`) |
 | Kernel dependencies | `base`, `mail` — **nothing else, ever** |
-| Suite | **104 tests, 0 failed, 0 errors**, on a bare Community database |
-| Matrix ids covered | T-01…T-08, T-17, T-19, T-65, T-66, T-74b, T-74c |
+| Suite | **131 tests, 0 failed, 0 errors**, on install and on upgrade |
+| Matrix ids covered | T-01…T-08, T-10…T-23, T-25, T-65, T-66, T-71, T-74b, T-74c |
 
 Specification: Documents A–D in `docs/`. Review: `docs/reviews/`.
 They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this build changed and why.
@@ -40,6 +40,16 @@ They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this buil
 | `ai_operations_bridge` | `ai_operations`, `ai` | Optional. Discoverability only; routes no tool call |
 | `stock_security_warehouse` | `stock` — and nothing else | Separate product, ships alongside |
 | `alshayeb_demo_water` | domain apps — **not** `ai_operations` | Sessions 6–7 |
+
+## What Session 3 delivers
+
+- `services/security_service.py` — the guard, Document C §7. Every `check_*` returns `None` or
+  raises; none returns a boolean, because a boolean invites `if not check(): pass`.
+- `services/context.py` — `ExecutionContext`, frozen. `ctx.model()` exists so the permitted path is
+  shorter to type than the unpermitted one.
+- `ai.operations.audit.log` — **append-only**: one row per event, `write()` and `unlink()` refuse.
+  The row opens *before* the guard runs, so a denial can never escape unlogged.
+- Record rules: a user reads only their own audit entries; the Auditor reads everything.
 
 ## What Session 2 delivers
 

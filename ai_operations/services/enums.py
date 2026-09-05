@@ -48,6 +48,22 @@ class AuditLevel(str, Enum):
     # NONE removed: it could only mean "disable the security log".
 
 
+class AuditEvent(str, Enum):
+    """One row per event -- the audit log is append-only.
+
+    A tool call is reconstructed by grouping on ``correlation_id`` and ordering
+    by ``sequence``. See DEVIATIONS.md finding B3: the executing identity must be
+    able to create audit rows without ``sudo()``, and anything it can update it
+    can also rewrite.
+    """
+    OPEN     = 'OPEN'       # opened before the guard runs, so no denial escapes
+    DECISION = 'DECISION'   # ALLOWED or DENIED, with the reason
+    RESULT   = 'RESULT'     # output summary, duration, tokens
+    WRITE    = 'WRITE'      # values before and after
+    VARIANCE = 'VARIANCE'   # a bound was evaluated
+    ERROR    = 'ERROR'
+
+
 class RetentionClass(str, Enum):
     OPERATIONAL = 'OPERATIONAL'   # archived after 24 months
     SECURITY    = 'SECURITY'      # indefinite: denials, writes, escalations, policy changes

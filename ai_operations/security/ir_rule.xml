@@ -21,6 +21,27 @@
         <field name="global" eval="True"/>
     </record>
 
+    <!--
+        The audit log. A plain agent user may read only their own entries; the
+        Auditor reads everything. Group rules are OR'ed, so the Auditor's rule
+        widens rather than fights the User's. Nobody may write or unlink: the
+        ACL grants create only, and the model refuses write() and unlink()
+        outright.
+    -->
+    <record id="rule_audit_log_own_entries" model="ir.rule">
+        <field name="name">AI audit log: own entries</field>
+        <field name="model_id" ref="model_ai_operations_audit_log"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="groups" eval="[Command.link(ref('ai_operations.group_ai_user'))]"/>
+    </record>
+
+    <record id="rule_audit_log_auditor_reads_all" model="ir.rule">
+        <field name="name">AI audit log: the auditor reads everything</field>
+        <field name="model_id" ref="model_ai_operations_audit_log"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[Command.link(ref('ai_operations.group_ai_auditor'))]"/>
+    </record>
+
     <record id="rule_action_permission_company" model="ir.rule">
         <field name="name">AI action permission: follows its profile</field>
         <field name="model_id" ref="model_ai_operations_action_permission"/>

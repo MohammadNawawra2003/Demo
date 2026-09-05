@@ -177,6 +177,61 @@ feature ships invisible.
 
 ---
 
+## Session 3 — the audit log is append-only (this is the answer to finding B3)
+
+**Proposed deviation, pending George's ruling.** Document D §11 opens the audit row before the guard
+and then updates it five times. The executing identity is an ordinary employee in CHAT mode and
+`sudo()` is banned, so "update" means **granting every user of the platform write access to the log
+recording their own denials**. That is the one record the product's credibility rests on.
+
+Shipped instead: **one row per event**, keyed by `correlation_id` and ordered by `sequence`, with an
+`event_type` of OPEN / DECISION / RESULT / WRITE / VARIANCE / ERROR. `open_entry` still runs *before*
+the guard, so no denial escapes unlogged — the property T-80 depends on. ACL is `create` only, and
+`write()` / `unlink()` raise outright, so the rule holds even if an ACL is later loosened by mistake.
+
+If George prefers the `sudo()` carve-out, reverting is small: collapse the six event types back to
+one row and swap the appends for writes. The tests are written against `call_events(correlation_id)`
+rather than against a single row id, so they survive either choice.
+
+### What building it proved
+
+**`ir.model` grants `base.group_user` `0,0,0,0` in Odoo 19** — no read at all
+(`base/security/ir.model.access.csv`). Every guard query originally filtered on `model_id.model`,
+which traverses into `ir.model`, so the guard raised `AccessError` for any ordinary user. It only
+appeared to work in early tests because that user happened to hold `group_erp_manager`.
+
+Two fixes, both of which make the guard more honest:
+1. All guard queries now filter on the stored `model_name` field, so the guard needs no privilege
+   beyond reading its own policy tables.
+2. `_permission_for` converts a leaked `AccessError` into a neutral `AIAccessDenied`. This is not
+   cosmetic: the runner hands a tool's exception text back to the model, so an escaping `AccessError`
+   would publish part of the permission model into the LLM's context. Covered by
+   `test_a_user_without_the_ai_group_gets_a_neutral_denial`.
+
+### Where the guard's steps live
+
+`authorize()` runs steps 1-9, 11-12 and 19 — everything knowable before a tool has resolved a
+record. Steps 10, 13 and 14 are record-level and run through `check_records()`, which a tool reaches
+via `ctx.check_records()` once it has ids, because only the tool knows them. Steps 15-18 are reached
+through `check_action()` and `ctx.check_variance()`. Each check is independently testable against
+its own matrix id, which Document D §9 requires.
+
+### A contradiction in the specification, for George
+
+**Document C §16.2 and §16.3 name `purchase.order`, `account.move`, `hr.employee` and a
+warehouse-scoped user, and place those tests in Session 3 — which builds a kernel that must install
+and pass on a bare database (CI check 3).** Those models do not exist there. The two requirements
+cannot both be met as written.
+
+Resolved by asserting the *semantics* against base models of the same shape — `res.partner` as a
+permitted model, `res.currency` as an unpermitted one, and `res.company` for the intersection,
+because core grants `base.group_user` read-only on it and `group_erp_manager` full access, which is
+exactly the `noura.p` / `fahad.p` shape. **T-24 (warehouse scoping) is deferred to the Inventory tool
+pack**, since it needs `stock` and `stock_security_warehouse`. The named-model assertions belong in
+Sessions 8-11 and the matrix should say so.
+
+---
+
 ## Deferred to their own sessions — not deviations
 
 | Item | Session | Why not now |

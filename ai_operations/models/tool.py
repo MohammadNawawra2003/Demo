@@ -1,5 +1,5 @@
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 
 from ..services.enums import DenialReason
 from ..services.exceptions import AIAccessDenied
@@ -41,6 +41,9 @@ class AIOperationsTool(models.Model):
     models_used = fields.Many2many(
         'ir.model', compute='_compute_from_registry',
         help="Computed from the decorator. The guard checks every one of these.")
+    models_used_names = fields.Char(
+        compute='_compute_from_registry',
+        help="The declared model names, readable without ir.model access.")
     actions_used = fields.Char(compute='_compute_from_registry')
     idempotent = fields.Boolean(compute='_compute_from_registry')
 
@@ -76,12 +79,20 @@ class AIOperationsTool(models.Model):
                 '%s:%s' % (model, action) for model, action in spec.actions
             ) if spec else False
 
+            # ir.model grants base.group_user 0,0,0,0 in Odoo 19 -- no read at
+            # all. An ordinary agent user may read this record, so resolving the
+            # names to ir.model must degrade rather than raise. The declared
+            # names remain visible in models_used_names either way; the guard
+            # never reads this field.
             if spec:
-                # A tool pack may declare a model whose module is not installed
-                # here; show what resolves rather than failing the form.
-                tool.models_used = IrModel.search([('model', 'in', list(spec.models))])
+                try:
+                    tool.models_used = IrModel.search(
+                        [('model', 'in', list(spec.models))])
+                except AccessError:
+                    tool.models_used = IrModel.browse()
             else:
                 tool.models_used = IrModel.browse()
+            tool.models_used_names = ', '.join(spec.models) if spec else False
 
     @api.constrains('enabled', 'code')
     def _check_enabled_tool_is_registered(self):

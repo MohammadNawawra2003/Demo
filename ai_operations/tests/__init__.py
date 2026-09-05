@@ -6,3 +6,4 @@ from . import test_permissions
 from . import test_registry
 from . import test_groups
 from . import test_menus
+from . import test_guard
