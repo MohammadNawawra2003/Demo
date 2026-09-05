@@ -1,0 +1,125 @@
+# Arabic translation for ai_operations.
+#
+# Document A §18 decision 5: English is the source. Tools, prompts, schemas and
+# audit text are authored in English and Arabic arrives as translation, with RTL
+# and Arabic-Indic digit verification before the client demo.
+#
+# What is deliberately NOT translated: DenialReason values, tool codes, action
+# codes and handoff type codes. Those are a closed protocol read by the guard
+# and by the test matrix -- translating them would break the audit log's meaning
+# across databases.
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: AlShayeb Partners\n"
+"Language-Team: Arabic\n"
+"Language: ar_001\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 "
+"&& n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
+
+#. module: ai_operations
+#: model:ir.module.category,name:ai_operations.module_category_ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_operations_root
+msgid "AI Operations"
+msgstr "عمليات الذكاء الاصطناعي"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_operations_configuration
+msgid "Configuration"
+msgstr "الإعدادات"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_agent_profile
+#: model:ir.actions.act_window,name:ai_operations.action_ai_agent_profile
+msgid "Agent Profiles"
+msgstr "ملفات الوكلاء"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_model_permission
+#: model:ir.actions.act_window,name:ai_operations.action_ai_model_permission
+msgid "Model Permissions"
+msgstr "صلاحيات النماذج"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_action_permission
+#: model:ir.actions.act_window,name:ai_operations.action_ai_action_permission
+msgid "Action Permissions"
+msgstr "صلاحيات الإجراءات"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_tool
+#: model:ir.actions.act_window,name:ai_operations.action_ai_tool
+msgid "Tools"
+msgstr "الأدوات"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_tool_assignment
+#: model:ir.actions.act_window,name:ai_operations.action_ai_tool_assignment
+msgid "Tool Assignments"
+msgstr "إسناد الأدوات"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_audit_log
+#: model:ir.actions.act_window,name:ai_operations.action_ai_audit_log
+msgid "Audit Log"
+msgstr "سجل التدقيق"
+
+#. module: ai_operations
+#: model:ir.ui.menu,name:ai_operations.menu_ai_handoff
+#: model:ir.actions.act_window,name:ai_operations.action_ai_handoff
+msgid "Handoffs"
+msgstr "عمليات التسليم"
+
+#. module: ai_operations
+#: model:res.groups,name:ai_operations.group_ai_user
+msgid "User"
+msgstr "مستخدم"
+
+#. module: ai_operations
+#: model:res.groups,name:ai_operations.group_ai_auditor
+msgid "Auditor"
+msgstr "مدقّق"
+
+#. module: ai_operations
+#: model:res.groups,name:ai_operations.group_ai_security_admin
+msgid "Security Administrator"
+msgstr "مسؤول الأمن"
+
+#. module: ai_operations
+#: model:res.groups,name:ai_operations.group_ai_technical_admin
+msgid "Technical Administrator"
+msgstr "المسؤول التقني"
+
+#. module: ai_operations
+#: code:addons/ai_operations/services/exceptions.py:0
+msgid "Refused: this request is outside the agent's authorised scope."
+msgstr "مرفوض: هذا الطلب خارج النطاق المصرّح به للوكيل."
+
+#. module: ai_operations
+#: model:ir.model.fields,field_description:ai_operations.field_ai_operations_agent_profile__max_autonomy_level
+msgid "Max Autonomy Level"
+msgstr "الحد الأقصى لمستوى الاستقلالية"
+
+#. module: ai_operations
+#: model:ir.model.fields,field_description:ai_operations.field_ai_operations_agent_profile__service_user_id
+msgid "Service User"
+msgstr "مستخدم الخدمة"
+
+#. module: ai_operations
+#: model:ir.model.fields,field_description:ai_operations.field_ai_operations_agent_profile__default_review_user_id
+msgid "Routine Reviewer"
+msgstr "المراجع الاعتيادي"
+
+#. module: ai_operations
+#: model:ir.model.fields,field_description:ai_operations.field_ai_operations_agent_profile__default_escalation_user_id
+msgid "Escalation User"
+msgstr "مستخدم التصعيد"
+
+#. module: ai_operations
+#: model:ir.model.fields,field_description:ai_operations.field_ai_operations_agent_profile__max_daily_tokens
+msgid "Max Daily Tokens"
+msgstr "الحد الأقصى للرموز اليومية"
