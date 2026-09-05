@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <!--
+            Group rules, so a user outside the group is untouched. Odoo ORs
+            rules within a group set and ANDs across groups, which is why these
+            sit alone on their own group.
+
+            NOTE, and it matters: there is deliberately NO rule on stock.lot.
+            stock.lot.location_id is computed as the lot's single quant location
+            and is False whenever the lot's quants span more than one location
+            (stock/models/stock_lot.py). A rule keyed on it would hide exactly
+            the lots that are spread across branches — which is every lot a
+            recall is about — and would break quality.trace_forward. Scope the
+            quants and the moves; leave the lot company-scoped as core does. A
+            user sees a lot, and sees only their own warehouse's quantity of it.
+        -->
+
+        <record id="rule_stock_quant_warehouse" model="ir.rule">
+            <field name="name">Stock quant: allowed warehouses only</field>
+            <field name="model_id" ref="stock.model_stock_quant"/>
+            <field name="domain_force">[('location_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids)]</field>
+            <field name="groups" eval="[Command.link(ref('group_stock_warehouse_scoped'))]"/>
+        </record>
+
+        <record id="rule_stock_move_warehouse" model="ir.rule">
+            <field name="name">Stock move: allowed warehouses only</field>
+            <field name="model_id" ref="stock.model_stock_move"/>
+            <field name="domain_force">['|', ('location_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('location_dest_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids)]</field>
+            <field name="groups" eval="[Command.link(ref('group_stock_warehouse_scoped'))]"/>
+        </record>
+
+        <record id="rule_stock_move_line_warehouse" model="ir.rule">
+            <field name="name">Stock move line: allowed warehouses only</field>
+            <field name="model_id" ref="stock.model_stock_move_line"/>
+            <field name="domain_force">['|', ('location_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('location_dest_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids)]</field>
+            <field name="groups" eval="[Command.link(ref('group_stock_warehouse_scoped'))]"/>
+        </record>
+
+        <record id="rule_stock_picking_warehouse" model="ir.rule">
+            <field name="name">Transfer: allowed warehouses only</field>
+            <field name="model_id" ref="stock.model_stock_picking"/>
+            <field name="domain_force">[('picking_type_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids)]</field>
+            <field name="groups" eval="[Command.link(ref('group_stock_warehouse_scoped'))]"/>
+        </record>
+
+        <!-- Virtual locations carry no warehouse; hiding them would break
+             receipts, deliveries, scrap and inventory adjustments. -->
+        <record id="rule_stock_location_warehouse" model="ir.rule">
+            <field name="name">Location: allowed warehouses, plus virtual</field>
+            <field name="model_id" ref="stock.model_stock_location"/>
+            <field name="domain_force">['|', ('warehouse_id', '=', False), ('warehouse_id', 'in', user.allowed_warehouse_ids.ids)]</field>
+            <field name="groups" eval="[Command.link(ref('group_stock_warehouse_scoped'))]"/>
+        </record>
+
+    </data>
+</odoo>

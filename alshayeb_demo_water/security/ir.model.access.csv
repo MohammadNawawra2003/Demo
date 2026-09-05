@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_purchase_order_readonly,purchase.order read only,purchase.model_purchase_order,group_purchase_readonly,1,0,0,0
+access_purchase_order_line_readonly,purchase.order.line read only,purchase.model_purchase_order_line,group_purchase_readonly,1,0,0,0
+access_product_supplierinfo_readonly,product.supplierinfo read only,product.model_product_supplierinfo,group_purchase_readonly,1,0,0,0

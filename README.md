@@ -21,10 +21,10 @@ The agent layer can only ever **subtract** from what the person running it could
 
 | | |
 |---|---|
-| Phase | 1 of 1 specified — Session **5 of 14** complete |
+| Phase | 1 of 1 specified — Session **6 of 14** complete |
 | Target | Odoo 19.0, Odoo.sh (`mohammadnawawra2003-demo`) |
 | Kernel dependencies | `base`, `mail` — **nothing else, ever** |
-| Suite | **224 tests, 0 failed, 0 errors** (kernel + adapter), install and upgrade |
+| Suite | **268 tests, 0 failed, 0 errors** across five modules |
 | Matrix ids covered | T-01…T-08, T-09, T-10…T-23, T-25, T-41…T-45, T-60…T-74a, T-86, T-100 |
 
 Specification: Documents A–D in `docs/`. Review: `docs/reviews/`.
@@ -38,8 +38,8 @@ They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this buil
 | `ai_operations_anthropic` | `ai_operations` | **built** — the Phase 1 provider adapter |
 | `ai_operations_procurement` / `_inventory` / `_manufacturing` / `_quality` | `ai_operations` + domain apps | Sessions 8–11 |
 | `ai_operations_bridge` | `ai_operations`, `ai` | Optional. Discoverability only; routes no tool call |
-| `stock_security_warehouse` | `stock` — and nothing else | Separate product, ships alongside |
-| `alshayeb_demo_water` | domain apps — **not** `ai_operations` | Sessions 6–7 |
+| `stock_security_warehouse` | `stock` — and nothing else | **built** — 10 tests |
+| `alshayeb_demo_water` | domain apps — **not** `ai_operations` | **master data built** (Session 6); history is Session 7 |
 
 ## What Session 5 delivers
 

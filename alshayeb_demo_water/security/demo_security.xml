@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Document A §12. Odoo 19 ships only group_purchase_user and
+        group_purchase_manager, and ir.model.access rows are ADDITIVE: a group
+        cannot subtract a right another group grants. So a read-only purchaser
+        must hold a bespoke group and must NOT hold group_purchase_user.
+
+        Without this, isolation proof 6 and test T-21 either fail or pass
+        vacuously, because fahad.p would have the write access the test assumes
+        he lacks.
+    -->
+    <record id="group_purchase_readonly" model="res.groups">
+        <field name="name">Purchasing: Read Only</field>
+        <field name="privilege_id" ref="purchase.res_groups_privilege_purchase"/>
+        <field name="comment">Sees purchase orders and cannot write them.
+            Deliberately does not imply Purchase / User, because ACL rows are
+            additive and holding both would grant the write this group exists to
+            withhold.</field>
+        <field name="implied_ids" eval="[Command.link(ref('base.group_user'))]"/>
+    </record>
+
+</odoo>
