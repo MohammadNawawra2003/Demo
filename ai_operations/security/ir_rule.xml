@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Company scoping on the policy records themselves. This is ordinary Odoo
+        authorisation, and it is deliberately the ONLY record rule the kernel
+        ships: sub-company scoping (warehouse, branch, location) belongs beneath
+        USER_PERMISSION in its own addon, never here. Document C 12.
+    -->
+    <record id="rule_agent_profile_company" model="ir.rule">
+        <field name="name">AI agent profile: company scope</field>
+        <field name="model_id" ref="model_ai_operations_agent_profile"/>
+        <field name="domain_force">['|', ('company_ids', '=', False), ('company_ids', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+
+    <record id="rule_model_permission_company" model="ir.rule">
+        <field name="name">AI model permission: follows its profile</field>
+        <field name="model_id" ref="model_ai_operations_model_permission"/>
+        <field name="domain_force">['|', ('profile_id.company_ids', '=', False), ('profile_id.company_ids', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+
+    <record id="rule_action_permission_company" model="ir.rule">
+        <field name="name">AI action permission: follows its profile</field>
+        <field name="model_id" ref="model_ai_operations_action_permission"/>
+        <field name="domain_force">['|', ('profile_id.company_ids', '=', False), ('profile_id.company_ids', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+
+</odoo>

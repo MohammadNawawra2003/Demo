@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_ai_operations_root"
+              name="AI Operations"
+              web_icon="ai_operations,static/description/icon.png"
+              sequence="90"
+              groups="ai_operations.group_ai_user"/>
+
+    <menuitem id="menu_ai_operations_configuration"
+              name="Configuration"
+              parent="menu_ai_operations_root"
+              sequence="90"
+              groups="ai_operations.group_ai_auditor"/>
+
+    <menuitem id="menu_ai_agent_profile"
+              name="Agent Profiles"
+              parent="menu_ai_operations_configuration"
+              action="action_ai_agent_profile"
+              sequence="10"/>
+
+    <menuitem id="menu_ai_model_permission"
+              name="Model Permissions"
+              parent="menu_ai_operations_configuration"
+              action="action_ai_model_permission"
+              sequence="20"/>
+
+    <menuitem id="menu_ai_action_permission"
+              name="Action Permissions"
+              parent="menu_ai_operations_configuration"
+              action="action_ai_action_permission"
+              sequence="30"/>
+
+</odoo>

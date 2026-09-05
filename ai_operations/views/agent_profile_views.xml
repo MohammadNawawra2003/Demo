@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ai_agent_profile_list" model="ir.ui.view">
+        <field name="name">ai.operations.agent.profile.list</field>
+        <field name="model">ai.operations.agent.profile</field>
+        <field name="arch" type="xml">
+            <list string="Agent Profiles">
+                <field name="name"/>
+                <field name="code"/>
+                <field name="company_ids" widget="many2many_tags"/>
+                <field name="max_autonomy_level"/>
+                <field name="allow_interactive"/>
+                <field name="allow_autonomous"/>
+                <field name="service_user_id"/>
+                <field name="policy_version"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_agent_profile_form" model="ir.ui.view">
+        <field name="name">ai.operations.agent.profile.form</field>
+        <field name="model">ai.operations.agent.profile</field>
+        <field name="arch" type="xml">
+            <form string="Agent Profile">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="Procurement Intelligence"/></h1>
+                        <label for="code"/>
+                        <h2><field name="code" placeholder="procurement"/></h2>
+                    </div>
+                    <field name="active" invisible="1"/>
+                    <group>
+                        <group string="Scope">
+                            <field name="company_ids" widget="many2many_tags"/>
+                            <field name="max_autonomy_level"/>
+                            <field name="allow_interactive"/>
+                            <field name="allow_autonomous"/>
+                            <field name="service_user_id"
+                                   required="allow_autonomous"/>
+                            <field name="partner_id"/>
+                        </group>
+                        <group string="Activity Routing">
+                            <field name="default_review_user_id"/>
+                            <field name="default_escalation_user_id"/>
+                        </group>
+                        <group string="Run Budgets">
+                            <field name="max_tool_calls"/>
+                            <field name="max_write_ops"/>
+                            <field name="timeout_seconds"/>
+                        </group>
+                        <group string="Spend Ceiling">
+                            <field name="max_daily_tokens"/>
+                            <field name="tokens_today"/>
+                            <field name="tokens_date"/>
+                        </group>
+                        <group string="Governance">
+                            <field name="audit_level"/>
+                            <field name="policy_version"/>
+                            <field name="last_security_review"/>
+                            <field name="security_approved_by_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Model Permissions" name="model_permissions">
+                            <field name="model_permission_ids">
+                                <list editable="bottom">
+                                    <field name="model_id"/>
+                                    <field name="perm_read"/>
+                                    <field name="perm_create"/>
+                                    <field name="perm_write"/>
+                                    <field name="perm_unlink"/>
+                                    <field name="domain"/>
+                                    <field name="state_restriction"/>
+                                    <field name="max_records"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Action Permissions" name="action_permissions">
+                            <field name="action_permission_ids">
+                                <list editable="bottom">
+                                    <field name="model_id"/>
+                                    <field name="action_code"/>
+                                    <field name="method_name"/>
+                                    <field name="allowed"/>
+                                    <field name="autonomy_required"/>
+                                    <field name="state_restriction"/>
+                                    <field name="variance_bound_pct"/>
+                                    <field name="variance_ceiling_pct"/>
+                                    <field name="risk_level"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Description" name="description">
+                            <field name="description" placeholder="What this agent is for."/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_agent_profile_search" model="ir.ui.view">
+        <field name="name">ai.operations.agent.profile.search</field>
+        <field name="model">ai.operations.agent.profile</field>
+        <field name="arch" type="xml">
+            <search string="Agent Profiles">
+                <field name="name"/>
+                <field name="code"/>
+                <field name="company_ids"/>
+                <filter name="filter_interactive" string="Interactive"
+                        domain="[('allow_interactive', '=', True)]"/>
+                <filter name="filter_autonomous" string="Autonomous"
+                        domain="[('allow_autonomous', '=', True)]"/>
+                <separator/>
+                <filter name="filter_inactive" string="Archived"
+                        domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_autonomy" string="Autonomy Level" domain="[]"
+                            context="{'group_by': 'max_autonomy_level'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ai_agent_profile" model="ir.actions.act_window">
+        <field name="name">Agent Profiles</field>
+        <field name="res_model">ai.operations.agent.profile</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Define an agent profile</p>
+            <p>A profile is the policy record: what an agent may touch, how far it
+               may go, and whose desk its work lands on. It can only ever reduce
+               what the person running it could already do.</p>
+        </field>
+    </record>
+
+</odoo>

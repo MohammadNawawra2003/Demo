@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="module_category_ai_operations" model="ir.module.category">
+        <field name="name">AI Operations</field>
+        <field name="description">Secure execution platform for departmental AI agents</field>
+        <field name="sequence">20</field>
+    </record>
+
+    <!--
+        Odoo 19 groups a privilege's members into ONE selection field on the
+        user form, so groups sharing a privilege are mutually exclusive. The
+        Security Administrator and the Technical Administrator are deliberately
+        independent roles (Document C 11), so they cannot share a privilege.
+        Hence two: a ladder, and a standalone.
+    -->
+    <record id="privilege_ai_operations" model="res.groups.privilege">
+        <field name="name">AI Operations</field>
+        <field name="category_id" ref="module_category_ai_operations"/>
+        <field name="sequence">10</field>
+    </record>
+
+    <record id="privilege_ai_operations_technical" model="res.groups.privilege">
+        <field name="name">AI Operations / Technical</field>
+        <field name="category_id" ref="module_category_ai_operations"/>
+        <field name="sequence">20</field>
+    </record>
+
+    <record id="group_ai_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="privilege_id" ref="privilege_ai_operations"/>
+        <field name="sequence">10</field>
+        <field name="implied_ids" eval="[Command.link(ref('base.group_user'))]"/>
+        <field name="comment">Use assigned agents; read own audit entries.</field>
+    </record>
+
+    <record id="group_ai_auditor" model="res.groups">
+        <field name="name">Auditor</field>
+        <field name="privilege_id" ref="privilege_ai_operations"/>
+        <field name="sequence">20</field>
+        <field name="implied_ids" eval="[Command.link(ref('ai_operations.group_ai_user'))]"/>
+        <field name="comment">Read all audit logs and policy records. Writes nothing.</field>
+    </record>
+
+    <record id="group_ai_security_admin" model="res.groups">
+        <field name="name">Security Administrator</field>
+        <field name="privilege_id" ref="privilege_ai_operations"/>
+        <field name="sequence">30</field>
+        <field name="implied_ids" eval="[Command.link(ref('ai_operations.group_ai_auditor'))]"/>
+        <field name="comment">Create agents, model and action permissions, tool
+            assignments, handoff types and service user linkage. Deliberately
+            cannot enable a tool: tool registration confers business capability.</field>
+    </record>
+
+    <record id="group_ai_technical_admin" model="res.groups">
+        <field name="name">Technical Administrator</field>
+        <field name="privilege_id" ref="privilege_ai_operations_technical"/>
+        <field name="sequence">10</field>
+        <field name="implied_ids" eval="[Command.link(ref('ai_operations.group_ai_auditor'))]"/>
+        <field name="comment">Enable tools, select among installed providers,
+            review provider configuration. Deliberately cannot widen an agent's
+            data scope: no write on any permission record.</field>
+    </record>
+
+</odoo>

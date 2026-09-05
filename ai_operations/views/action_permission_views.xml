@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ai_action_permission_list" model="ir.ui.view">
+        <field name="name">ai.operations.action.permission.list</field>
+        <field name="model">ai.operations.action.permission</field>
+        <field name="arch" type="xml">
+            <list string="Action Permissions">
+                <field name="profile_id"/>
+                <field name="model_id"/>
+                <field name="action_code"/>
+                <field name="method_name"/>
+                <field name="allowed"/>
+                <field name="autonomy_required"/>
+                <field name="variance_bound_pct"/>
+                <field name="variance_ceiling_pct"/>
+                <field name="risk_level"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_action_permission_form" model="ir.ui.view">
+        <field name="name">ai.operations.action.permission.form</field>
+        <field name="model">ai.operations.action.permission</field>
+        <field name="arch" type="xml">
+            <form string="Action Permission">
+                <sheet>
+                    <group>
+                        <group string="Target">
+                            <field name="profile_id"/>
+                            <field name="model_id"/>
+                            <field name="action_code" placeholder="CREATE_DRAFT"/>
+                            <field name="method_name" placeholder="button_confirm"/>
+                        </group>
+                        <group string="Permission">
+                            <field name="allowed"/>
+                            <field name="autonomy_required"/>
+                            <field name="state_restriction" placeholder="state=draft"/>
+                            <field name="risk_level"/>
+                        </group>
+                        <group string="Variance Bounds">
+                            <field name="variance_bound_pct"/>
+                            <field name="variance_ceiling_pct"/>
+                            <field name="product_category_ref"/>
+                        </group>
+                        <group string="Value Limits">
+                            <field name="max_amount"/>
+                            <field name="max_quantity"/>
+                        </group>
+                    </group>
+                    <div class="text-muted">
+                        Two bounds, two behaviours. Above the routine bound the write
+                        still proceeds: the record is stamped for approval and the
+                        review activity is escalated to the manager. Only the hard
+                        ceiling denies, with <code>BOUND_EXCEEDED</code>. A denial
+                        would leave nothing on a human's desk and make the agent's
+                        judgement invisible.
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_ai_action_permission" model="ir.actions.act_window">
+        <field name="name">Action Permissions</field>
+        <field name="res_model">ai.operations.action.permission</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

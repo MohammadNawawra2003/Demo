@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ai_agent_profile_user,ai.operations.agent.profile user,model_ai_operations_agent_profile,group_ai_user,1,0,0,0
+access_ai_agent_profile_security_admin,ai.operations.agent.profile security admin,model_ai_operations_agent_profile,group_ai_security_admin,1,1,1,1
+access_ai_model_permission_user,ai.operations.model.permission user,model_ai_operations_model_permission,group_ai_user,1,0,0,0
+access_ai_model_permission_security_admin,ai.operations.model.permission security admin,model_ai_operations_model_permission,group_ai_security_admin,1,1,1,1
+access_ai_action_permission_user,ai.operations.action.permission user,model_ai_operations_action_permission,group_ai_user,1,0,0,0
+access_ai_action_permission_security_admin,ai.operations.action.permission security admin,model_ai_operations_action_permission,group_ai_security_admin,1,1,1,1
