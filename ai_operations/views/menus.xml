@@ -31,4 +31,16 @@
               action="action_ai_action_permission"
               sequence="30"/>
 
+    <menuitem id="menu_ai_tool"
+              name="Tools"
+              parent="menu_ai_operations_configuration"
+              action="action_ai_tool"
+              sequence="40"/>
+
+    <menuitem id="menu_ai_tool_assignment"
+              name="Tool Assignments"
+              parent="menu_ai_operations_configuration"
+              action="action_ai_tool_assignment"
+              sequence="50"/>
+
 </odoo>

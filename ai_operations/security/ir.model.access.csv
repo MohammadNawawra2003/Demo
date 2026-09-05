@@ -5,3 +5,7 @@ access_ai_model_permission_user,ai.operations.model.permission user,model_ai_ope
 access_ai_model_permission_security_admin,ai.operations.model.permission security admin,model_ai_operations_model_permission,group_ai_security_admin,1,1,1,1
 access_ai_action_permission_user,ai.operations.action.permission user,model_ai_operations_action_permission,group_ai_user,1,0,0,0
 access_ai_action_permission_security_admin,ai.operations.action.permission security admin,model_ai_operations_action_permission,group_ai_security_admin,1,1,1,1
+access_ai_tool_user,ai.operations.tool user,model_ai_operations_tool,group_ai_user,1,0,0,0
+access_ai_tool_technical_admin,ai.operations.tool technical admin,model_ai_operations_tool,group_ai_technical_admin,1,1,1,1
+access_ai_tool_assignment_user,ai.operations.tool.assignment user,model_ai_operations_tool_assignment,group_ai_user,1,0,0,0
+access_ai_tool_assignment_security_admin,ai.operations.tool.assignment security admin,model_ai_operations_tool_assignment,group_ai_security_admin,1,1,1,1

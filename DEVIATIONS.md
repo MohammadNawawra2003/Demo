@@ -92,6 +92,36 @@ Session 3 cannot be built until this is decided. The two options in the review a
 
 ---
 
+## Session 2 — two calls the specification leaves open
+
+### 5. When the tool registry freezes
+
+Document C §6.2 says the registry is "frozen after load". There is no Odoo hook that fires once
+every addon has been imported — `post_load` and `post_init_hook` are both per-module, and the tool
+packs load *after* the kernel. So:
+
+- Freezing at kernel load would lock the packs out entirely.
+- Freezing lazily on first read would also lock them out, because `ai.operations.tool` reads the
+  registry to compute its own fields during install.
+
+`freeze_registry()` is therefore an **explicit call**, which the execution runtime makes once before
+its first provider call — long after every module has been imported. That preserves the property
+that actually matters (no registration at *runtime*) and is asserted by T-05. Session 5 wires the
+call; until then the registry is open, which is correct, because nothing executes yet.
+
+### 6. The tool description comes from the docstring, not the database
+
+Document C §5.5 lists `description` as a plain editable `Text`, while Document D §8's `ToolSpec`
+carries `description: str  # from the docstring`. They cannot both be the source.
+
+Shipped as a **computed readonly mirror of the Python docstring**, following D. An admin-editable
+description is text that goes straight into the model's context as part of the tool definition — a
+prompt-injection surface reachable by configuration rather than by code. Making it readonly costs
+nothing and closes it, and it means the description cannot drift from the code it describes. Same
+reasoning C §5.5 already applies to `code`, `models_used`, `actions_used` and `idempotent`.
+
+---
+
 ## Deferred to their own sessions — not deviations
 
 | Item | Session | Why not now |

@@ -21,10 +21,11 @@ The agent layer can only ever **subtract** from what the person running it could
 
 | | |
 |---|---|
-| Phase | 1 of 1 specified — Session **1 of 14** complete |
+| Phase | 1 of 1 specified — Session **2 of 14** complete |
 | Target | Odoo 19.0, Odoo.sh (`mohammadnawawra2003-demo`) |
 | Kernel dependencies | `base`, `mail` — **nothing else, ever** |
-| Session 1 suite | **54 tests, 0 failed, 0 errors**, on a bare Community database |
+| Suite | **94 tests, 0 failed, 0 errors**, on a bare Community database |
+| Matrix ids covered | T-01…T-08, T-17, T-19, T-65, T-66, T-74b, T-74c |
 
 Specification: Documents A–D in `docs/`. Review: `docs/reviews/`.
 They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this build changed and why.
@@ -39,6 +40,21 @@ They are **freeze-ready, not frozen** — see `DEVIATIONS.md` for what this buil
 | `ai_operations_bridge` | `ai_operations`, `ai` | Optional. Discoverability only; routes no tool call |
 | `stock_security_warehouse` | `stock` — and nothing else | Separate product, ships alongside |
 | `alshayeb_demo_water` | domain apps — **not** `ai_operations` | Sessions 6–7 |
+
+## What Session 2 delivers
+
+- `services/schema.py` — declarative schemas, zero dependencies. Validation is **rejection**: an
+  undeclared key raises rather than being dropped, because silently normalising an attempted leak
+  into a success is the failure mode this design exists to prevent. `to_json_schema()` is the only
+  path a tool's parameter shape reaches the LLM, so what the model is told cannot drift from what
+  the validator accepts.
+- `services/registry.py` — the `@ai_tool` decorator. Rejects at **registration**, not at review: a
+  parameter named `model`/`method`/`domain`, `models=['*']`, a missing schema, a signature that
+  isn't `(ctx, params)`, or a missing docstring all prevent module load.
+- `ai.operations.tool` / `ai.operations.tool.assignment` — configuration records that mirror the
+  decorator and cannot outrun it. A tool record whose code has no registry entry **cannot be
+  enabled**. No assignment means no access; there is no default grant.
+- `core.describe_scope` — one Level-0 read tool, so the registry is exercised by something real.
 
 ## What Session 1 delivers
 

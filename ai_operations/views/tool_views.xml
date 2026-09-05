@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ai_tool_list" model="ir.ui.view">
+        <field name="name">ai.operations.tool.list</field>
+        <field name="model">ai.operations.tool</field>
+        <field name="arch" type="xml">
+            <list string="Tools" decoration-muted="not registered">
+                <field name="code"/>
+                <field name="name"/>
+                <field name="category"/>
+                <field name="autonomy_required"/>
+                <field name="idempotent"/>
+                <field name="registered"/>
+                <field name="enabled"/>
+                <field name="version"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_tool_form" model="ir.ui.view">
+        <field name="name">ai.operations.tool.form</field>
+        <field name="model">ai.operations.tool</field>
+        <field name="arch" type="xml">
+            <form string="Tool">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                        <label for="code"/>
+                        <h2><field name="code" placeholder="procurement.get_shortage_context"/></h2>
+                    </div>
+                    <div class="alert alert-warning" role="alert" invisible="registered">
+                        This code has no <code>@ai_tool</code> registration in Python,
+                        so it cannot be enabled. A tool record with no executable
+                        code behind it is a configuration surface with nothing under it.
+                    </div>
+                    <group>
+                        <group string="Declared in Python (readonly)">
+                            <field name="registered"/>
+                            <field name="category"/>
+                            <field name="autonomy_required"/>
+                            <field name="idempotent"/>
+                            <field name="actions_used"/>
+                            <field name="models_used" widget="many2many_tags"/>
+                        </group>
+                        <group string="Configuration">
+                            <field name="enabled"/>
+                            <field name="max_results"/>
+                            <field name="timeout_seconds"/>
+                            <field name="version"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Description Sent to the Model" name="description">
+                            <field name="description" readonly="1"/>
+                            <div class="text-muted">
+                                Taken from the Python docstring, so it cannot drift
+                                from the code it describes.
+                            </div>
+                        </page>
+                        <page string="Assignments" name="assignments">
+                            <field name="assignment_ids">
+                                <list editable="bottom">
+                                    <field name="profile_id"/>
+                                    <field name="enabled"/>
+                                    <field name="max_calls_per_run"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_ai_tool" model="ir.actions.act_window">
+        <field name="name">Tools</field>
+        <field name="res_model">ai.operations.tool</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No tools registered yet</p>
+            <p>A tool is a registered Python function. Administrators configure
+               tools; they never author them. Nothing here can be enabled unless
+               there is code behind it.</p>
+        </field>
+    </record>
+
+    <record id="view_ai_tool_assignment_list" model="ir.ui.view">
+        <field name="name">ai.operations.tool.assignment.list</field>
+        <field name="model">ai.operations.tool.assignment</field>
+        <field name="arch" type="xml">
+            <list string="Tool Assignments">
+                <field name="profile_id"/>
+                <field name="tool_id"/>
+                <field name="enabled"/>
+                <field name="max_calls_per_run"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_ai_tool_assignment" model="ir.actions.act_window">
+        <field name="name">Tool Assignments</field>
+        <field name="res_model">ai.operations.tool.assignment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>
