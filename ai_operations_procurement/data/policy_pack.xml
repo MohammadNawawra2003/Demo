@@ -119,4 +119,33 @@
         <field name="risk_level">LOW</field>
     </record>
 
+    <!--
+        The autonomous trigger. Document C §9: `ir.cron → trigger = CRON`.
+
+        It ships INACTIVE for the same reason the profile does, and it must stay
+        that way until the profile is activated: run() refuses an inactive
+        profile, and refuses an autonomous run on a profile with no service
+        user. Activating the cron first would produce a daily traceback in the
+        log rather than a daily review — which is fail-closed and visible, but
+        not what anyone wants to discover at 07:00.
+
+        No nextcall: a fixed datetime in XML is stale the day after it is
+        written. Odoo defaults it to the moment of installation and the
+        administrator sets the hour when activating.
+
+        The cron carries no identity of its own. Document C §9 puts the
+        autonomous identity on `profile.service_user_id`, and the runtime
+        resolves it there — never from whoever the scheduler happens to run as,
+        and never by falling back.
+    -->
+    <record id="cron_ai_procurement" model="ir.cron">
+        <field name="name">AI Operations: Procurement daily review</field>
+        <field name="model_id" ref="ai_operations.model_ai_operations_execution"/>
+        <field name="state">code</field>
+        <field name="code">model.run('procurement', 'CRON')</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+    </record>
+
 </odoo>

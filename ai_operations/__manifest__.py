@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations',
-    'version': '19.0.1.10.0',
+    'version': '19.0.1.11.0',
     'category': 'Productivity/AI',
     'summary': 'Secure execution platform for departmental AI agents',
     'author': 'AlShayeb Partners',

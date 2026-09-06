@@ -16,3 +16,4 @@ from . import test_xml_hygiene
 from . import test_activity
 from . import test_adversarial
 from . import test_arabic
+from . import test_chat_entry

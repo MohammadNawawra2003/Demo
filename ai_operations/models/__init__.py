@@ -8,3 +8,4 @@ from . import budget
 from . import handoff
 from . import mail_activity
 from . import res_users
+from . import discuss_channel

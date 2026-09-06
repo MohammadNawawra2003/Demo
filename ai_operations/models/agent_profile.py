@@ -1,5 +1,5 @@
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from ..services.enums import (
     PHASE1_MAX_AUTONOMY,
@@ -229,3 +229,38 @@ class AIOperationsAgentProfile(models.Model):
                         "%s must belong to a company inside the agent's scope."
                         % label
                     )
+
+    # ------------------------------------------------------------------
+    # The chat surface -- Document C 9.3
+    # ------------------------------------------------------------------
+
+    def action_open_chat(self):
+        """Open this employee's conversation with the agent, creating it once.
+
+        Decision B-i: the binding is a field on the channel and the channel is
+        created on demand, so nothing has to be provisioned per employee.
+        Decision B-iv: ``group_ai_user`` is the gate, because it is already the
+        group the guard reads its own policy as -- a user without it cannot run
+        a tool, so letting them open a channel would only produce a
+        conversation that refuses every turn.
+        """
+        self.ensure_one()
+        if not self.env.user._has_group('ai_operations.group_ai_user'):
+            raise AccessError(
+                "Opening a conversation with an agent requires the "
+                "AI Operations / User group."
+            )
+        if not self.partner_id:
+            raise UserError(
+                "%s has no agent partner. Document C 9.3 puts the conversation "
+                "between the employee and the profile's partner, so one must be "
+                "set before the agent can be talked to." % self.name
+            )
+        channel = self.env['discuss.channel']._get_or_create_chat(
+            partners_to=self.partner_id.ids)
+        channel.ai_profile_id = self.id
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'mail.action_discuss',
+            'params': {'channel_id': channel.id},
+        }

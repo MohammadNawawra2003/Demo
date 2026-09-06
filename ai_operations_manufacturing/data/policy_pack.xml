@@ -99,4 +99,16 @@
         <field name="payload_schema">{"product_id": "int", "qty_required": "float", "qty_available": "float", "qty_shortage": "float", "uom_id": "int", "required_date": "date", "origin_ref": "str", "warehouse_id": "int", "priority": "str"}</field>
     </record>
 
+    <!-- The autonomous trigger. See ai_operations_procurement for why it ships
+         inactive and carries no identity of its own. -->
+    <record id="cron_ai_manufacturing" model="ir.cron">
+        <field name="name">AI Operations: Manufacturing daily review</field>
+        <field name="model_id" ref="ai_operations.model_ai_operations_execution"/>
+        <field name="state">code</field>
+        <field name="code">model.run('manufacturing', 'CRON')</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+    </record>
+
 </odoo>

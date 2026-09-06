@@ -23,6 +23,20 @@
         <field name="model">ai.operations.agent.profile</field>
         <field name="arch" type="xml">
             <form string="Agent Profile">
+                <header>
+                    <!--
+                        The end user's entry point. Document C 9.3.
+
+                        Enabled only once the profile is active and interactive
+                        and has a partner to speak as, because those are exactly
+                        the three things action_open_chat refuses without: a
+                        button that reliably raises is worse than a button that
+                        is visibly not ready.
+                    -->
+                    <button name="action_open_chat" type="object" string="Chat with Agent"
+                            class="btn-primary" icon="fa-comments"
+                            invisible="not active or not allow_interactive or not partner_id"/>
+                </header>
                 <sheet>
                     <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
                             invisible="active"/>

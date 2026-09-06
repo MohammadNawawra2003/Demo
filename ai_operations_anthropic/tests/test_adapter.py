@@ -56,6 +56,31 @@ class TestAnthropicAdapter(TransactionCase):
         self.assertIsNone(re.search(r"\.sudo\(", text))
         self.assertIn('os.environ.get', text)
 
+    def test_no_module_in_the_repository_reads_a_credential_from_the_orm(self):
+        """Decision D1, applied to the whole repository rather than to this one
+        file. CI check 11 states the rule and nothing executed it, so the next
+        adapter could have reintroduced exactly what §5.10 forbids and every
+        suite would still have been green.
+
+        Usage, not the word: the rule is explained in prose in several places,
+        and a check that fails on its own rationale is the defect this project
+        already found in frozen checks 1, 11 and 16.
+        """
+        import pathlib
+        import re
+        root = pathlib.Path(__file__).resolve().parents[2]
+        offenders = []
+        for path in sorted(root.glob('ai_operations*/**/*.py')):
+            if '/tests/' in str(path):
+                continue
+            text = path.read_text()
+            if re.search(r"env\[['\"]ir\.config_parameter|\.get_param\(", text):
+                offenders.append(str(path.relative_to(root)))
+        self.assertEqual(
+            offenders, [],
+            "a credential read through the ORM would need sudo() and would "
+            "enter every database dump")
+
     def _without_credential(self):
         return patch.object(type(self.provider), '_credential', return_value=None)
 

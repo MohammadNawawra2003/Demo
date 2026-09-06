@@ -506,3 +506,23 @@ Sessions 8-11 and the matrix should say so.
 | Tool / handoff / audit views in the manifest | 2, 3, 9 | Document D §3.1 lists the **final** data set; referencing a view for a model that does not exist breaks the bare-database install that is this session's STOP gate |
 | Service-user credential constraints (T-69) | 5 | Document C §10 lifecycle rules; the Session 1 prompt's constraint list stops at `base.group_system` |
 | "Security Admin cannot enable a tool" | 2 | There is no tool model yet. Its counterpart, "Technical Admin cannot alter a permission", **is** tested now |
+
+---
+
+## 2026-09-06 — Sessions 11 and 12 completed, and the H4 field finally used
+
+Neither of these is a deviation: both are **frozen deliverables that were never built**, found during
+final manual testing and documented in `docs/reviews/decision-request-phase1-completion.md`. The
+approved answers and their reasoning are in `docs/decision-log.md`; only the parts that touch this
+file are repeated here.
+
+- **`profile.partner_id` (deviation 2, finding H4) now has a consumer.** It was added in Session 1
+  because C §9.3's chat surface needs a partner and C §5.1's field list has none. It sat referenced
+  by no code until the surface itself was built. The field is unchanged.
+- **`discuss.channel` gains two fields in `ai_operations/models/`** — `ai_profile_id` and
+  `ai_run_active`. `ai_profile_id` is a `Many2one` to a kernel model, which is the shape CI check 15
+  already permits everywhere else in the kernel (`model_permission.profile_id`,
+  `audit_log.profile_id`, `audit_log.tool_id`); the check's intent is "no dependency on a module
+  outside `base`/`mail`", and `discuss.channel` is in `mail`.
+- **CI check 11 now has a test.** It was a grep nobody ran. See DL-001 — including the reason the
+  credential decision is *not* resolved by that test.

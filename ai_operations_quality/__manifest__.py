@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations: Quality',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.1.0',
     'category': 'Productivity/AI',
     'summary': 'Quality Intelligence tool pack',
     'author': 'AlShayeb Partners',

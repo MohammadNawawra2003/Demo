@@ -55,4 +55,16 @@
         <field name="perm_read" eval="True"/>
     </record>
 
+    <!-- The autonomous trigger. See ai_operations_procurement for why it ships
+         inactive and carries no identity of its own. -->
+    <record id="cron_ai_quality" model="ir.cron">
+        <field name="name">AI Operations: Quality daily review</field>
+        <field name="model_id" ref="ai_operations.model_ai_operations_execution"/>
+        <field name="state">code</field>
+        <field name="code">model.run('quality', 'CRON')</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+    </record>
+
 </odoo>
