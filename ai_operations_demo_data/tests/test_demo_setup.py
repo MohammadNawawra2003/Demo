@@ -747,3 +747,89 @@ class TestKhalidManufacturingPath(TestDemoConfiguration):
         for leak in ('purchase.order', 'AccessError', 'USER_ACL_DENIED',
                      'not allowed to create'):
             self.assertNotIn(leak, posted, "%r leaked into the conversation" % leak)
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestNeutralDenialReachesTheUser(TestDemoConfiguration):
+    """A refusal must read the same however the model feels about it.
+
+    The guard denied Fahad's draft RFQ correctly and the audit row is right. But
+    the model was then handed the turn and wrote its own explanation -- vendor
+    concentration, a hard ceiling, a shortage rule -- none of which was the
+    reason. ``NEUTRAL_DENIAL`` says it is "the ONLY text a denial is ever
+    allowed to show outside the audit log", and prose invented on top of it is
+    text a denial is showing outside the audit log.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.Log = self.env['ai.operations.audit.log']
+
+    def _post(self, channel, login, body):
+        return channel.with_user(self._user(login)).message_post(
+            body=Markup('<p>%s</p>' % body), message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+    def _deny_and_narrate(self, channel, login, narration):
+        product = self.env['product.product'].search(
+            [('default_code', '=', 'PK-BTL-330')], limit=1)
+        vendor = self.env['res.partner'].search(
+            [('name', '=', 'Jeddah Plastic Industries')], limit=1)
+        with scripted(self.env,
+                      _tool_call('procurement.prepare_draft_rfq', {
+                          'product_id': product.id, 'partner_id': vendor.id,
+                          'deterministic_shortage': 0.0,
+                          'recommended_quantity': 100000.0}),
+                      _text(narration)):
+            self._post(channel, login, 'Prepare a draft RFQ.')
+        return channel.message_ids[0].body
+
+    def test_the_user_sees_the_neutral_refusal_and_not_the_models_story(self):
+        from odoo.addons.ai_operations.services.exceptions import NEUTRAL_DENIAL
+        channel = self._channel('Fahad')
+        body = self._deny_and_narrate(
+            channel, 'fahad.p',
+            'This was blocked because of vendor concentration limits and the '
+            'hard ceiling on consolidation above the computed shortage.')
+
+        self.assertIn(NEUTRAL_DENIAL, body,
+                      "the user was not given the neutral refusal")
+        for invented in ('vendor concentration', 'hard ceiling',
+                         'consolidation', 'shortage'):
+            self.assertNotIn(invented, body,
+                             "the model's invented reason reached the user")
+
+    def test_no_internal_detail_reaches_the_user(self):
+        channel = self._channel('Fahad')
+        body = self._deny_and_narrate(channel, 'fahad.p', 'Some prose.')
+        for leak in ('USER_ACL_DENIED', 'User Acl Denied', 'purchase.order',
+                     'AccessError', 'Traceback', 'ir.model.access',
+                     'prepare_draft_rfq'):
+            self.assertNotIn(leak, body, "%r leaked to the user" % leak)
+
+    def test_the_audit_log_still_carries_the_exact_reason(self):
+        channel = self._channel('Fahad')
+        self._deny_and_narrate(channel, 'fahad.p', 'Some prose.')
+        self.env.flush_all()
+        denied = self.Log.search(
+            [('decision', '=', 'DENIED'),
+             ('tool_code', '=', 'procurement.prepare_draft_rfq')],
+            order='id desc', limit=1)
+        self.assertTrue(denied, "the denial was not recorded")
+        self.assertEqual(denied.denial_reason, 'USER_ACL_DENIED')
+
+    def test_no_business_record_is_created(self):
+        channel = self._channel('Fahad')
+        Purchase = self.env['purchase.order']
+        before = Purchase.search_count([])
+        self._deny_and_narrate(channel, 'fahad.p', 'Some prose.')
+        self.assertEqual(Purchase.search_count([]), before)
+
+    def test_an_allowed_run_still_speaks_in_the_models_own_words(self):
+        """The neutral text replaces a REFUSAL, not every answer."""
+        channel = self._channel('Procurement (Noura)')
+        with scripted(self.env, _text('You have one open order with Jeddah.')):
+            self._post(channel, 'noura.p', 'List my open purchase orders.')
+        body = channel.message_ids[0].body
+        self.assertIn('one open order', body,
+                      "a permitted answer was replaced by the refusal text")

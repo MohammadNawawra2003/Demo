@@ -214,6 +214,10 @@ class AIExecutionRunner(models.AbstractModel):
 
         messages = self._sanitise_history(history)
         messages.append({'role': 'user', 'content': entry_prompt or ''})
+        # Whether the guard refused anything during this run. The surface uses
+        # it to decide what the USER is told, which must not depend on what the
+        # model chooses to say afterwards.
+        refused = False
         tools = self.build_tool_definitions(profile)
         system = self.build_system_prompt(profile)
 
@@ -233,6 +237,7 @@ class AIExecutionRunner(models.AbstractModel):
             if not calls:
                 return {'status': 'COMPLETED', 'correlation_id': correlation_id,
                         'content': response.get('content'),
+                        'refused': refused,
                         'tool_calls_used': budget.tool_calls}
 
             # The turn that asked for the tools, before the results that answer
@@ -256,8 +261,9 @@ class AIExecutionRunner(models.AbstractModel):
                     # name, no field name and no reason code; the reason is in
                     # the audit row. T-86.
                     payload = NEUTRAL_DENIAL
+                    refused = True
                 except AIBudgetExceeded:
-                    return {'status': 'BUDGET_EXCEEDED',
+                    return {'status': 'BUDGET_EXCEEDED', 'refused': refused,
                             'correlation_id': correlation_id}
                 except Exception as error:      # noqa: BLE001
                     # Nothing a tool does may escape into the caller. In CHAT

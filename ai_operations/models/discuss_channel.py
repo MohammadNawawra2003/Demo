@@ -20,6 +20,7 @@ from odoo.exceptions import UserError
 from odoo.tools import html2plaintext
 
 from ..services.enums import TriggerType
+from ..services.exceptions import NEUTRAL_DENIAL
 
 _logger = logging.getLogger(__name__)
 
@@ -130,7 +131,21 @@ class DiscussChannel(models.Model):
         applies to the channel too: a provider name, an endpoint or a reason code
         in the conversation is the same leak in a friendlier font.
         """
-        status = (result or {}).get('status')
+        result = result or {}
+        # A refusal is not something the model gets to narrate. It was handed
+        # NEUTRAL_DENIAL as the tool result and could still write whatever it
+        # liked afterwards -- vendor concentration, a hard ceiling, a shortage
+        # rule -- none of which was the reason. NEUTRAL_DENIAL is documented as
+        # "the ONLY text a denial is ever allowed to show outside the audit
+        # log", so the surface says it and discards the prose. The real reason
+        # stays on the audit row, where an auditor reads it.
+        #
+        # Deterministic on purpose: a security boundary that depends on the
+        # model choosing to be honest is not a boundary.
+        if result.get('refused'):
+            return NEUTRAL_DENIAL
+
+        status = result.get('status')
         if status == 'COMPLETED':
             return (result.get('content')
                     or _("I have nothing to add."))
