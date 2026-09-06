@@ -165,6 +165,15 @@ class AIExecutionRunner(models.AbstractModel):
                         'content': response.get('content'),
                         'tool_calls_used': budget.tool_calls}
 
+            # The turn that asked for the tools, before the results that answer
+            # them. A tool result is only meaningful next to the request it
+            # answers: drop this and the conversation says "here is an answer"
+            # with no question in it, which a provider is entitled to reject --
+            # and one does, for the whole request rather than the one message.
+            messages.append({'role': 'assistant',
+                             'content': response.get('content') or '',
+                             'tool_calls': calls})
+
             for call in calls:
                 try:
                     result = self.execute_tool(

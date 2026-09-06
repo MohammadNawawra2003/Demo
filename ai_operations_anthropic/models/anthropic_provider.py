@@ -88,10 +88,13 @@ class AnthropicProvider(models.AbstractModel):
             raise AIProviderError(
                 "The Anthropic adapter has no credential configured.")
 
+        vendor_tools, name_map = self._vendor_tools(tools) if tools else ([], {})
+        code_to_vendor = {code: name for name, code in name_map.items()}
+
         payload = {
             'model': model or MODELS[0][0],
             'max_tokens': max_tokens,
-            'messages': self._to_vendor_messages(messages),
+            'messages': self._to_vendor_messages(messages, code_to_vendor),
         }
         if system:
             # Cache breakpoint at the end of the stable prefix. The saving is
@@ -101,9 +104,7 @@ class AnthropicProvider(models.AbstractModel):
             # apart against a five-minute cache.
             payload['system'] = [{'type': 'text', 'text': system,
                                   'cache_control': {'type': 'ephemeral'}}]
-        name_map = {}
-        if tools:
-            vendor_tools, name_map = self._vendor_tools(tools)
+        if vendor_tools:
             vendor_tools[-1]['cache_control'] = {'type': 'ephemeral'}
             payload['tools'] = vendor_tools
 
@@ -169,18 +170,55 @@ class AnthropicProvider(models.AbstractModel):
             "The Anthropic endpoint could not be reached.") from last
 
     @staticmethod
-    def _to_vendor_messages(messages):
+    def _to_vendor_messages(messages, code_to_vendor=None):
+        """Our neutral message list, in this vendor's shape.
+
+        Two rules the vendor enforces and the kernel should not have to know:
+
+        * a ``tool_result`` is only valid when the **previous message** is an
+          assistant turn holding the matching ``tool_use``;
+        * results for one assistant turn belong in **one** user message, so
+          consecutive results are grouped rather than sent one message each.
+
+        Tool names are translated back to the vendor-safe form for consistency
+        with the declarations. The vendor does not currently re-validate names
+        inside historical ``tool_use`` blocks -- verified against the live API --
+        but sending a name it never issued would be gratuitous.
+        """
+        code_to_vendor = code_to_vendor or {}
         vendor = []
+        pending = []
+
+        def flush():
+            if pending:
+                vendor.append({'role': 'user', 'content': list(pending)})
+                pending.clear()
+
         for message in messages:
-            if message.get('role') == 'tool':
-                vendor.append({'role': 'user', 'content': [{
+            role = message.get('role')
+            if role == 'tool':
+                pending.append({
                     'type': 'tool_result',
                     'tool_use_id': message.get('tool_use_id'),
                     'content': json.dumps(message.get('content'), default=str),
-                }]})
+                })
+                continue
+            flush()
+            if role == 'assistant' and message.get('tool_calls'):
+                blocks = []
+                if message.get('content'):
+                    blocks.append({'type': 'text', 'text': message['content']})
+                for call in message['tool_calls']:
+                    name = call.get('name')
+                    blocks.append({'type': 'tool_use',
+                                   'id': call.get('id'),
+                                   'name': code_to_vendor.get(name, name),
+                                   'input': call.get('input') or {}})
+                vendor.append({'role': 'assistant', 'content': blocks})
             else:
-                vendor.append({'role': message.get('role', 'user'),
+                vendor.append({'role': role or 'user',
                                'content': message.get('content') or ''})
+        flush()
         return vendor
 
     @staticmethod

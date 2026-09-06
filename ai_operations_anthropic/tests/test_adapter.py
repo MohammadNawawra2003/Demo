@@ -244,3 +244,35 @@ class TestAnthropicAdapter(TransactionCase):
                           'input': {}}]},
             {'procurement_get_open_pos': 'procurement.get_open_pos'})
         self.assertEqual(result['tool_calls'][0]['name'], 'made_up')
+
+    def test_an_assistant_turn_becomes_tool_use_blocks_with_vendor_names(self):
+        """The second request must replay the request the results answer, and
+        it must name the tool the way the vendor named it."""
+        vendor = self.provider._to_vendor_messages(
+            [{'role': 'user', 'content': 'go'},
+             {'role': 'assistant', 'content': '',
+              'tool_calls': [{'id': 'tu_1', 'name': 'procurement.get_open_pos',
+                              'input': {}}]},
+             {'role': 'tool', 'tool_use_id': 'tu_1', 'content': {'orders': []}}],
+            {'procurement.get_open_pos': 'procurement_get_open_pos'})
+
+        self.assertEqual([m['role'] for m in vendor], ['user', 'assistant', 'user'])
+        block = vendor[1]['content'][0]
+        self.assertEqual(block['type'], 'tool_use')
+        self.assertEqual(block['id'], 'tu_1')
+        self.assertEqual(block['name'], 'procurement_get_open_pos')
+        self.assertEqual(vendor[2]['content'][0]['tool_use_id'], 'tu_1')
+
+    def test_results_for_one_assistant_turn_are_grouped_into_one_message(self):
+        """Two results as two user messages would leave the second one with a
+        user message before it, and no matching tool_use in it."""
+        vendor = self.provider._to_vendor_messages([
+            {'role': 'user', 'content': 'go'},
+            {'role': 'assistant', 'content': '', 'tool_calls': [
+                {'id': 'a', 'name': 'x.one', 'input': {}},
+                {'id': 'b', 'name': 'x.two', 'input': {}}]},
+            {'role': 'tool', 'tool_use_id': 'a', 'content': {'n': 1}},
+            {'role': 'tool', 'tool_use_id': 'b', 'content': {'n': 2}},
+        ])
+        self.assertEqual([m['role'] for m in vendor], ['user', 'assistant', 'user'])
+        self.assertEqual([b['tool_use_id'] for b in vendor[2]['content']], ['a', 'b'])

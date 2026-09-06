@@ -384,3 +384,79 @@ class TestRuntime(AIOperationsCommon):
         self.assertEqual(outcomes[0], outcomes[1],
                          "swapping the adapter changed a permission decision")
         self.assertEqual(outcomes[0], DenialReason.AUTONOMY_INSUFFICIENT)
+
+    # ==================================================================
+    # The two-turn conversation -- regression for manual Test 1
+    # ==================================================================
+
+    def _install_recording_adapter(self):
+        """A scripted vendor that records every message list it is handed.
+
+        Injected at ``_provider_for``, which is the seam the runtime resolves an
+        adapter through. A registry entry cannot be used here: ``_provider_for``
+        does ``env[spec.cls._name]``, so a provider has to be a real Odoo model,
+        and a model cannot be declared inside a test method. Nothing leaves the
+        machine either way.
+        """
+        seen = []
+
+        class _TwoTurn:
+            def complete(self, messages, system=None, tools=None, model=None,
+                         max_tokens=4096, timeout=120):
+                seen.append([dict(m) for m in messages])
+                if len(seen) == 1:
+                    return {'content': '', 'stop_reason': 'tool_use',
+                            'tool_calls': [{'id': 'tu_1', 'name': 'rt.twoturn',
+                                            'input': {}}],
+                            'usage': {'input_tokens': 1, 'output_tokens': 1}}
+                return {'content': 'done', 'tool_calls': [],
+                        'stop_reason': 'end_turn',
+                        'usage': {'input_tokens': 1, 'output_tokens': 1}}
+
+        double = _TwoTurn()
+        self.patch(type(self.runner), '_provider_for',
+                   lambda self, profile: double)
+        return seen
+
+    def _run_two_turns(self):
+        seen = self._install_recording_adapter()
+        self._register('rt.twoturn')
+        self._assign('rt.twoturn')
+        self._install_null_adapter()
+        self.profile.write({'provider_code': 'kt_null', 'model_code': 'null-1'})
+        result = self.runner.run(self.profile.code, TriggerType.CHAT.value,
+                                 session_id='sess-twoturn',
+                                 entry_prompt='what is my scope?')
+        return seen, result
+
+    def test_the_second_call_carries_the_assistant_turn_that_asked_for_the_tool(self):
+        """Manual Test 1 died here with HTTP 400:
+
+            messages.0.content.1: unexpected `tool_use_id` found in
+            `tool_result` blocks ... Each `tool_result` block must have a
+            corresponding `tool_use` block in the previous message.
+
+        The loop appended the tool result but never the assistant turn that
+        requested it, so the second request was [user, tool_result] and the
+        vendor rejected the whole conversation.
+        """
+        seen, _result = self._run_two_turns()
+        self.assertEqual(len(seen), 2, "the loop did not make a second call")
+        roles = [m['role'] for m in seen[1]]
+        self.assertIn('assistant', roles,
+                      "the assistant turn that asked for the tool was dropped")
+        self.assertLess(roles.index('assistant'), roles.index('tool'),
+                        "the tool result precedes the request it answers")
+
+    def test_the_assistant_turn_names_the_tool_it_called(self):
+        seen, _result = self._run_two_turns()
+        assistant = next(m for m in seen[1] if m['role'] == 'assistant')
+        self.assertEqual([c['name'] for c in assistant['tool_calls']],
+                         ['rt.twoturn'])
+        self.assertEqual([c['id'] for c in assistant['tool_calls']], ['tu_1'])
+
+    def test_the_tool_result_still_matches_its_call(self):
+        seen, result = self._run_two_turns()
+        tool_message = next(m for m in seen[1] if m['role'] == 'tool')
+        self.assertEqual(tool_message['tool_use_id'], 'tu_1')
+        self.assertEqual(result['status'], 'COMPLETED')
