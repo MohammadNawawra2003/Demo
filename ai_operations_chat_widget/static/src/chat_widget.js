@@ -38,12 +38,15 @@ export class AiOperationsChatWidget extends Component {
         this.state = useState({
             available: false,
             open: false,
+            loading: false,
             sending: false,
+            error: null,
             profiles: [],
             profileId: null,
             channelId: null,
             messages: [],
             draft: "",
+            lastFailed: null,
         });
 
         onWillStart(async () => {
@@ -77,12 +80,72 @@ export class AiOperationsChatWidget extends Component {
         return this.state.profiles.find((p) => p.id === this.state.profileId) || null;
     }
 
-    toggle() {
+    async toggle() {
         this.state.open = !this.state.open;
+        if (this.state.open) {
+            await this.loadConversation();
+        }
+    }
+
+    /** Minimise keeps the conversation; close forgets it until reopened. */
+    minimize() {
+        this.state.open = false;
     }
 
     close() {
         this.state.open = false;
+        this.state.messages = [];
+        this.state.channelId = null;
+        this.state.error = null;
+    }
+
+    /**
+     * The panel shows the conversation that already exists on the bound
+     * channel, so opening the widget and opening Discuss show the same thing.
+     */
+    async loadConversation() {
+        if (!this.state.profileId) {
+            return;
+        }
+        this.state.loading = true;
+        this.state.error = null;
+        try {
+            const opened = await this.orm.call(
+                "ai.operations.agent.profile", "ai_widget_open",
+                [[this.state.profileId]]
+            );
+            this.state.channelId = opened.channel_id;
+            this.state.messages = opened.messages || [];
+        } catch {
+            this.state.messages = [];
+            this.state.error = _t("This conversation could not be loaded.");
+        } finally {
+            this.state.loading = false;
+        }
+        this._scroll();
+    }
+
+    formatTime(value) {
+        if (!value) {
+            return "";
+        }
+        const parsed = new Date(value.replace(" ", "T") + "Z");
+        if (isNaN(parsed)) {
+            return "";
+        }
+        return parsed.toLocaleTimeString(undefined, {
+            hour: "2-digit", minute: "2-digit",
+        });
+    }
+
+    retry() {
+        const failed = this.state.lastFailed;
+        this.state.error = null;
+        if (failed) {
+            this.state.draft = failed;
+            this.state.lastFailed = null;
+            this.send();
+        }
     }
 
     onSelectProfile(ev) {
@@ -93,6 +156,8 @@ export class AiOperationsChatWidget extends Component {
             // conversation rather than carrying the transcript across.
             this.state.messages = [];
             this.state.channelId = null;
+            this.state.error = null;
+            this.loadConversation();
         }
     }
 
@@ -111,7 +176,10 @@ export class AiOperationsChatWidget extends Component {
             return;
         }
         this.state.draft = "";
-        this.state.messages.push({ author: "user", body });
+        this.state.error = null;
+        this.state.messages.push({
+            author: "user", body, date: new Date().toISOString(),
+        });
         this.state.sending = true;
         this._scroll();
 
@@ -127,10 +195,14 @@ export class AiOperationsChatWidget extends Component {
             // Whatever went wrong, the user gets a sentence. The reason lives in
             // the audit log, where it belongs.
             reply = _t("I am unavailable right now. Nothing has been changed.");
+            this.state.error = _t("That message could not be delivered.");
+            this.state.lastFailed = body;
         } finally {
             this.state.sending = false;
         }
-        this.state.messages.push({ author: "agent", body: reply });
+        this.state.messages.push({
+            author: "agent", body: reply, date: new Date().toISOString(),
+        });
         this._scroll();
     }
 
@@ -156,6 +228,17 @@ export class AiOperationsChatWidget extends Component {
     }
 }
 
-registry.category("main_components").add("ai_operations_chat_widget.ChatWidget", {
+// The toggle lives in the systray, not floating at the bottom-right.
+//
+// That corner is not free: mail's own ChatHub anchors its bubbles there and
+// lifts them with --mail-ChatHub-bubbles-bottomLift, and the Discuss and
+// chatter composers put their controls in the same band. A permanently visible
+// button there covers native controls on exactly the screens people use most,
+// and every fix for that is a per-screen offset that breaks on the next layout
+// change. The systray is where Odoo puts always-available global tools, it is
+// visible on every backend screen, and it collides with nothing.
+//
+// The panel still opens bottom-right, but only while it is being used.
+registry.category("systray").add("ai_operations_chat_widget.ChatWidget", {
     Component: AiOperationsChatWidget,
-});
+}, { sequence: 24 });

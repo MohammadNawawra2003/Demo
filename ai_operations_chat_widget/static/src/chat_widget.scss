@@ -1,100 +1,56 @@
-// Fixed bottom-right, above the webclient but below modals so it can never
-// trap a user behind a dialog.
+// Deliberately small. Odoo's own chat window keeps its styling in Bootstrap
+// utility classes in the template and puts only geometry here, which is what
+// makes it follow the light and dark themes instead of hardcoding either.
+// The toggle is a systray item, so it flows with the navbar and overlaps
+// nothing. Only the panel is fixed, and only while it is open.
 .o_ai_chat_widget {
-    position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    z-index: 1030;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: .5rem;
+    align-items: center;
 
     .o_ai_chat_launcher {
-        width: 3rem;
-        height: 3rem;
-        border: 0;
-        border-radius: 50%;
-        background: var(--o-color-primary, #714B67);
-        color: #fff;
-        box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .3);
-        cursor: pointer;
-        font-size: 1.15rem;
-        &:hover { filter: brightness(1.1); }
+        color: inherit;
+        padding: 0 .5rem;
+        &.o-active { opacity: 1; }
     }
 
     .o_ai_chat_panel {
-        width: 22rem;
+        position: fixed;
+        right: 1rem;
+        // Clear of the band mail's ChatHub and the composers use.
+        bottom: 1rem;
+        // Below modals and dropdowns, above ordinary content.
+        z-index: $zindex-sticky;
+        width: 30rem;
         max-width: calc(100vw - 2rem);
-        height: 28rem;
-        max-height: calc(100vh - 6rem);
-        display: flex;
-        flex-direction: column;
-        background: var(--o-view-background-color, #fff);
-        color: inherit;
-        border: 1px solid rgba(0, 0, 0, .15);
-        border-radius: .5rem;
-        box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .35);
-        overflow: hidden;
+        height: 32rem;
+        max-height: calc(100vh - 7rem);
+        text-align: start;
     }
 
-    .o_ai_chat_header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: .5rem .75rem;
-        background: var(--o-color-primary, #714B67);
-        color: #fff;
-
-        .o_ai_chat_app { font-weight: 600; }
-        small { display: block; opacity: .85; }
+    // A translucent grey reads correctly on both themes without naming a colour
+    // that only exists in one of them.
+    .o_ai_chat_bubble_agent {
+        background-color: rgba(128, 128, 128, .18);
     }
 
-    .o_ai_chat_icon {
-        background: transparent;
-        border: 0;
-        color: inherit;
-        font-size: 1.25rem;
-        line-height: 1;
-        cursor: pointer;
+    .o_ai_chat_bubble {
+        max-width: 85%;
     }
 
-    .o_ai_chat_agent {
-        padding: .4rem .75rem;
-        border-bottom: 1px solid rgba(0, 0, 0, .1);
-        select { width: 100%; }
-    }
-
-    .o_ai_chat_thread {
-        flex: 1 1 auto;
-        overflow-y: auto;
-        padding: .75rem;
-        display: flex;
-        flex-direction: column;
-        gap: .5rem;
-    }
-
-    .o_ai_chat_empty { opacity: .7; font-size: .85rem; }
-
-    .o_ai_chat_message {
-        // Agent answers arrive as plain text with real line breaks in them.
+    // Answers arrive as plain text with real line breaks in them.
+    .o_ai_chat_body {
         white-space: pre-wrap;
         word-break: break-word;
-        padding: .4rem .6rem;
-        border-radius: .5rem;
-        max-width: 90%;
-        font-size: .9rem;
     }
 
-    .o_ai_chat_user {
-        align-self: flex-end;
-        background: var(--o-color-primary, #714B67);
-        color: #fff;
+    .o_ai_chat_time {
+        opacity: .75;
+        font-size: .7rem;
     }
 
-    .o_ai_chat_agent, .o_ai_chat_agent_typing {
-        align-self: flex-start;
-        background: rgba(128, 128, 128, .18);
+    .o_ai_chat_composer textarea {
+        resize: none;
+        max-height: 6rem;
     }
 
     .o_ai_chat_dot {
@@ -109,29 +65,13 @@
         &:nth-child(2) { animation-delay: .2s; }
         &:nth-child(3) { animation-delay: .4s; }
     }
+}
 
-    .o_ai_chat_compose {
-        display: flex;
-        gap: .4rem;
-        padding: .5rem;
-        border-top: 1px solid rgba(0, 0, 0, .1);
-        textarea { flex: 1 1 auto; resize: none; }
-    }
-
-    .o_ai_chat_footer {
-        padding: 0 .5rem .5rem;
-        text-align: right;
-    }
-
-    .o_ai_chat_link {
-        background: none;
-        border: 0;
-        padding: 0;
-        font-size: .8rem;
-        text-decoration: underline;
-        cursor: pointer;
-        color: inherit;
-        opacity: .8;
+// Narrow backend windows: fill the width rather than overflow it.
+@media (max-width: 575.98px) {
+    .o_ai_chat_widget .o_ai_chat_panel {
+        width: calc(100vw - 2rem);
+        height: calc(100vh - 8rem);
     }
 }
 

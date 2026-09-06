@@ -1,22 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
 
+    <!--
+        Styled the way Odoo styles its own chat window: theme-aware Bootstrap
+        utilities in the markup (bg-100, bg-inherit, border-secondary,
+        text-muted), and almost nothing in SCSS. That is what makes it follow
+        the light and dark themes instead of fighting them.
+    -->
     <t t-name="ai_operations_chat_widget.ChatWidget">
         <div class="o_ai_chat_widget" t-if="state.available">
 
-            <div class="o_ai_chat_panel" t-if="state.open" role="dialog"
-                 aria-label="AI Operations chat">
-                <div class="o_ai_chat_header">
-                    <div class="o_ai_chat_title">
-                        <span class="o_ai_chat_app">AI Operations</span>
-                        <small t-if="activeProfile" t-esc="activeProfile.name"/>
+            <div t-if="state.open"
+                 class="o_ai_chat_panel bg-100 border border-secondary rounded shadow d-flex flex-column overflow-hidden"
+                 role="dialog" aria-label="AI Operations chat">
+
+                <!-- header -->
+                <div class="o_ai_chat_header bg-inherit border-bottom border-secondary d-flex align-items-center gap-2 px-2 py-1 flex-shrink-0">
+                    <i class="fa fa-comments-o text-primary" role="img"/>
+                    <div class="flex-grow-1 text-truncate lh-sm">
+                        <div class="fw-bold small">AI Operations</div>
+                        <div class="text-muted smaller text-truncate"
+                             t-esc="activeProfile ? activeProfile.name : ''"/>
                     </div>
-                    <button class="o_ai_chat_icon" t-on-click="close"
-                            title="Close" aria-label="Close">&#215;</button>
+                    <button class="btn btn-sm btn-link p-1 text-muted" t-if="state.channelId"
+                            t-on-click="openInDiscuss"
+                            title="Open in Discuss" aria-label="Open in Discuss">
+                        <i class="fa fa-external-link"/>
+                    </button>
+                    <button class="btn btn-sm btn-link p-1 text-muted" t-on-click="minimize"
+                            title="Minimize" aria-label="Minimize">
+                        <i class="fa fa-minus"/>
+                    </button>
+                    <button class="btn btn-sm btn-link p-1 text-muted" t-on-click="close"
+                            title="Close" aria-label="Close">
+                        <i class="fa fa-times"/>
+                    </button>
                 </div>
 
-                <div class="o_ai_chat_agent" t-if="state.profiles.length > 1">
-                    <select t-on-change="onSelectProfile" aria-label="Agent">
+                <!-- agent selector -->
+                <div class="px-2 py-1 border-bottom border-secondary flex-shrink-0"
+                     t-if="state.profiles.length > 1">
+                    <select class="form-select form-select-sm"
+                            t-on-change="onSelectProfile" aria-label="Agent">
                         <t t-foreach="state.profiles" t-as="profile" t-key="profile.id">
                             <option t-att-value="profile.id"
                                     t-att-selected="profile.id === state.profileId"
@@ -25,39 +50,60 @@
                     </select>
                 </div>
 
-                <div class="o_ai_chat_thread" t-ref="thread">
-                    <p class="o_ai_chat_empty" t-if="!state.messages.length">
+                <!-- conversation -->
+                <div class="o_ai_chat_thread flex-grow-1 overflow-auto p-2 d-flex flex-column gap-2"
+                     t-ref="thread">
+                    <div t-if="state.loading" class="text-muted small text-center my-auto">
+                        Loading the conversation…
+                    </div>
+                    <div t-elif="!state.messages.length"
+                         class="text-muted small text-center my-auto px-2">
                         Ask about your own data. Every answer is checked against what you
                         are allowed to see.
-                    </p>
-                    <t t-foreach="state.messages" t-as="message" t-key="message_index">
-                        <div t-attf-class="o_ai_chat_message o_ai_chat_{{message.author}}">
-                            <span t-esc="message.body"/>
+                    </div>
+                    <t t-foreach="state.messages" t-as="message" t-key="message.id or message_index">
+                        <div t-attf-class="o_ai_chat_row d-flex {{ message.author === 'user' ? 'justify-content-end' : 'justify-content-start' }}">
+                            <div t-attf-class="o_ai_chat_bubble rounded px-2 py-1 small {{ message.author === 'user' ? 'bg-primary text-white' : 'o_ai_chat_bubble_agent' }}">
+                                <div class="o_ai_chat_body" t-esc="message.body"/>
+                                <div t-if="message.date"
+                                     t-attf-class="o_ai_chat_time smaller {{ message.author === 'user' ? 'text-white-50' : 'text-muted' }}"
+                                     t-esc="formatTime(message.date)"/>
+                            </div>
                         </div>
                     </t>
-                    <div class="o_ai_chat_message o_ai_chat_agent_typing" t-if="state.sending">
-                        <span class="o_ai_chat_dot"/><span class="o_ai_chat_dot"/><span class="o_ai_chat_dot"/>
+                    <div t-if="state.sending" class="d-flex justify-content-start">
+                        <div class="o_ai_chat_bubble o_ai_chat_bubble_agent rounded px-2 py-1">
+                            <span class="o_ai_chat_dot"/><span class="o_ai_chat_dot"/><span class="o_ai_chat_dot"/>
+                        </div>
                     </div>
                 </div>
 
-                <div class="o_ai_chat_compose">
-                    <textarea t-model="state.draft" t-on-keydown="onKeydown"
-                              rows="1" placeholder="Message the agent…"
-                              aria-label="Message"/>
-                    <button class="btn btn-primary o_ai_chat_send"
-                            t-on-click="send" t-att-disabled="state.sending"
-                            aria-label="Send">Send</button>
+                <!-- error -->
+                <div t-if="state.error"
+                     class="alert alert-warning d-flex align-items-center justify-content-between gap-2 m-2 py-1 px-2 small">
+                    <span t-esc="state.error"/>
+                    <button class="btn btn-sm btn-link p-0" t-on-click="retry">Retry</button>
                 </div>
 
-                <div class="o_ai_chat_footer" t-if="state.channelId">
-                    <button class="o_ai_chat_link" t-on-click="openInDiscuss">
-                        Open in Discuss
+                <!-- composer -->
+                <div class="o_ai_chat_composer border-top border-secondary p-2 d-flex align-items-end gap-2 flex-shrink-0">
+                    <textarea class="form-control form-control-sm"
+                              t-model="state.draft" t-on-keydown="onKeydown"
+                              rows="1" placeholder="Message the agent…"
+                              aria-label="Message"/>
+                    <button class="btn btn-primary btn-sm d-flex align-items-center"
+                            t-on-click="send"
+                            t-att-disabled="state.sending or !state.draft.trim()"
+                            title="Send" aria-label="Send">
+                        <i class="fa fa-paper-plane"/>
                     </button>
                 </div>
             </div>
 
-            <button class="o_ai_chat_launcher" t-on-click="toggle"
-                    title="AI Operations" aria-label="AI Operations chat">
+            <button class="o_ai_chat_launcher btn btn-link o-dropdown d-flex align-items-center"
+                    t-on-click="toggle" title="AI Operations"
+                    aria-label="AI Operations chat"
+                    t-att-class="{ 'o-active': state.open }">
                 <i class="fa fa-comments" role="img"/>
             </button>
         </div>

@@ -37,6 +37,59 @@ class AIOperationsAgentProfile(models.Model):
                  'name': profile.name,
                  'code': profile.code} for profile in profiles]
 
+    #: How many turns the panel shows when it opens. A display bound, not a
+    #: security one: what the model is given is bounded separately by the
+    #: runtime, and this is only what the user can scroll back through.
+    WIDGET_HISTORY_LIMIT = 30
+
+    def _ai_widget_channel(self):
+        """The conversation this agent and this user already share.
+
+        ``action_open_chat`` carries the ``group_ai_user`` check, the "profile
+        must have a partner" check and the get-or-create, so reusing it is what
+        keeps the widget on the same channel as Discuss instead of inventing a
+        second one.
+        """
+        self.ensure_one()
+        action = self.action_open_chat()
+        return self.env['discuss.channel'].browse(action['params']['channel_id'])
+
+    def _ai_widget_messages(self, channel):
+        """What has already been said here, oldest first.
+
+        Read through the ORM as the current user, so a conversation someone
+        else owns is not readable here for the same reason it is not readable
+        in Discuss.
+        """
+        messages = self.env['mail.message'].search(
+            [('model', '=', 'discuss.channel'),
+             ('res_id', '=', channel.id),
+             ('message_type', '=', 'comment')],
+            order='id desc', limit=self.WIDGET_HISTORY_LIMIT)
+        rendered = []
+        for message in reversed(messages):
+            body = html2plaintext(message.body or '')
+            if not body.strip():
+                continue
+            rendered.append({
+                'id': message.id,
+                'author': 'agent' if message.author_id == self.partner_id else 'user',
+                'author_name': message.author_id.display_name or '',
+                'body': body,
+                'date': message.date and message.date.isoformat() or '',
+            })
+        return rendered
+
+    def ai_widget_open(self):
+        """Everything the panel needs to show this conversation."""
+        self.ensure_one()
+        channel = self._ai_widget_channel()
+        return {
+            'channel_id': channel.id,
+            'profile_id': self.id,
+            'messages': self._ai_widget_messages(channel),
+        }
+
     def ai_widget_send(self, body):
         """One turn, through the conversation Discuss already uses.
 
@@ -50,8 +103,7 @@ class AIOperationsAgentProfile(models.Model):
         message cannot carry markup into anyone's conversation.
         """
         self.ensure_one()
-        action = self.action_open_chat()
-        channel = self.env['discuss.channel'].browse(action['params']['channel_id'])
+        channel = self._ai_widget_channel()
 
         before = channel.message_ids.ids
         channel.message_post(body=body or '', message_type='comment',
