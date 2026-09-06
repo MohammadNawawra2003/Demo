@@ -3,10 +3,33 @@
 import { expect, test, describe } from "@odoo/hoot";
 import { click, queryAll, queryFirst } from "@odoo/hoot-dom";
 import { animationFrame } from "@odoo/hoot-mock";
-import { mountWithCleanup, onRpc } from "@web/../tests/web_test_helpers";
+import {
+    defineModels,
+    fields,
+    models,
+    mountWithCleanup,
+    onRpc,
+} from "@web/../tests/web_test_helpers";
+import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { AiOperationsChatWidget } from "@ai_operations_chat_widget/chat_widget";
 
 describe.current.tags("desktop");
+
+/**
+ * The component RPCs against ai.operations.agent.profile, and the webclient
+ * environment it mounts into reaches for the mail models. Both have to exist in
+ * the mock server or every test fails on "could not get model from server
+ * environment" -- which is exactly what happened the first time these were run.
+ */
+class AiOperationsAgentProfile extends models.Model {
+    _name = "ai.operations.agent.profile";
+
+    name = fields.Char();
+    code = fields.Char();
+}
+
+defineMailModels();
+defineModels([AiOperationsAgentProfile]);
 
 const TWO_PROFILES = [
     { id: 1, name: "Procurement Intelligence", code: "procurement" },
