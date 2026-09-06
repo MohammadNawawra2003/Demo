@@ -181,7 +181,19 @@ class AIOperationsDemoSetup(models.AbstractModel):
 
     @api.model
     def _enable_tools(self):
-        """Tools materialise disabled at registry load. Enable only ours."""
+        """Tools materialise disabled at registry load. Enable only ours.
+
+        The sync call is not belt-and-braces. ``ai.operations.tool`` fills itself
+        from the Python registry in ``_register_hook``, which Odoo runs at
+        ``loading.py`` STEP 9 -- **after** every module's data files. On a
+        database where the packs are already installed the records are there
+        from the previous registry load, but on a first-time install of the
+        whole chain this data file runs before any tool record exists, and every
+        assignment below would fail on a missing tool. Calling the kernel's own
+        materialiser first is idempotent and is exactly what STEP 9 will do
+        again a moment later.
+        """
+        self.env['ai.operations.tool']._sync_from_registry()
         wanted = {code for pairs in ASSIGNMENTS.values() for code, _ in pairs}
         tools = self.env['ai.operations.tool'].with_context(
             active_test=False).search([('code', 'in', list(wanted))])
