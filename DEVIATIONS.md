@@ -750,3 +750,58 @@ knows its product, vendor and quantity · replayed history contains no tool call
 provider scripted: two runs, turn 2 carrying 15 alternating user/assistant turns, product, vendor and
 quantity all present, and **no `tool_calls` key anywhere in the replayed history**. Transaction rolled
 back.
+
+---
+
+## 2026-09-06 — manual Test 2: a per-tool cap was shrinking the whole run
+
+`prepare_draft_rfq` was refused with `BUDGET_EXCEEDED`, detail **"tool call 5 exceeds the run cap of
+2"**, on a profile that allows **8**. Not tokens, not cost, not an exhausted session, and not carried
+between turns: `run()` builds a fresh `RunBudget` per user message, so this was one run.
+
+### Root cause
+
+```python
+budget.max_tool_calls = min(budget.max_tool_calls,
+                            assignment.max_calls_per_run or budget.max_tool_calls)
+```
+
+That folds **one tool's** cap into the counter for the **whole run**, and `min()` only ratchets down —
+it never recovers. Four reads had already run when `prepare_draft_rfq`, capped at 2 by its
+assignment, was authorised. The run cap became 2 and the fifth call was measured against it.
+
+### They are two different caps, and the frozen spec says so
+
+| | Where | Meaning |
+|---|---|---|
+| `profile.max_tool_calls` | C §5.1, "autonomous loop cap"; C §9 and D §11 both cap the loop with it | the whole run |
+| `max_calls_per_run` | C §5.6, on the **tool assignment**; its own help: *"Optional per-run cap for this tool, tighter than the profile's"* | **that tool** |
+
+`RunBudget` now counts per tool as well as in total, and the guard checks the assignment's cap
+against that tool's own count. Nothing is loosened: the run cap still stops a runaway loop, a tool's
+cap still stops that tool, and neither bleeds into the other. Read-only prerequisites still count
+toward the run total — the loop cap exists to stop a loop, whatever it calls.
+
+### Tests — five, all watched failing first
+
+A tight per-tool cap does not shrink the run · a per-tool cap still stops its tool · one tool's cap
+does not limit another · the run cap still stops a runaway · Manual Test 2's five-call workflow
+completes on one budget and produces exactly one draft.
+
+**442 tests across 9 modules, 0 failed.**
+
+### Staging verification — no vendor call
+
+`stage` `7b5827e`, kernel **19.0.1.14.0**. As Noura on one budget: run cap **8**, **5 calls used**,
+per-tool counts `{find_product: 1, get_shortage_context: 1, compare_suppliers: 1, get_open_pos: 1,
+prepare_draft_rfq: 1}`, draft **P00003 state=draft**, and the same idempotency key twice producing
+**one** order. Transaction rolled back.
+
+### ⚠ Observation for the decision log — NOT changed
+
+`check_bound` treats a deterministic figure of **0** as `variance = 0.0`, so a recommendation made
+against a system-computed shortage of zero is **neither escalated nor refused**. Odoo's computed
+shortage for PK-BTL-330 *is* 0, so Manual Test 2 is exactly that shape: the draft is created with
+`approval_required = False`. Avoiding a division by zero is right; treating "no computed basis at
+all" as "no variance" is a policy question, and the bound cannot see the case it most wants to catch.
+Left as the frozen behaviour; it needs a ruling, not a quiet change.
