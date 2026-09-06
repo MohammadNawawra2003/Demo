@@ -195,6 +195,23 @@ class AIOperationsDemoSetup(models.AbstractModel):
         """
         self.env['ai.operations.tool']._sync_from_registry()
         wanted = {code for pairs in ASSIGNMENTS.values() for code, _ in pairs}
+        Tool = self.env['ai.operations.tool'].with_context(active_test=False)
+        # The packs wire an assignment for EVERY tool they register, in
+        # _register_hook (see ai_operations_procurement/models/policy.py), and
+        # that hook runs at STEP 9 -- after this data file. So an assignment
+        # this module disables now is recreated enabled a moment later, and
+        # assignment.enabled is not a gate this module can hold.
+        #
+        # tool.enabled is. build_tool_definitions() offers a tool only when the
+        # tool record AND the assignment are enabled, so disabling every tool
+        # outside the scenario set is what actually bounds what the model is
+        # ever shown -- for every profile, not just these two.
+        surplus = Tool.search([('enabled', '=', True), ('code', 'not in', list(wanted))])
+        if surplus:
+            _logger.info("ai_operations_demo_data: disabling %d tool(s) outside "
+                         "the demo scope: %s", len(surplus),
+                         ', '.join(surplus.mapped('code')))
+            surplus.write({'enabled': False})
         tools = self.env['ai.operations.tool'].with_context(
             active_test=False).search([('code', 'in', list(wanted))])
         missing = wanted - set(tools.mapped('code'))

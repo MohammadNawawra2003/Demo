@@ -127,15 +127,23 @@ class TestDemoConfiguration(TransactionCase):
     def test_only_the_scenario_tools_are_assigned(self):
         for code, pairs in ASSIGNMENTS.items():
             profile = self.Profile.search([('code', '=', code)], limit=1)
-            enabled = set(profile.tool_assignment_ids.filtered('enabled')
-                          .tool_id.mapped('code'))
-            self.assertEqual(enabled, {tool for tool, _ in pairs},
-                             "%s grants tools beyond its scenarios" % code)
+            # The set the runtime actually OFFERS the model: an assignment
+            # counts only when its tool record is enabled too. The packs wire an
+            # assignment per registered tool in _register_hook, so the
+            # assignment list alone is not the grant -- build_tool_definitions()
+            # requires both, and so does this assertion.
+            offered = set(profile.tool_assignment_ids.filtered('enabled')
+                          .tool_id.filtered('enabled').mapped('code'))
+            self.assertEqual(offered, {tool for tool, _ in pairs},
+                             "%s offers tools beyond its scenarios" % code)
 
-    def test_assigned_tools_are_enabled_and_capped(self):
-        for assignment in self.procurement.tool_assignment_ids.filtered('enabled'):
-            self.assertTrue(assignment.tool_id.enabled)
-            self.assertGreater(assignment.max_calls_per_run, 0)
+    def test_assigned_tools_are_capped(self):
+        offered = self.procurement.tool_assignment_ids.filtered(
+            lambda a: a.enabled and a.tool_id.enabled)
+        self.assertTrue(offered)
+        for assignment in offered:
+            self.assertGreater(assignment.max_calls_per_run, 0,
+                               "%s has no per-run cap" % assignment.tool_id.code)
 
     def test_the_handoff_type_is_the_one_the_pack_ships(self):
         handoff_type = self.env['ai.operations.handoff.type'].search(

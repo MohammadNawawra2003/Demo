@@ -74,9 +74,15 @@ needs them, and activating them would be privilege nobody is testing.
 Procurement: `get_shortage_context`, `get_open_pos`, `compare_suppliers`, `prepare_draft_rfq`.
 Manufacturing: `check_readiness`, `raise_handoff`. Each capped with `max_calls_per_run`.
 
-Any assignment outside this list on the two demo profiles is **disabled, never deleted** — the
-promise is least privilege, and a database poked at by hand must still converge on the advertised
-grant, but destroying someone else's record is not this module's business.
+**How the grant is actually bounded — this matters.** Each pack wires an assignment for *every* tool
+it registers, in `_register_hook` (see `ai_operations_procurement/models/policy.py`), and that hook
+runs at loading STEP 9, **after** every data file. So `assignment.enabled` is not a gate this module
+can hold: anything it disables is recreated a moment later.
+
+`tool.enabled` is the gate. `build_tool_definitions()` offers a tool to the model only when the tool
+record **and** the assignment are enabled, so this module enables its six and **disables every other
+tool** — for all profiles, not just these two. That is what bounds what any agent is ever shown, and
+it is what the test asserts: the *offered* set, computed the way the runtime computes it.
 
 ### Chat channels (3)
 
