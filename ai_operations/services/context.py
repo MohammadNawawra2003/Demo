@@ -16,14 +16,29 @@ class RunBudget:
         self.max_write_ops = max_write_ops
         self.tool_calls = 0
         self.write_ops = 0
+        #: Per-tool counts. Document C 5.1's ``max_tool_calls`` is the loop cap
+        #: for the whole run; C 5.6's ``max_calls_per_run`` sits on the
+        #: assignment and bounds **that tool**. They are two different caps and
+        #: conflating them made a tight cap on one tool shrink the entire run.
+        self.calls_by_tool = {}
 
-    def consume_tool_call(self):
+    def consume_tool_call(self, tool_code=None, max_calls_for_tool=0):
         self.tool_calls += 1
         if self.tool_calls > self.max_tool_calls:
             raise AIAccessDenied(
                 DenialReason.BUDGET_EXCEEDED,
                 detail='tool call %d exceeds the run cap of %d'
                        % (self.tool_calls, self.max_tool_calls))
+
+        if not tool_code:
+            return
+        used = self.calls_by_tool.get(tool_code, 0) + 1
+        self.calls_by_tool[tool_code] = used
+        if max_calls_for_tool and used > max_calls_for_tool:
+            raise AIAccessDenied(
+                DenialReason.BUDGET_EXCEEDED,
+                detail='call %d of %s exceeds its own cap of %d'
+                       % (used, tool_code, max_calls_for_tool))
 
     def consume_write(self):
         self.write_ops += 1

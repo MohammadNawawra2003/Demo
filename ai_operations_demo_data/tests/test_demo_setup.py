@@ -509,3 +509,41 @@ class TestNouraProcurementPath(TestDemoConfiguration):
             self.assertIn(message['role'], ('user', 'assistant'))
             self.assertNotIn('tool_calls', message)
             self.assertNotIn('tool_use_id', message)
+
+    def test_the_whole_test_2_workflow_fits_in_one_run(self):
+        """Manual Test 2 died on "tool call 5 exceeds the run cap of 2".
+
+        The profile allows 8 calls and the workflow needs 5. It failed because
+        prepare_draft_rfq's own assignment cap of 2 was being folded into the
+        run's cap, so the fifth call was measured against the wrong number.
+        """
+        from odoo.addons.ai_operations.services.context import RunBudget
+        budget = RunBudget(max_tool_calls=self.procurement.max_tool_calls,
+                           max_write_ops=self.procurement.max_write_ops)
+
+        def call(code, params):
+            return self.runner.execute_tool(
+                self.procurement, code, params, 'INTERACTIVE', 'CHAT',
+                'test-2-run', budget=budget)
+
+        found = call('procurement.find_product', {'product_ref': 'PK-BTL-330'})
+        pid = next(p['id'] for p in found['products']
+                   if p['code'] == 'PK-BTL-330')
+        shortage = call('procurement.get_shortage_context', {'product_id': pid})
+        offers = call('procurement.compare_suppliers', {'product_id': pid})['offers']
+        call('procurement.get_open_pos', {'product_id': pid})
+        partner_id = next(o['partner_id'] for o in offers
+                          if o['vendor'] == 'Jeddah Plastic Industries')
+
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+        call('procurement.prepare_draft_rfq', {          # the fifth call
+            'product_id': pid, 'partner_id': partner_id,
+            'deterministic_shortage': shortage['shortage'],
+            'recommended_quantity': 100000.0,
+            'idempotency_key': 'test2-full-run'})
+
+        self.assertEqual(budget.tool_calls, 5)
+        created = Purchase.search([]) - before
+        self.assertEqual(len(created), 1, "the workflow produced no draft")
+        self.assertEqual(created.state, 'draft')

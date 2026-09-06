@@ -113,10 +113,11 @@ class AISecurityService(models.AbstractModel):
         budget = budget or RunBudget(
             max_tool_calls=profile.max_tool_calls or 12,
             max_write_ops=profile.max_write_ops or 3)
-        budget.max_tool_calls = min(
-            budget.max_tool_calls,
-            assignment.max_calls_per_run or budget.max_tool_calls)
-        budget.consume_tool_call()                                 # 19
+        # The assignment's cap bounds THIS TOOL, not the run. Folding it into
+        # the run's own cap made every later tool inherit the tightest cap any
+        # earlier tool happened to carry, and min() never recovers.
+        budget.consume_tool_call(                                  # 19
+            tool_code, assignment.max_calls_per_run or 0)
 
         env = self.env(user=identity, context={
             **self.env.context,

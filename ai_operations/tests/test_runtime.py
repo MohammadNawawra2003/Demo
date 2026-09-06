@@ -460,3 +460,72 @@ class TestRuntime(AIOperationsCommon):
         tool_message = next(m for m in seen[1] if m['role'] == 'tool')
         self.assertEqual(tool_message['tool_use_id'], 'tu_1')
         self.assertEqual(result['status'], 'COMPLETED')
+
+    # ==================================================================
+    # The two caps are different caps -- Manual Test 2's blocker
+    # ==================================================================
+
+    def _assign_capped(self, code, max_calls):
+        tool = self._assign(code)
+        assignment = self.env['ai.operations.tool.assignment'].search([
+            ('profile_id', '=', self.profile.id),
+            ('tool_id', '=', tool.id)], limit=1)
+        assignment.max_calls_per_run = max_calls
+        return assignment
+
+    def test_a_tight_per_tool_cap_does_not_shrink_the_whole_run(self):
+        """Manual Test 2 died on "tool call 5 exceeds the run cap of 2".
+
+        The profile allowed 8 calls. Four reads had already run when a tool
+        whose assignment caps it at 2 was authorised, and the guard replaced the
+        RUN cap with that tool's cap -- a min() that only ever ratchets down and
+        never recovers. C §5.1 makes ``max_tool_calls`` the loop cap and §5.6
+        puts ``max_calls_per_run`` on the assignment, "for this tool".
+        """
+        self._register('rt.cheap')
+        self._assign('rt.cheap')
+        self._register('rt.capped')
+        self._assign_capped('rt.capped', 1)
+        budget = RunBudget(max_tool_calls=8, max_write_ops=3)
+
+        for _ in range(4):
+            self._call('rt.cheap', budget=budget)
+        self._call('rt.capped', budget=budget)          # 5th call of 8
+
+        self.assertEqual(budget.tool_calls, 5)
+        self.assertEqual(budget.max_tool_calls, 8,
+                         "a per-tool cap overwrote the run's own cap")
+
+    def test_a_per_tool_cap_still_stops_that_tool(self):
+        self._register('rt.limited')
+        self._assign_capped('rt.limited', 2)
+        budget = RunBudget(max_tool_calls=8, max_write_ops=3)
+        self._call('rt.limited', budget=budget)
+        self._call('rt.limited', budget=budget)
+        with self.assertRaises(AIAccessDenied) as caught:
+            self._call('rt.limited', budget=budget)
+        self.assertEqual(caught.exception.reason, DenialReason.BUDGET_EXCEEDED)
+
+    def test_one_tools_cap_does_not_limit_another_tool(self):
+        self._register('rt.tight')
+        self._assign_capped('rt.tight', 1)
+        self._register('rt.loose')
+        self._assign('rt.loose')
+        budget = RunBudget(max_tool_calls=8, max_write_ops=3)
+
+        self._call('rt.tight', budget=budget)
+        for _ in range(3):
+            self._call('rt.loose', budget=budget)
+
+        self.assertEqual(budget.tool_calls, 4)
+
+    def test_the_run_cap_still_stops_a_runaway_loop(self):
+        """The budget must still be a budget. T-67 with a per-tool cap present."""
+        self._register('rt.runaway')
+        self._assign_capped('rt.runaway', 99)
+        budget = RunBudget(max_tool_calls=3, max_write_ops=3)
+        for _ in range(3):
+            self._call('rt.runaway', budget=budget)
+        with self.assertRaises(AIAccessDenied) as caught:
+            self._call('rt.runaway', budget=budget)
+        self.assertEqual(caught.exception.reason, DenialReason.BUDGET_EXCEEDED)
