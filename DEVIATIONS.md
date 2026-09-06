@@ -638,3 +638,62 @@ still translates them — for consistency with the declarations, not to avoid an
 `status=COMPLETED`, one tool call, reply naming **P00001 / Jeddah Plastic Industries / Draft**, audit
 `OPEN → DECISION(ALLOWED) → RESULT(ALLOWED)` and **no ERROR row**. Purchase-order count unchanged
 (1 → 1) and the transaction rolled back, so no business record was created.
+
+---
+
+## 2026-09-06 — manual Test 2: two defects behind one misleading denial
+
+Noura's request was refused with `USER_ACL_DENIED` on `get_shortage_context` and
+`compare_suppliers`. It was neither a rights problem nor a single defect.
+
+### Diagnosis came from the audit row, not from guessing
+
+`denial_detail` said *"execution user cannot read product.product"* and `input_args` said the model
+had passed **`product_id: 330`** — invented from the code `PK-BTL-330`. **Product 330 does not
+exist; PK-BTL-330 is product 8.** Reading a record that does not exist raises `AccessError`, which
+the guard correctly maps to `USER_ACL_DENIED` — so a *missing* record reads exactly like a
+*forbidden* one.
+
+That conflation is Odoo's own convention (it refuses to leak whether a record exists), so it stays.
+But it is worth knowing when reading an audit log: **`USER_ACL_DENIED` on a read is as likely to mean
+"no such record" as "not your record".**
+
+Verified as Noura before changing anything: `product_id 330` denied, `product_id 8` **succeeds**,
+with no permission change. She already holds `purchase.group_purchase_user` and
+`stock.group_stock_user`, both of which grant read on `product.product`. So not missing groups, not
+an over-reaching tool, not an incomplete policy, not bad seed references.
+
+### Defect 1 — the agent could not resolve a product (`ai_operations_procurement`)
+
+Every tool in every pack takes a numeric `product_id`, and **no tool anywhere resolved a code to
+one**. The model had nothing to do but guess, and any guess is refused.
+
+Adds `procurement.find_product`: READ, QUERY autonomy, declares `product.product` only — already
+permitted by the profile, so no permission was widened. Its parameter is **`product_ref`, not
+`query`**: the kernel refuses that name outright (`registry.py PROHIBITED_PARAM_NAMES`) because a
+parameter the LLM fills must never be mistakable for a domain, a model or an expression. The
+registration guard rejected the first attempt — the check works.
+
+### Defect 2 — Naqaa's vendors were invisible (`alshayeb_demo_water`)
+
+`product.supplierinfo.company_id` defaults to the **installing user's** company, so all 33 supplier
+prices landed on *My Company* rather than Naqaa, and the multi-company record rule hid every one of
+them from every Naqaa user. `compare_suppliers` returned an empty offer list for every product, with
+no error anywhere — the worst kind of failure.
+
+The company is now explicit, existing rows are corrected on the way past, and `build_all` runs from
+an updatable data file instead of a `post_init_hook`: a hook fires on install alone, so a database
+built before the fix could never repair itself. Staging repaired itself on upgrade — all 33 rows
+moved to company 212.
+
+### Tests — five, reproducing Noura's exact path, all watched failing first
+
+Resolve the code · shortage context · vendor comparison · a draft that is never confirmed · the same
+request twice producing one order. **430 tests across 9 modules, 0 failed.**
+
+### Staging verification — no vendor call at all
+
+`stage` `7b0b1fa`. As Noura, through `execute_tool` end to end: `find_product` → id 8;
+`shortage_context` → PK-BTL-330; `compare_suppliers` → Jeddah 0.055 **and** Riyadh 0.0583;
+`prepare_draft_rfq` → **P00002, state=draft**; the same key twice → **one** order. Transaction rolled
+back, so nothing persisted. Zero Anthropic calls were spent on this diagnosis.
