@@ -697,3 +697,56 @@ request twice producing one order. **430 tests across 9 modules, 0 failed.**
 `shortage_context` → PK-BTL-330; `compare_suppliers` → Jeddah 0.055 **and** Riyadh 0.0583;
 `prepare_draft_rfq` → **P00002, state=draft**; the same key twice → **one** order. Transaction rolled
 back, so nothing persisted. Zero Anthropic calls were spent on this diagnosis.
+
+---
+
+## 2026-09-06 — manual Test 2, turn 2: every message opened a new conversation
+
+The agent had resolved PK-BTL-330, pulled the deterministic shortage, found the existing P00001,
+compared Jeddah against Riyadh and asked the user to choose. She answered *"(b) Go ahead"* and it
+replied *"I don't have a product identified yet in this conversation"*.
+
+### Root cause
+
+`_ai_dispatch` passed only the newest message as `entry_prompt`, and `run()` started
+`messages = [that one user turn]`. **Every chat message began a brand-new conversation.**
+`session_id` was carried for budget counters and audit correlation and was never used to rebuild
+anything.
+
+**Document C §9.4** assembles the prompt from *"the agent's system prompt, tool descriptions from the
+registry, the authorised current record …, authorised handoff payloads, and conversation messages."*
+The conversation messages were simply never implemented.
+
+### Fix
+
+**The chat surface** replays the earlier turns of **its own channel**, scoped by `res_id` — the
+freeze checklist's *"No conversation history crosses a boundary"*. A chat channel has exactly two
+members, so the record **is** the boundary: no other conversation, employee or company can reach it.
+
+**Text only, deliberately.** The agent's own earlier prose already carries whatever a tool returned,
+filtered by the serialiser at the time it was written, so nothing has to be persisted or
+reconstructed and **no `tool_use` is ever replayed**.
+
+**The runtime narrows it again rather than trusting the surface** (`_sanitise_history`): roles to
+`user`/`assistant`, content must already be a string, every other key dropped. A replayed `tool_use`
+would put a call in the model's context that never passed the guard. T-52 independently keeps
+conversation history out of handoff payloads, and that is untouched.
+
+**Bounded on both axes** — 20 turns and 12 000 characters, oldest dropped first, and a conversation
+may not open on the assistant. A channel is long-lived and every earlier turn is re-sent and re-billed
+on every message.
+
+### Tests — seven, all watched failing first
+
+A follow-up carries the earlier turns · the first message has none · history never crosses between
+channels · it is bounded · a smuggled `tool_call` does not survive · turn 2 of Manual Test 2 still
+knows its product, vendor and quantity · replayed history contains no tool call.
+
+**437 tests across 9 modules, 0 failed.**
+
+### Staging verification — no vendor call
+
+`stage` `6f7872c`, kernel **19.0.1.13.0**. Two messages posted into Noura's real channel with the
+provider scripted: two runs, turn 2 carrying 15 alternating user/assistant turns, product, vendor and
+quantity all present, and **no `tool_calls` key anywhere in the replayed history**. Transaction rolled
+back.
