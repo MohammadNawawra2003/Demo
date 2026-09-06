@@ -5,6 +5,11 @@
 staging; nothing here blocks the code. Session 6 is on hold pending your answer.
 **Decide:** one question, in §4. Everything else is context.
 
+> ⚠ **Superseded as a standalone request, 2026-09-06.** This memo is still accurate and its question
+> is still open, but it is now item **D1** of a single decision package:
+> **`decision-request-phase1-completion.md`**, which adds the missing end-user entry point
+> (Sessions 11 and 12) and lists all six decisions together. Read that one first.
+
 ---
 
 ## ملخّص بالعربية
