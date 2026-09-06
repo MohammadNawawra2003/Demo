@@ -134,11 +134,15 @@ class TestProcurementTools(TransactionCase):
     # -- the draft, and both bounds ----------------------------------------
 
     def _prepare(self, recommended, deterministic=366_000, key='k1'):
+        # `key` is now the required_date, because the idempotency key is derived
+        # rather than supplied: two calls that must stay distinct need different
+        # business facts, not different labels.
         return self._run('procurement.prepare_draft_rfq', {
             'product_id': self.bottle.id, 'partner_id': self.vendor.id,
             'recommended_quantity': recommended,
             'deterministic_shortage': deterministic,
-            'idempotency_key': key})
+            'required_date': '2026-%02d-%02d' % (
+                (abs(hash(key)) % 12) + 1, (abs(hash(key)) % 27) + 1)})
 
     def test_a_draft_within_the_routine_bound_is_not_escalated(self):
         result = self._prepare(400_000, key='within')     # +9.3%
@@ -217,3 +221,103 @@ class TestProcurementTools(TransactionCase):
                 continue
             for _model, action in spec.actions:
                 self.assertNotIn(action, ('CONFIRM', 'VALIDATE', 'POST'))
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestDraftRfqIdempotency(TestProcurementTools):
+    """Replay protection must be a property of the system, not of the model.
+
+    P00004 and P00009 are the same business request and both exist, because the
+    key was a free-text parameter the LLM invented -- and it invented a
+    different one every time: ``PK-BTL-330-JPI-100000-req1`` then
+    ``PK-BTL-330-JPI-100000-shortage-2024``.
+
+    Document D §13 pins the composition:
+    ``{profile_code}:{company_id}:{purpose}:{product_ref}:{location_ref}:{date}``
+    -- which the model cannot produce, because it does not know the company id
+    or the profile code.
+    """
+
+    def _prepare_intent(self, quantity=400_000, partner=None, required_date=None,
+                        deterministic=366_000):
+        params = {
+            'product_id': self.bottle.id,
+            'partner_id': (partner or self.vendor).id,
+            'recommended_quantity': quantity,
+            'deterministic_shortage': deterministic,
+        }
+        if required_date:
+            params['required_date'] = required_date
+        return self._run('procurement.prepare_draft_rfq', params)
+
+    def test_the_model_cannot_supply_the_key(self):
+        """The whole defect in one assertion."""
+        from ..tools import schemas
+        self.assertNotIn('idempotency_key',
+                         schemas.PrepareDraftRfqInput.field_names(),
+                         "the LLM is still inventing replay-safety keys")
+
+    def test_the_same_intent_replayed_produces_one_order(self):
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+        first = self._prepare_intent()
+        second = self._prepare_intent()          # a separate run, same intent
+
+        self.assertEqual(len(Purchase.search([]) - before), 1,
+                         "the same request created a second order")
+        self.assertTrue(second['idempotent_hit'])
+        self.assertEqual(second['purchase_order_id'], first['purchase_order_id'],
+                         "the replay did not return the original order")
+
+    def test_a_different_required_date_is_a_different_request(self):
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+        self._prepare_intent(required_date='2026-09-24')
+        self._prepare_intent(required_date='2026-10-24')
+        self.assertEqual(len(Purchase.search([]) - before), 2,
+                         "two different delivery dates collapsed into one order")
+
+    def test_a_different_vendor_is_a_different_request(self):
+        other = self.env['res.partner'].create(
+            {'name': 'Other vendor (test)', 'supplier_rank': 1})
+        self.env['product.supplierinfo'].create({
+            'partner_id': other.id,
+            'product_tmpl_id': self.bottle.product_tmpl_id.id,
+            'price': 0.06, 'delay': 10})
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+
+        self._prepare_intent()
+        self._prepare_intent(partner=other)
+
+        self.assertEqual(len(Purchase.search([]) - before), 2,
+                         "two vendors collapsed into one order")
+
+    def test_the_key_is_composed_the_way_the_contract_says(self):
+        from odoo.addons.ai_operations.services.handoff_service import (
+            record_idempotency_key,
+        )
+        key = record_idempotency_key(
+            'procurement', self.company.id, 'draft_rfq', 'T-PK-BTL-330',
+            self.vendor.id, '2026-09-24')
+        self.assertEqual(key.split(':')[0], 'procurement')
+        self.assertEqual(key.split(':')[1], str(self.company.id))
+        self.assertEqual(len(key.split(':')), 6)
+
+    def test_two_companies_do_not_collide_on_the_same_purpose(self):
+        """T-74. The company is inside the key, not only on the constraint."""
+        from odoo.addons.ai_operations.services.handoff_service import (
+            record_idempotency_key,
+        )
+        args = ('procurement', None, 'draft_rfq', 'T-PK-BTL-330', 1, '2026-09-24')
+        first = record_idempotency_key('procurement', 11, *args[2:])
+        second = record_idempotency_key('procurement', 22, *args[2:])
+        self.assertNotEqual(first, second)
+
+    def test_the_order_carries_the_derived_key(self):
+        result = self._prepare_intent()
+        order = self.env['purchase.order'].browse(result['purchase_order_id'])
+        self.assertTrue(order.ai_idempotency_key)
+        self.assertTrue(order.ai_idempotency_key.startswith('procurement:'),
+                        "the stored key is not the namespaced one")
+        self.assertEqual(order.state, 'draft')

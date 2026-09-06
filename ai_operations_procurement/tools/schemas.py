@@ -109,12 +109,17 @@ class PriceHistoryOutput(Schema):
 
 
 class PrepareDraftRfqInput(Schema):
+    #: No idempotency_key. Document D §13 fixes the key as
+    #: ``{profile_code}:{company_id}:{purpose}:{product_ref}:{location_ref}:{date}``
+    #: and the model knows neither the company id nor the profile code, so it
+    #: cannot produce one. Asked for free text it invented a different value
+    #: every turn, which is how the same request produced two draft orders.
+    #: The tool derives the key from the business facts instead.
     product_id = Int(min=1)
     partner_id = Int(min=1)
     recommended_quantity = Float(min=0.0)
     deterministic_shortage = Float(min=0.0)
     required_date = Date(required=False)
-    idempotency_key = Str(max_length=200)
 
 
 class DraftRfqOutput(Schema):

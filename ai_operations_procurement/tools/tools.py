@@ -8,7 +8,12 @@ number is presented alongside its deterministic input, never instead of it.
 
 import datetime
 
+from odoo import fields
+
 from odoo.addons.ai_operations.services.enums import AutonomyLevel, ToolCategory
+from odoo.addons.ai_operations.services.handoff_service import (
+    record_idempotency_key,
+)
 from odoo.addons.ai_operations.services.registry import ai_tool
 
 from . import schemas
@@ -268,19 +273,46 @@ def prepare_draft_rfq(ctx, params):
     consolidation above the shortage is legitimate purchasing behaviour, but it
     is bounded: beyond the routine bound the draft is still created and stamped
     for manager approval, and beyond the hard ceiling it is refused outright.
-    An idempotency key is mandatory, so running twice produces one order.
+    The same request run twice produces one order: the key is derived from the
+    business facts, so replay protection does not depend on you repeating
+    anything.
     """
     Purchase = ctx.model('purchase.order')
-    key = params['idempotency_key']
-
-    existing = Purchase.search([('ai_idempotency_key', '=', key)], limit=1)
-    if existing:
-        return _render_rfq(existing, idempotent_hit=True)
 
     product = ctx.model('product.product').browse(params['product_id'])
     partner = ctx.model('res.partner').browse(params['partner_id'])
     ctx.check_records('product.product', product.ids)
     ctx.check_records('res.partner', partner.ids)
+
+    # Document D 13:
+    #   {profile_code}:{company_id}:{purpose}:{product_ref}:{location_ref}:{date}
+    #
+    # Built here, from the business facts, and never taken from the model. The
+    # model cannot produce this shape -- it knows neither the company id nor the
+    # profile code -- and when it was asked for free text it invented a
+    # different value every turn, which is how one request produced two draft
+    # orders.
+    #
+    # The vendor sits in the location slot: for a purchase the counterparty is
+    # what scopes the request. The date is the delivery date when one is given,
+    # otherwise today, so a replay within the day returns the first order while
+    # tomorrow's genuine reorder is its own request.
+    #
+    # Quantity is deliberately NOT part of the key. The contract does not put it
+    # there, and replay protection is about the same intent arriving twice, not
+    # about the number matching to the unit.
+    key = record_idempotency_key(
+        ctx.profile.code,
+        ctx.company_ids[0] if ctx.company_ids else 0,
+        'draft_rfq',
+        product.default_code or product.id,
+        partner.id,
+        params.get('required_date') or fields.Date.context_today(Purchase),
+    )
+
+    existing = Purchase.search([('ai_idempotency_key', '=', key)], limit=1)
+    if existing:
+        return _render_rfq(existing, idempotent_hit=True)
 
     deterministic = params['deterministic_shortage']
     recommended = params['recommended_quantity']

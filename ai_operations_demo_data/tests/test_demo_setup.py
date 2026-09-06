@@ -252,8 +252,7 @@ class TestDemoScenarios(TestDemoConfiguration):
         with scripted(self.env, _tool_call('procurement.prepare_draft_rfq', {
                           'product_id': 1, 'partner_id': 1,
                           'deterministic_shortage': 100.0,
-                          'recommended_quantity': 100.0,
-                          'idempotency_key': 'demo-denial-probe'}),
+                          'recommended_quantity': 100.0,}),
                       _text('I cannot help with that.')):
             self._post(channel, 'fahad.p', 'Please prepare a draft RFQ.')
 
@@ -273,8 +272,7 @@ class TestDemoScenarios(TestDemoConfiguration):
         with scripted(self.env, _tool_call('procurement.prepare_draft_rfq', {
                           'product_id': 1, 'partner_id': 1,
                           'deterministic_shortage': 100.0,
-                          'recommended_quantity': 100.0,
-                          'idempotency_key': 'demo-denial-probe-2'}),
+                          'recommended_quantity': 100.0,}),
                       _text('I cannot help with that.')):
             self._post(channel, 'fahad.p', 'Please prepare a draft RFQ.')
 
@@ -301,8 +299,7 @@ class TestDemoScenarios(TestDemoConfiguration):
         with scripted(self.env, _tool_call('procurement.prepare_draft_rfq', {
                           'product_id': product.id, 'partner_id': vendor.id,
                           'deterministic_shortage': 100000.0,
-                          'recommended_quantity': 100000.0,
-                          'idempotency_key': 'demo-scenario-2'}),
+                          'recommended_quantity': 100000.0,}),
                       _text('I have prepared a draft for your review.')):
             self._post(channel, 'noura.p', 'Prepare a draft RFQ for the shortage.')
 
@@ -310,7 +307,8 @@ class TestDemoScenarios(TestDemoConfiguration):
         self.assertEqual(len(created), 1, "the agent did not prepare exactly one draft")
         self.assertEqual(created.state, 'draft',
                          "the agent confirmed a business transaction")
-        self.assertEqual(created.ai_idempotency_key, 'demo-scenario-2')
+        self.assertTrue(created.ai_idempotency_key.startswith('procurement:'),
+                        "the order does not carry the derived namespaced key")
 
     def test_scenario_2_running_twice_prepares_one_draft(self):
         from ..models.demo_setup import SEED_COMPONENT, SEED_VENDOR
@@ -323,8 +321,7 @@ class TestDemoScenarios(TestDemoConfiguration):
         call = _tool_call('procurement.prepare_draft_rfq', {
             'product_id': product.id, 'partner_id': vendor.id,
             'deterministic_shortage': 100000.0,
-            'recommended_quantity': 100000.0,
-            'idempotency_key': 'demo-scenario-2-twice'})
+            'recommended_quantity': 100000.0,})
 
         for _attempt in range(2):
             with scripted(self.env, call, _text('Draft ready.')):
@@ -432,8 +429,7 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         self._call('procurement.prepare_draft_rfq', {
             'product_id': product_id, 'partner_id': partner_id,
             'deterministic_shortage': 100000.0,
-            'recommended_quantity': 100000.0,
-            'idempotency_key': 'test2-noura'})
+            'recommended_quantity': 100000.0,})
 
         created = Purchase.search([]) - before
         self.assertEqual(len(created), 1)
@@ -459,8 +455,7 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         result = self._call('procurement.prepare_draft_rfq', {
             'product_id': product_id, 'partner_id': jeddah['partner_id'],
             'deterministic_shortage': 0.0,
-            'recommended_quantity': 100000.0,
-            'idempotency_key': 'test-vendor-price'})
+            'recommended_quantity': 100000.0,})
 
         order = Purchase.search([]) - before
         line = order.order_line
@@ -493,8 +488,7 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         before = Purchase.search([])
         params = {'product_id': product_id, 'partner_id': partner_id,
                   'deterministic_shortage': 100000.0,
-                  'recommended_quantity': 100000.0,
-                  'idempotency_key': 'test2-noura-twice'}
+                  'recommended_quantity': 100000.0,}
 
         self._call('procurement.prepare_draft_rfq', dict(params))
         self._call('procurement.prepare_draft_rfq', dict(params))
@@ -584,8 +578,7 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         call('procurement.prepare_draft_rfq', {          # the fifth call
             'product_id': pid, 'partner_id': partner_id,
             'deterministic_shortage': shortage['shortage'],
-            'recommended_quantity': 100000.0,
-            'idempotency_key': 'test2-full-run'})
+            'recommended_quantity': 100000.0,})
 
         self.assertEqual(budget.tool_calls, 5)
         created = Purchase.search([]) - before
@@ -720,8 +713,7 @@ class TestKhalidManufacturingPath(TestDemoConfiguration):
                       _tool_call('procurement.prepare_draft_rfq', {
                           'product_id': product.id, 'partner_id': vendor.id,
                           'deterministic_shortage': 0.0,
-                          'recommended_quantity': 100000.0,
-                          'idempotency_key': 'test4-fahad'}),
+                          'recommended_quantity': 100000.0,}),
                       _text('I am not able to do that.')):
             self._post(channel, 'fahad.p',
                        'We are short 100000 units of PK-BTL-330. '
@@ -747,8 +739,7 @@ class TestKhalidManufacturingPath(TestDemoConfiguration):
                       _tool_call('procurement.prepare_draft_rfq', {
                           'product_id': product.id, 'partner_id': vendor.id,
                           'deterministic_shortage': 0.0,
-                          'recommended_quantity': 100000.0,
-                          'idempotency_key': 'test4-fahad-2'}),
+                          'recommended_quantity': 100000.0,}),
                       _text('I am not able to do that.')):
             self._post(channel, 'fahad.p', 'Prepare a draft RFQ.')
 
