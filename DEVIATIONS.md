@@ -953,3 +953,68 @@ Worth recording plainly: the tests I had previously reported as "written but not
 **wrong in three separate ways**, and only running them showed it.
 
 **464 Python tests across 10 modules, 0 failed. 9 JS tests, executed, 0 failed.**
+
+---
+
+## 2026-09-06 — the draft RFQ was priced at zero while the agent quoted 0.0550
+
+P00004: Jeddah Plastic Industries, PK-BTL-330, 100,000 units, **unit price 0.00, total $0.00**, while
+the conversation reported 0.0550.
+
+### Root cause — two faults that compound
+
+`prepare_draft_rfq` created the line with `price_unit=product.standard_price`.
+
+1. **`standard_price` is our AVCO cost, not the vendor's quote.** Even when correct it is the wrong
+   number on a purchase order, and it disagrees with what `compare_suppliers` reports — so the RFQ
+   and the comparison could never match. Two sources of truth for one number.
+2. **`standard_price` is company-dependent**, and `alshayeb_demo_water` wrote it while the builder ran
+   as the installing user. Measured on staging: **0.055 under *My Company*, 0.0 under *Naqaa***. The
+   tool read the Naqaa value. Same defect class as the supplier-pricing company bug found earlier.
+
+**`purchase.order.line.price_unit` is a stored compute**
+(`_compute_price_unit_and_date_planned_and_name`) that prices from the vendor via `_select_seller`.
+Passing a value overrides it. On staging `_select_seller` under Naqaa returns **0.055** — exactly what
+`compare_suppliers` reports.
+
+⚠ **For the record, the tool never reported 0.0550.** `_render_rfq` returns the persisted
+`price_unit`, which was `0.0`. The 0.0550 in the conversation came from `compare_suppliers` earlier in
+the thread, and the model carried it forward as if it were the created order's price. The defect is
+real either way; the fix makes the two agree by construction rather than by coincidence.
+
+### Fix
+
+The tool passes **no** `price_unit` and lets Odoo price the line from the vendor. If Odoo cannot price
+a line, that is a real answer — no vendor price on file — and it belongs in front of the human who
+confirms the order rather than papered over with a cost figure.
+
+The demo builder now writes the cost **against the operating company** and repairs what it finds.
+
+### Tests — four, all watched failing first
+
+The draft carries the vendor price · the subtotal follows price × quantity · what the tool reports
+equals what Odoo stored · Naqaa can see a cost for its own component.
+
+**466 tests across 10 modules, 0 failed.**
+
+### Staging verification — tool-created, then rolled back
+
+| | |
+|---|---|
+| cost under Naqaa | **0.055** (was 0.0) |
+| `compare_suppliers` | Jeddah **0.055** |
+| new RFQ | P00008, Jeddah, PK-BTL-330, 100,000, **draft** |
+| persisted `price_unit` | **0.055** |
+| subtotal / total | **5500.0 / 5500.0** |
+| tool reported == persisted | **True** |
+| persisted == vendor price | **True** |
+| same key twice | **1 order, idempotent_hit True** |
+
+No manual price editing. Transaction rolled back, so P00008 does not persist.
+
+### P00004
+
+**Left untouched and still historically incorrect** (0.00). It records the defect, and altering a
+business record to tidy up a bug is not this session's call. It is a staging RFQ in Draft, so it costs
+nothing to leave; cancel or delete it whenever you prefer. Any RFQ created **after** `d8786ec` is
+priced correctly. **Production was not touched.**
