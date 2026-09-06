@@ -98,9 +98,57 @@ class AIExecutionRunner(models.AbstractModel):
     # The loop
     # ------------------------------------------------------------------
 
+    #: How much of a conversation is replayed. Bounded on both axes, because a
+    #: channel is long-lived and every earlier turn is re-sent and re-billed on
+    #: every message.
+    MAX_HISTORY_TURNS = 20
+    MAX_HISTORY_CHARS = 12000
+
+    @api.model
+    def _sanitise_history(self, history):
+        """History is **text**, and nothing else survives this.
+
+        Document C 9.4 assembles the prompt from conversation messages, so a
+        follow-up has to carry the turns before it. But a turn arrives from the
+        surface, not from the guard, so it is narrowed here rather than trusted:
+
+        * roles are narrowed to ``user`` / ``assistant``;
+        * content must already be a string;
+        * every other key is dropped, so ``tool_calls`` and ``tool`` turns
+          cannot ride along. **Replaying an old ``tool_use`` would place a call
+          in the model's context that never passed the guard**, and a
+          ``tool_result`` without the request it answers is not valid anyway.
+
+        The oldest turns go first, and a conversation may not open on the
+        assistant.
+        """
+        cleaned = []
+        for turn in history or []:
+            role = turn.get('role')
+            content = turn.get('content')
+            if role not in ('user', 'assistant'):
+                continue
+            if not isinstance(content, str) or not content.strip():
+                continue
+            cleaned.append({'role': role, 'content': content})
+
+        cleaned = cleaned[-self.MAX_HISTORY_TURNS:]
+
+        bounded, total = [], 0
+        for turn in reversed(cleaned):
+            total += len(turn['content'])
+            if bounded and total > self.MAX_HISTORY_CHARS:
+                break
+            bounded.append(turn)
+        bounded.reverse()
+
+        while bounded and bounded[0]['role'] != 'user':
+            bounded.pop(0)
+        return bounded
+
     @api.model
     def run(self, profile_code, trigger, session_id=None, entry_prompt=None,
-            correlation_id=None):
+            correlation_id=None, history=None):
         """Resolve, budget, loop, close. Never raises into a cron.
 
         A provider failure is audited and returns cleanly: core ERP must never
@@ -143,7 +191,8 @@ class AIExecutionRunner(models.AbstractModel):
                             profile_code, error)
             return {'status': 'FAILED', 'reason': 'provider', 'correlation_id': correlation_id}
 
-        messages = [{'role': 'user', 'content': entry_prompt or ''}]
+        messages = self._sanitise_history(history)
+        messages.append({'role': 'user', 'content': entry_prompt or ''})
         tools = self.build_tool_definitions(profile)
         system = self.build_system_prompt(profile)
 

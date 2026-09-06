@@ -70,12 +70,50 @@ class DiscussChannel(models.Model):
                 TriggerType.CHAT.value,
                 session_id=self.id,
                 entry_prompt=html2plaintext(message.body or ''),
+                history=self._ai_history(message),
             )
         finally:
             # A provider outage must not wedge the channel forever.
             self.ai_run_active = False
 
         self._ai_say(self._ai_body(result))
+
+    def _ai_history(self, message):
+        """The earlier turns of **this** conversation, and nothing else.
+
+        Scoped to this channel's own comments by ``res_id``, so nothing can
+        reach it from another conversation, another employee or another
+        company -- the freeze checklist's "no conversation history crosses a
+        boundary". A chat channel has exactly two members, so the boundary is
+        the record.
+
+        Text only, deliberately. The agent's own earlier prose already carries
+        whatever a tool returned, filtered by the serialiser at the time it was
+        written, so nothing has to be persisted or reconstructed and no
+        ``tool_use`` is ever replayed. The runtime narrows this again before it
+        is used.
+        """
+        profile = self.ai_profile_id
+        earlier = self.env['mail.message'].search(
+            [('model', '=', 'discuss.channel'),
+             ('res_id', '=', self.id),
+             ('message_type', '=', 'comment'),
+             ('id', '!=', message.id)],
+            order='id desc', limit=self.env['ai.operations.execution'].MAX_HISTORY_TURNS)
+
+        turns = []
+        for earlier_message in reversed(earlier):
+            body = html2plaintext(earlier_message.body or '')
+            if not body.strip():
+                continue
+            turns.append({
+                'role': ('assistant'
+                         if profile.partner_id
+                         and earlier_message.author_id == profile.partner_id
+                         else 'user'),
+                'content': body,
+            })
+        return turns
 
     def _ai_say(self, body):
         """Post as the agent. The author check in ``_ai_dispatch`` is what stops

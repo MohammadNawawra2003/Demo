@@ -382,6 +382,11 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         return self.runner.execute_tool(
             self.procurement, code, params, 'INTERACTIVE', 'CHAT', 'test-2')
 
+    def _post(self, channel, login, body):
+        return channel.with_user(self._user(login)).message_post(
+            body=Markup('<p>%s</p>' % body), message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
     def _product_id(self):
         return self.env['product.product'].search(
             [('default_code', '=', 'PK-BTL-330')], limit=1).id
@@ -452,3 +457,55 @@ class TestNouraProcurementPath(TestDemoConfiguration):
 
         self.assertEqual(len(Purchase.search([]) - before), 1,
                          "the idempotency key did not hold")
+
+    def test_a_confirmation_turn_still_knows_what_it_confirms(self):
+        """Manual Test 2, exactly as it failed: turn 1 establishes the product,
+        the vendor and the quantity and asks the user to choose; turn 2 is only
+        "(b) Go ahead". The agent must not ask which product it is."""
+        channel = self._channel('Procurement (Noura)')
+        seen = []
+
+        def recorder(self, messages, system=None, tools=None, model=None,
+                     max_tokens=4096, timeout=120):
+            seen.append([dict(m) for m in messages])
+            return _text('Understood.')
+
+        provider = self.env['ai.operations.provider.anthropic']
+        with patch.object(type(provider), 'complete', recorder):
+            self._post(channel, 'noura.p',
+                       'We are short 100000 units of PK-BTL-330. '
+                       'Prepare a draft RFQ with Jeddah Plastic Industries.')
+            self._post(channel, 'noura.p',
+                       '(b) Go ahead and create a new 100,000-unit draft RFQ '
+                       'with Jeddah Plastic Industries anyway.')
+
+        self.assertEqual(len(seen), 2, "the follow-up never reached the runtime")
+        replayed = ' '.join(m['content'] for m in seen[1]
+                            if isinstance(m.get('content'), str))
+        self.assertIn('PK-BTL-330', replayed,
+                      "turn 2 did not carry the product from turn 1")
+        self.assertIn('Jeddah Plastic Industries', replayed,
+                      "turn 2 did not carry the vendor from turn 1")
+        self.assertIn('100000', replayed.replace(',', ''),
+                      "turn 2 did not carry the quantity from turn 1")
+
+    def test_replayed_history_never_contains_a_tool_call(self):
+        """History is prose. A replayed tool_use would be a call in the model's
+        context that never passed the guard."""
+        channel = self._channel('Procurement (Noura)')
+        seen = []
+
+        def recorder(self, messages, system=None, tools=None, model=None,
+                     max_tokens=4096, timeout=120):
+            seen.append([dict(m) for m in messages])
+            return _text('ok')
+
+        provider = self.env['ai.operations.provider.anthropic']
+        with patch.object(type(provider), 'complete', recorder):
+            self._post(channel, 'noura.p', 'first')
+            self._post(channel, 'noura.p', 'second')
+
+        for message in seen[1][:-1]:
+            self.assertIn(message['role'], ('user', 'assistant'))
+            self.assertNotIn('tool_calls', message)
+            self.assertNotIn('tool_use_id', message)
