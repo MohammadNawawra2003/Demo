@@ -9,6 +9,7 @@ destination for the fully assembled agent context.
 import json
 import logging
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -27,6 +28,18 @@ API_VERSION = '2023-06-01'
 #: The adapter owns its credential's name. The kernel never learns it.
 ENV_VAR = 'ODOO_AI_ANTHROPIC_TOKEN'
 CONF_KEY = 'ai_anthropic_token'
+
+#: The vendor's tool-name rule: ``^[a-zA-Z0-9_-]{1,128}$``.
+#:
+#: Our tool codes are dot-namespaced -- ``procurement.get_open_pos`` -- and a
+#: dot is not in that set. The vendor rejects the WHOLE request, not the one
+#: tool, with HTTP 400 and
+#: ``tools.0.custom.name: String should match pattern ...`` -- before a token is
+#: billed and before any tool can run. This is a naming rule of one vendor, so
+#: it is translated here and never in the kernel, which must not know that a
+#: vendor exists (CI check 16).
+_ILLEGAL_IN_TOOL_NAME = re.compile(r'[^a-zA-Z0-9_-]')
+_MAX_TOOL_NAME = 128
 
 #: DECLARED, never fetched. Configuration must not depend on the vendor being
 #: reachable, and a config screen must not make an unauthenticated network call.
@@ -88,15 +101,41 @@ class AnthropicProvider(models.AbstractModel):
             # apart against a five-minute cache.
             payload['system'] = [{'type': 'text', 'text': system,
                                   'cache_control': {'type': 'ephemeral'}}]
+        name_map = {}
         if tools:
-            vendor_tools = [
-                {'name': t['name'], 'description': t['description'],
-                 'input_schema': t['input_schema']} for t in tools]
+            vendor_tools, name_map = self._vendor_tools(tools)
             vendor_tools[-1]['cache_control'] = {'type': 'ephemeral'}
             payload['tools'] = vendor_tools
 
         raw = self._post(payload, key, timeout)
-        return self._normalise(raw)
+        return self._normalise(raw, name_map)
+
+    @staticmethod
+    def _vendor_tools(tools):
+        """Rename our tool codes to what the vendor's grammar accepts.
+
+        Returns the vendor payload and ``{vendor name: our code}``, because the
+        runtime looks a tool up by the name that comes back and would miss the
+        registry entirely if the rename were one-way.
+
+        Collisions are resolved rather than assumed away: two codes differing
+        only in an illegal character would otherwise map to one name and the
+        second would silently shadow the first.
+        """
+        vendor, mapping = [], {}
+        for tool in tools:
+            code = tool['name']
+            name = _ILLEGAL_IN_TOOL_NAME.sub('_', code)[:_MAX_TOOL_NAME]
+            if mapping.get(name, code) != code:
+                suffix = 2
+                stem = name[:_MAX_TOOL_NAME - 4]
+                while mapping.get('%s_%d' % (stem, suffix), code) != code:
+                    suffix += 1
+                name = '%s_%d' % (stem, suffix)
+            mapping[name] = code
+            vendor.append({'name': name, 'description': tool['description'],
+                           'input_schema': tool['input_schema']})
+        return vendor, mapping
 
     # ------------------------------------------------------------------
 
@@ -145,15 +184,22 @@ class AnthropicProvider(models.AbstractModel):
         return vendor
 
     @staticmethod
-    def _normalise(raw):
-        """Parse content blocks **by type, never by position**."""
+    def _normalise(raw, name_map=None):
+        """Parse content blocks **by type, never by position**.
+
+        ``name_map`` undoes the vendor rename. A name we never sent is passed
+        through untouched so it reaches the guard and is denied there -- silently
+        dropping it would hide a prompt-injection attempt instead of logging one.
+        """
+        name_map = name_map or {}
         content, tool_calls = [], []
         for block in raw.get('content') or []:
             if block.get('type') == 'text':
                 content.append(block.get('text', ''))
             elif block.get('type') == 'tool_use':
+                vendor_name = block.get('name')
                 tool_calls.append({'id': block.get('id'),
-                                   'name': block.get('name'),
+                                   'name': name_map.get(vendor_name, vendor_name),
                                    'input': block.get('input') or {}})
         usage = raw.get('usage') or {}
         return {

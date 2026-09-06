@@ -169,3 +169,78 @@ class TestAnthropicAdapter(TransactionCase):
             result = self.provider.complete([{'role': 'user', 'content': 'hi'}])
         self.assertEqual(result['content'], 'ok')
         self.assertEqual(result['usage']['input_tokens'], 5)
+
+    # -- vendor tool-name rules (regression: manual Test 1, HTTP 400) --------
+
+    def _captured_payload(self, **kwargs):
+        """Run complete() with the transport replaced, and return what we sent."""
+        sent = {}
+
+        def fake_post(self, payload, key, timeout):
+            sent.update(payload)
+            return {'content': [{'type': 'text', 'text': 'ok'}],
+                    'stop_reason': 'end_turn',
+                    'usage': {'input_tokens': 1, 'output_tokens': 1}}
+
+        with patch.object(type(self.provider), '_credential', return_value='k'), \
+             patch.object(type(self.provider), '_post', fake_post):
+            self.provider.complete([{'role': 'user', 'content': 'hi'}], **kwargs)
+        return sent
+
+    def test_tool_names_sent_to_the_vendor_match_the_vendor_pattern(self):
+        """Anthropic rejects the whole request when a tool name is not
+        ``^[a-zA-Z0-9_-]{1,128}$``. Our tool codes are dot-namespaced, so sending
+        ``spec.code`` verbatim returned:
+
+            tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'
+
+        which is HTTP 400 before a single token is billed and before any tool
+        runs -- exactly what manual Test 1 hit on staging.
+        """
+        import re
+        payload = self._captured_payload(tools=[
+            {'name': 'procurement.get_open_pos', 'description': 'd',
+             'input_schema': {'type': 'object', 'properties': {}}},
+            {'name': 'core.describe_scope', 'description': 'd',
+             'input_schema': {'type': 'object', 'properties': {}}},
+        ])
+        pattern = re.compile(r'^[a-zA-Z0-9_-]{1,128}$')
+        for tool in payload['tools']:
+            self.assertRegex(tool['name'], pattern,
+                             "%r would be rejected by the vendor" % tool['name'])
+
+    def test_a_tool_call_is_returned_under_our_own_tool_code(self):
+        """The runtime looks the tool up by ``call['name']``, so whatever
+        renaming the adapter does for the vendor must be undone on the way
+        back -- otherwise every call would miss the registry."""
+        import io
+        import json
+        body = json.dumps({
+            'content': [{'type': 'tool_use', 'id': 'tu_1',
+                         'name': 'procurement_get_open_pos', 'input': {}}],
+            'stop_reason': 'tool_use',
+            'usage': {'input_tokens': 1, 'output_tokens': 1},
+        }).encode()
+
+        class _Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        with patch.object(type(self.provider), '_credential', return_value='k'), \
+             patch('urllib.request.urlopen', return_value=_Response(body)):
+            result = self.provider.complete(
+                [{'role': 'user', 'content': 'hi'}],
+                tools=[{'name': 'procurement.get_open_pos', 'description': 'd',
+                        'input_schema': {'type': 'object', 'properties': {}}}])
+
+        self.assertEqual(result['tool_calls'][0]['name'],
+                         'procurement.get_open_pos')
+
+    def test_an_unknown_tool_name_is_passed_through_untouched(self):
+        """A name we never sent must reach the guard and be denied there, not
+        be silently dropped or mangled into something that resolves."""
+        result = self.provider._normalise(
+            {'content': [{'type': 'tool_use', 'id': 't', 'name': 'made_up',
+                          'input': {}}]},
+            {'procurement_get_open_pos': 'procurement.get_open_pos'})
+        self.assertEqual(result['tool_calls'][0]['name'], 'made_up')
