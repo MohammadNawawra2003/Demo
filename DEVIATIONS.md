@@ -805,3 +805,48 @@ shortage for PK-BTL-330 *is* 0, so Manual Test 2 is exactly that shape: the draf
 `approval_required = False`. Avoiding a division by zero is right; treating "no computed basis at
 all" as "no variance" is a policy question, and the bound cannot see the case it most wants to catch.
 Left as the frozen behaviour; it needs a ruling, not a quiet change.
+
+---
+
+## 2026-09-06 — manual Test 3: the agent could not reach an order from a business name
+
+Khalid: *"MO for FG-330 is short 100000 units of PK-BTL-330. Raise it with Procurement."* The agent
+asked him for a `production_id`, a `product_id` and a `warehouse_id` and stopped. **The audit log
+holds no manufacturing rows at all** — the failure is before the guard, not in it.
+
+### Almost nothing was missing; it was unreachable
+
+- **`manufacturing.get_open_mos`** already returns `id`, `reference` and `product_name` for every
+  order that is not done or cancelled — that resolves *"the FG-330 order"*. It was registered by the
+  pack and **never granted to the profile**, so the agent could not call it. A fixture gap.
+- **`manufacturing.check_readiness`** already returns each component's `product_id` with `required`,
+  `available` and `shortage` — that resolves PK-BTL-330 and every number the handoff carries, and
+  they are Odoo's figures rather than the model's.
+
+**One genuine product gap:** `raise_handoff` required `warehouse_id` and nothing returned one. The
+warehouse of a shortage is a **fact of the manufacturing order**, not a choice, so it is now optional
+and derived from `production.picking_type_id.warehouse_id`. No new tool, no new search surface, no
+arbitrary model access, and nothing hardcoded.
+
+### The pack now ships its own handoff permission
+
+The earlier compensation inside `ai_operations_demo_data` is **removed**; the permission is a record
+of `ai_operations_manufacturing` (verified on a fresh database: owned by the pack). A
+**pre-migration** hands over the unowned row the demo module created in Python — without it the two
+collide on `unique(profile_id, model_id)` on every database that ever ran the demo module. Verified
+both ways: an existing database migrates, a fresh one gets it from the pack.
+
+### Tests — seven on Khalid's exact path, all watched failing first
+
+The agent is granted a way to find its orders · an MO resolves from its finished product · readiness
+names the short component and its numbers · a handoff is raised with **nobody supplying a warehouse
+id** · the same shortage twice is one handoff · raising a shortage buys nothing · the permission
+comes from the pack rather than the demo module.
+
+**449 tests across 9 modules, 0 failed.** Clean chain install verified separately.
+
+### Staging verification
+
+`stage` `f59b3cd`, manufacturing **19.0.1.2.0**, demo_data **19.0.1.4.0**. Permission owner:
+`ai_operations_manufacturing`. Offered manufacturing tools: `get_open_mos`, `check_readiness`,
+`raise_handoff`.
