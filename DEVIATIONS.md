@@ -850,3 +850,52 @@ comes from the pack rather than the demo module.
 `stage` `f59b3cd`, manufacturing **19.0.1.2.0**, demo_data **19.0.1.4.0**. Permission owner:
 `ai_operations_manufacturing`. Offered manufacturing tools: `get_open_mos`, `check_readiness`,
 `raise_handoff`.
+
+---
+
+## 2026-09-06 — manual Test 4: an ORM refusal destroyed the user's message
+
+Fahad, read-only on Purchase, asked for a draft RFQ. **His message never posted** — a warning
+triangle in Discuss, no neutral refusal, and no audit row. The guard never got to say no.
+
+### Root cause
+
+Reproduced as Fahad on staging:
+
+```
+RAW EXCEPTION ESCAPED: odoo.exceptions.AccessError
+  | You are not allowed to create 'Purchase Order' (purchase.order) records.
+```
+
+`prepare_draft_rfq` reached `purchase.order.create`, Odoo raised a plain `AccessError`, and that is
+**not** an `AIAccessDenied`. It escaped `execute_tool`, escaped `run()`'s loop — which caught only
+`AIAccessDenied` and `AIBudgetExceeded` — escaped `_ai_dispatch` and unwound `message_post`. The
+whole transaction rolled back, taking **the user's own message and the audit row** with it.
+
+### Two fixes, both at the root
+
+1. **An ORM refusal mid-tool is a denial.** It is now mapped to
+   `AIAccessDenied(USER_ACL_DENIED)`: a `DENIED` row rather than an `ERROR` row, and the neutral
+   string to the model. The audit detail names the model, where a human reads it; what the model and
+   the user see names nothing.
+2. **Nothing a tool does may escape the run.** The per-call loop now catches anything, audits it and
+   feeds the neutral string. In CHAT the caller is `message_post`, and an exception there destroys
+   the user's message — core ERP must never depend on an agent behaving.
+
+### Tests — five, all watched failing first
+
+An ORM refusal is recorded as a denial · the denial never names the model to the caller · an
+unexpected error never escapes the run · **Fahad's exact chat path**: his message survives, no
+purchase order is created, a `DENIED` row with `USER_ACL_DENIED` persists · nothing leaks into the
+conversation.
+
+⚠ One test needed the documented `assertRaises` trap: Odoo wraps it in a savepoint it **rolls back**,
+which discarded the very audit row the test existed to find. Finding B3-b, again. Caught directly.
+
+**464 tests across 10 modules, 0 failed.**
+
+### Staging verification — no vendor call
+
+`stage` `1ce898f`, kernel **19.0.1.15.0**. As Fahad with the provider scripted: message survived
+**True**, purchase orders created **0**, `DENIED` row **USER_ACL_DENIED**, nothing leaked. Rolled
+back.
