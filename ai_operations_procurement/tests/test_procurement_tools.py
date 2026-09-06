@@ -169,6 +169,53 @@ class TestProcurementTools(TransactionCase):
         self.assertEqual(caught.exception.reason, DenialReason.BOUND_EXCEEDED)
         self.assertEqual(self.env['purchase.order'].search_count([]), before)
 
+    # -- no computed basis at all ------------------------------------------
+
+    def test_a_proposal_against_a_zero_baseline_is_escalated(self):
+        """George's ruling, 2026-09-06.
+
+        Odoo computing a shortage of 0 is not the same as an agent proposing
+        nothing. There is nothing to measure the recommendation against, so a
+        human decides. The bound escalates; it does not deny.
+        """
+        result = self._prepare(100_000, deterministic=0, key='zerobase')
+        self.assertTrue(result['approval_required'],
+                        "a recommendation with no computed basis was waved through")
+        self.assertTrue(result['purchase_order_id'], "the draft must still exist")
+
+    def test_a_zero_baseline_escalation_is_still_only_a_draft(self):
+        """Escalating must not creep past Level 2."""
+        result = self._prepare(100_000, deterministic=0, key='zerodraft')
+        order = self.env['purchase.order'].browse(result['purchase_order_id'])
+        self.assertEqual(order.state, 'draft')
+        self.assertTrue(order.ai_approval_required,
+                        "the escalation was not stamped on the record")
+
+    def test_a_zero_baseline_with_nothing_proposed_is_not_escalated(self):
+        """Nothing recommended against nothing computed is not a judgement
+        call, and must not land on a manager's desk."""
+        result = self._prepare(0, deterministic=0, key='zerozero')
+        self.assertFalse(result['approval_required'],
+                         "an empty proposal was escalated for no reason")
+
+    def test_a_zero_baseline_never_denies(self):
+        """Only the ceiling denies, and a missing baseline is not a ceiling
+        breach -- there is no percentage to breach it with."""
+        before = self.env['purchase.order'].search_count([])
+        result = self._prepare(5_000_000, deterministic=0, key='zerohuge')
+        self.assertTrue(result['approval_required'])
+        self.assertEqual(self.env['purchase.order'].search_count([]), before + 1,
+                         "a zero baseline turned into a denial")
+
+    def test_the_escalation_is_recorded_in_the_audit(self):
+        self._prepare(100_000, deterministic=0, key='zeroaudit')
+        self.env.flush_all()
+        row = self.env['ai.operations.audit.log'].search(
+            [('event_type', '=', 'VARIANCE')], order='id desc', limit=1)
+        self.assertTrue(row, "no variance event was audited")
+        self.assertTrue(row.approval_required,
+                        "the audit does not show the escalation")
+
     def test_the_draft_shows_both_numbers_never_one(self):
         """Document B §6.3: the deterministic value and the recommendation are
         separate fields, always. The tool may not merge them."""

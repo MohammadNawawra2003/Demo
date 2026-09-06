@@ -323,7 +323,11 @@ class AISecurityService(models.AbstractModel):
                 detail='no variance bound configured; the guard fails closed',
                 model=model_name)
 
-        if not deterministic:
+        # A missing baseline is not a variance of zero. There is no percentage
+        # to compute against nothing, so the number stays 0.0 -- inventing one
+        # would only trip the ceiling on a figure nobody measured.
+        no_baseline = not deterministic
+        if no_baseline:
             variance = 0.0
         else:
             variance = (float(proposed) - float(deterministic)) / float(deterministic) * 100.0
@@ -338,6 +342,20 @@ class AISecurityService(models.AbstractModel):
                 model=model_name)
 
         approval_required = variance > permission.variance_bound_pct  # 17
+
+        # Odoo computing a shortage of 0 is not the same as the agent proposing
+        # nothing. With no computed basis there is nothing to justify the
+        # recommendation against, so a human decides -- which is what the
+        # routine bound is for. It escalates and never denies: the ceiling is
+        # the only bound that denies, and a missing baseline is not a ceiling
+        # breach. Proposing nothing against nothing is not a judgement call and
+        # must not land on a manager's desk.
+        #
+        # The specification defines the bands and is silent on a zero baseline;
+        # this is George's ruling of 2026-09-06, recorded in the decision log.
+        if no_baseline and float(proposed) > 0.0:
+            approval_required = True
+
         audit.record_variance(ctx.correlation_id, variance, approval_required)
         return variance, approval_required
 
