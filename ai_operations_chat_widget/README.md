@@ -47,10 +47,36 @@ indistinguishable from Discuss rows — which is correct, because the conversati
 - `tests/test_widget_security.py` — 10 server-side security tests
 - `static/tests/chat_widget.test.js` — hoot tests for the component
 
-## Known limitations
+## Where the toggle lives, and why it is not a floating button
 
-- **The JS tests have not been executed here.** They need the hoot browser runner; the Python tests,
-  the SCSS compile and the asset bundling were verified.
+The first version put a round launcher at the bottom-right. That corner is **not free**: mail's own
+`ChatHub` anchors its bubbles there and lifts them with `--mail-ChatHub-bubbles-bottomLift`, and the
+Discuss and chatter composers put their controls in the same band. A permanently visible button
+there covers native controls on exactly the screens people use most, and every fix for that is a
+per-screen offset that breaks at the next layout change.
+
+The toggle is therefore a **systray item** — where Odoo puts always-available global tools. It is on
+every backend screen, it collides with nothing, and it needs no per-page rule. The panel still opens
+bottom-right, but only while it is being used.
+
+## Theming
+
+Styled the way Odoo styles its own chat window: theme-aware Bootstrap utilities in the markup
+(`bg-100`, `bg-inherit`, `border-secondary`, `text-muted`) with only geometry in SCSS. The first
+version hardcoded colours and a `var()` fallback that resolved to white, which is why it appeared as
+a white panel on the dark theme. Agent bubbles use a translucent grey, correct on either theme
+without naming a colour that exists in only one.
+
+## Tests
+
+- **Python: 10**, run locally.
+- **JS: 9, executed in Chrome on Odoo.sh staging** —
+  `--test-tags='/web:WebSuite.test_unit_desktop[@ai_operations_chat_widget]'` →
+  `[HOOT] Test suite succeeded`. Running them found three real problems: missing `defineModels`,
+  stale selectors from the UI rework, and a test that queried the DOM without opening the panel.
+
+## Known limitations
+- There is no local browser here, so JS tests must be run on staging.
 - Agent routing is a *preselection* from the current app; the user can always change it.
 - One conversation per agent per user. Switching agent clears the panel rather than merging threads.
 - Answers render as plain text with line breaks preserved; no markdown rendering.

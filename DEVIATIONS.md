@@ -899,3 +899,57 @@ which discarded the very audit row the test existed to find. Finding B3-b, again
 `stage` `1ce898f`, kernel **19.0.1.15.0**. As Fahad with the provider scripted: message survived
 **True**, purchase orders created **0**, `DENIED` row **USER_ACL_DENIED**, nothing leaked. Rolled
 back.
+
+---
+
+## 2026-09-06 — the chat widget's UI, and what running its tests found
+
+### The launcher was in a corner Odoo already owns
+
+It sat on top of the Discuss composer's controls. Bottom-right is **not free**: mail's own `ChatHub`
+anchors its bubbles there and lifts them with `--mail-ChatHub-bubbles-bottomLift`, and the Discuss
+and chatter composers use the same band. Anything permanently visible there covers native controls on
+the screens people use most, and every fix is a per-screen offset that breaks at the next layout
+change.
+
+The toggle is now a **systray item** — Odoo's own place for always-available global tools. On every
+backend screen, colliding with nothing, needing no per-page rule. The panel still opens bottom-right,
+but only while it is in use.
+
+### The white-on-dark panel was mine
+
+I hardcoded colours and used a `var()` fallback that resolves to white. Odoo's own chat window keeps
+styling in **theme-aware Bootstrap utilities in the markup** — `bg-100`, `bg-inherit`,
+`border-secondary`, `text-muted` — and puts only geometry in SCSS. Rewritten that way. Agent bubbles
+use a translucent grey, which is correct on either theme without naming a colour that exists in one.
+
+Odoo 19 also handles dark theme with separate `*.dark.scss` files in `web.assets_web_dark`; going
+theme-aware in the markup means none are needed here.
+
+### Also
+
+The panel now renders the **real conversation from the bound channel** instead of starting blank, so
+it and Discuss show the same thing. Wider (30rem, responsive below 576px), header carries the agent
+name plus Open in Discuss / minimise / close, the raw `<select>` is a `form-select`, bubbles have
+timestamps and sides, Send is disabled while empty or in flight, and a failure offers a retry.
+
+`ai_widget_open()` is a read: it resolves the channel through `action_open_chat`, so the group check,
+the partner check and the get-or-create are the same ones, and it reads messages through the ORM as
+the user. **No new endpoint, no guard change, no `sudo()`.**
+
+### The JS tests: written, then actually run, and they were broken
+
+They had never been executed — there is no browser on this machine. **Odoo.sh staging has Chrome**,
+and `--test-tags='/web:WebSuite.test_unit_desktop[@ai_operations_chat_widget]'` runs them there.
+
+| Run | Result |
+|---|---|
+| 1 | **9 failed** — `RPC_ERROR: Cannot find a definition for model "discuss.channel"`; no `defineModels()` |
+| 2 | 5 passed, **4 failed** — stale selectors (`.o_ai_chat_icon`, `.o_ai_chat_user`) from before the rework |
+| 3 | 8 passed, **1 failed** — a test queried the DOM without opening the panel |
+| 4 | **9 passed — `[HOOT] Test suite succeeded`** |
+
+Worth recording plainly: the tests I had previously reported as "written but not executed" were
+**wrong in three separate ways**, and only running them showed it.
+
+**464 Python tests across 10 modules, 0 failed. 9 JS tests, executed, 0 failed.**
