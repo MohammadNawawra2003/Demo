@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Deliberately NOT noupdate="1", and deliberately not a post_init_hook.
+
+        A post_init_hook fires on install only, so an upgraded database keeps
+        whatever configuration it happened to have. A <function> in an updatable
+        data file runs on install AND on every -u, which is what "safe to
+        install, upgrade and re-run" actually requires. The builder is
+        idempotent by construction, so running it again is a no-op that also
+        repairs drift.
+    -->
+    <function model="ai.operations.demo.setup" name="build_all"/>
+</odoo>
