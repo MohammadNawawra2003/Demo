@@ -588,3 +588,53 @@ loaded by Odoo.sh workers"*. Odoo keeps unknown keys (`config.py:906-918`) and `
 the web worker. **No ORM, no database, no git, no logged value** — CI check 11 stays green and this
 is C §5.10's own second permitted location. ⚠ The file is baked into the container image, so a **new
 build resets it** and the key must be re-entered.
+
+---
+
+## 2026-09-06 — manual Test 1, second failure: the assistant turn was never replayed
+
+After the tool-name fix the first vendor call succeeded, the vendor chose
+`procurement.get_open_pos`, the guard **ALLOWED** it and the tool returned a result. The **second**
+call then failed with HTTP 400 — again an `ERROR` row with no profile, tool or model and 0 tokens.
+
+### Root cause — in the kernel this time
+
+`run()` appended the tool result but **never the assistant turn that requested it**, so the second
+request was `[user, tool_result]`: an answer with no question in front of it.
+
+Reproduced against the live API at minimum tokens:
+
+| Probe | Result |
+|---|---|
+| turn 1 | **200**, vendor picks `procurement_get_open_pos` |
+| **A** — no assistant turn (what `run()` sent) | **HTTP 400** — `messages.0.content.1: unexpected `tool_use_id` found in `tool_result` blocks … Each `tool_result` block must have a corresponding `tool_use` block in the previous message.` |
+| **B** — assistant turn, vendor-safe name | **200** |
+| **C** — assistant turn, dotted internal name | **200** |
+
+**Probe C settles a standing hypothesis:** the dotted internal name replayed in history is *not* the
+problem. The vendor does not re-validate tool names inside historical `tool_use` blocks. The adapter
+still translates them — for consistency with the declarations, not to avoid an error.
+
+### Fix — on both sides of the boundary, each in its own layer
+
+- **Kernel** appends the assistant turn using its own tool codes, and stays vendor-agnostic.
+- **Adapter** renders it as `tool_use` blocks with vendor-safe names, and **groups consecutive tool
+  results into one user message**. Two results as two user messages would leave the second with a
+  user message before it and no matching `tool_use` in it — the same defect waiting for the first
+  parallel tool call. That part is preventive, proven by test rather than by a live 400.
+
+### Tests — five, all watched failing first
+
+`test_the_second_call_carries_the_assistant_turn_that_asked_for_the_tool`,
+`test_the_assistant_turn_names_the_tool_it_called`, `test_the_tool_result_still_matches_its_call`,
+`test_an_assistant_turn_becomes_tool_use_blocks_with_vendor_names`,
+`test_results_for_one_assistant_turn_are_grouped_into_one_message`.
+
+**425 tests across 9 modules, 0 failed.**
+
+### Staging verification — the whole loop, live
+
+`stage` `1212666`, kernel **19.0.1.12.0**, adapter **19.0.1.2.0**. A real `run()` as `noura.p`:
+`status=COMPLETED`, one tool call, reply naming **P00001 / Jeddah Plastic Industries / Draft**, audit
+`OPEN → DECISION(ALLOWED) → RESULT(ALLOWED)` and **no ERROR row**. Purchase-order count unchanged
+(1 → 1) and the transaction rolled back, so no business record was created.
