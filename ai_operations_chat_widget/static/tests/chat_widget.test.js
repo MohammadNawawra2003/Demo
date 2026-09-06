@@ -61,7 +61,7 @@ test("clicking the launcher opens and closes the panel", async () => {
     await animationFrame();
     expect(".o_ai_chat_panel").toHaveCount(1);
 
-    await click(".o_ai_chat_icon");
+    await click("button[aria-label='Close']");
     await animationFrame();
     expect(".o_ai_chat_panel").toHaveCount(0);
 });
@@ -71,7 +71,7 @@ test("the agent selector offers every profile the server returned", async () => 
     await mountWithCleanup(AiOperationsChatWidget);
     await click(".o_ai_chat_launcher");
     await animationFrame();
-    expect(queryAll(".o_ai_chat_agent option")).toHaveLength(2);
+    expect(queryAll(".o_ai_chat_panel select option")).toHaveLength(2);
 });
 
 test("a single profile needs no selector", async () => {
@@ -79,7 +79,7 @@ test("a single profile needs no selector", async () => {
     await mountWithCleanup(AiOperationsChatWidget);
     await click(".o_ai_chat_launcher");
     await animationFrame();
-    expect(".o_ai_chat_agent").toHaveCount(0);
+    expect(".o_ai_chat_panel select").toHaveCount(0);
 });
 
 test("sending a message renders the question and the answer", async () => {
@@ -95,9 +95,11 @@ test("sending a message renders the question and the answer", async () => {
     await widget.send();
     await animationFrame();
 
-    expect(".o_ai_chat_user").toHaveCount(1);
-    expect(queryFirst(".o_ai_chat_user")).toHaveText("list my open purchase orders");
-    expect(queryFirst(".o_ai_chat_message.o_ai_chat_agent")).toHaveText(
+    expect(".o_ai_chat_row.justify-content-end").toHaveCount(1);
+    expect(queryFirst(".o_ai_chat_row.justify-content-end .o_ai_chat_body")).toHaveText(
+        "list my open purchase orders"
+    );
+    expect(queryFirst(".o_ai_chat_bubble_agent .o_ai_chat_body")).toHaveText(
         "You have one open order."
     );
 });
@@ -130,7 +132,7 @@ test("a server failure answers with a neutral sentence, never a traceback", asyn
     await widget.send();
     await animationFrame();
 
-    const reply = queryFirst(".o_ai_chat_message.o_ai_chat_agent").textContent;
+    const reply = queryFirst(".o_ai_chat_bubble_agent .o_ai_chat_body").textContent;
     expect(reply).not.toInclude("RPC_ERROR");
     expect(reply).not.toInclude("internal");
 });
