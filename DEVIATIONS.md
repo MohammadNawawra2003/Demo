@@ -1101,3 +1101,62 @@ idempotency defect (a duplicate of P00004's intent). Both are Draft on staging a
 keep. For a clean final demo, **cancel both** rather than delete them — cancelling preserves the
 audit trail and the numbering, and neither is a real commitment. That is a call for the owner of the
 demo, not something to do quietly.
+
+---
+
+## 2026-09-06 — the model was narrating its own refusals
+
+Fahad's draft RFQ was denied correctly, `USER_ACL_DENIED` was on the audit row, and no order was
+written. Then the model was handed the turn and explained the refusal in its own words — vendor
+concentration, a hard ceiling, a shortage rule. **None of that was the reason.** The user was told
+something false about why they were refused.
+
+### Root cause
+
+The runtime was already doing its half. `AIAccessDenied` becomes `NEUTRAL_DENIAL` as the **tool
+result**, carrying no model name, no field and no reason code (C §9, T-86). But the loop then
+continued, the model answered in prose, and `_ai_body` posted `result['content']` verbatim.
+
+`NEUTRAL_DENIAL`'s own definition reads: *"The ONLY text a denial is ever allowed to show outside the
+audit log."* Invented prose layered on top of it **is** text a denial is showing outside the audit
+log, so the current behaviour violated the string's stated contract even though the string itself was
+being used correctly.
+
+### Fix — at the application boundary, not in a prompt
+
+`run()` now reports whether the guard refused anything during the run (`refused`), and the chat
+surface answers a refused run with `NEUTRAL_DENIAL`, discarding the model's words.
+
+Deliberately deterministic: **a security boundary that depends on the model choosing to be honest is
+not a boundary.** No system-prompt wording was added, because that would be exactly such a
+dependency.
+
+**Frozen wording used verbatim** — `Refused: this request is outside the agent's authorised scope.` —
+rather than inventing a friendlier sentence, because the spec fixes that string for this meaning. If
+a softer phrasing is wanted, that is a wording decision and a one-line change, not a security one.
+
+An **allowed** run still speaks in the model's own words. The replacement applies to a refusal, not
+to every answer.
+
+### Audit is untouched
+
+An auditor still reads `USER_ACL_DENIED` with the detail on the row. The user-facing text and the
+audit evidence answer different questions and now say different things on purpose.
+
+### Tests — five, all watched failing first, on the real Discuss path
+
+The neutral refusal reaches the user and the invented story does not · no internal detail leaks
+(`USER_ACL_DENIED`, `purchase.order`, `AccessError`, tool code) · the audit keeps the exact reason ·
+no business record appears · a permitted answer is unchanged.
+
+**478 tests across 10 modules, 0 failed.**
+
+### Staging proof — rolled back
+
+| | |
+|---|---|
+| reply to user | `Refused: this request is outside the agent's authorised scope.` |
+| invented story gone | **True** |
+| internal detail leaked | **none** |
+| audit reason kept | **USER_ACL_DENIED** |
+| purchase orders created | **0** |
