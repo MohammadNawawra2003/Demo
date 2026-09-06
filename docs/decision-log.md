@@ -195,3 +195,34 @@ nothing at all, proving the real runtime was entered by asserting on the audit r
 Declined deliberately, and confirmed by the approver. Document D §5 makes it optional — *"uninstalling
 it changes discoverability and nothing else"* — and it would add an Enterprise dependency to a product
 C §9.3 positions as Community-installable, in exchange for a second way to find a menu.
+
+---
+
+## DL-008 — a missing deterministic baseline escalates
+
+**Decided:** 2026-09-06, by the product owner, after the final technical audit raised it as an
+ambiguity rather than a defect.
+
+**The question.** `check_bound` computed `if not deterministic: variance = 0.0`, so a recommendation
+of any size against a system-computed figure of **0** was neither escalated nor refused. Document
+C §5.3 defines the bands and is **silent** on a zero baseline, so the behaviour was an implementation
+choice — avoiding a division by zero — and not a contract requirement.
+
+It mattered in practice: Naqaa's computed shortage for PK-BTL-330 *is* 0, so the flagship scenario
+was exactly the case the guardrail said nothing about.
+
+**Ruling: escalate.** A positive proposal against no computed basis sets `approval_required`, so a
+human decides. It **never denies** — the ceiling is the only bound that denies, and a missing
+baseline is not a ceiling breach. This follows the frozen principle the spec already states: *the
+bound escalates, the ceiling denies*, because a denial leaves nothing on anyone's desk.
+
+**Deliberately unchanged:**
+
+- The variance number stays `0.0` when there is no baseline. There is no percentage to compute
+  against nothing, and inventing one would only trip the ceiling on a figure nobody measured.
+- Proposing nothing against nothing does not escalate — that is not a judgement call.
+- The existing bands, the ceiling denial, the Level 2 boundary and the fact that the agent cannot
+  confirm an order are untouched, and were re-verified on staging alongside the change.
+
+**Rejected alternative:** denying on a zero baseline. It would contradict C §5.3's own reasoning and
+would leave the human with nothing to review.

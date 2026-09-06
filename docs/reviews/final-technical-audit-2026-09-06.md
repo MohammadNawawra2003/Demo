@@ -1,15 +1,15 @@
 # Final technical audit — AI Operations / Naqaa Water
 
 **Date:** 2026-09-06 · **Audited commit:** `7a4f37d` on `development` and `stage`
-**Verdict:** **READY FOR MAIN**, with two product decisions outstanding and one measured limitation
-recorded.
+**Verdict:** **READY FOR MAIN.** Both product decisions have since been ruled (DL-008 and
+"leave agent visibility as is"); one measured limitation is recorded and deferred by decision.
 
 Nothing in this audit changed behaviour. Every claim below was re-verified, not carried over from an
 earlier report.
 
 ---
 
-## 1. `check_bound` zero baseline — **PRODUCT DECISION, unchanged**
+## 1. `check_bound` zero baseline — **DECIDED AND IMPLEMENTED** (see DL-008)
 
 **Implementation:** `security_service.check_bound` computes `if not deterministic: variance = 0.0`.
 A recommendation of any size against a system-computed figure of **0** is therefore neither escalated
@@ -39,11 +39,18 @@ human declines. It is not an unauthorised commitment.
 **But it defeats the bound exactly where judgement matters most.** Naqaa's computed shortage for
 PK-BTL-330 *is* 0, so the flagship scenario is precisely this case, and the guardrail is silent on it.
 
-**Recommendation (needs George's ruling — not applied):** treat an absent or zero deterministic
-baseline as *"no computed basis"* and set `approval_required = True` — escalate, do not deny. That
-matches the spec's own philosophy ("the bound escalates, the ceiling denies"; "a denial leaves
-nothing on a human's desk"). It is a one-line change plus a test. **Not made here**, because choosing
-business policy the contract did not decide is not an auditor's call.
+**Ruled and implemented, 2026-09-06 (DL-008):** a positive proposal against no computed basis now
+sets `approval_required = True`. It escalates and never denies. The variance number stays `0.0`,
+proposing nothing against nothing still does not escalate, and every existing band is unchanged —
+all re-verified on staging.
+
+| case | approval_required | outcome |
+|---|---|---|
+| baseline 0, proposed 100,000 | **True** | draft, escalated |
+| baseline 0, proposed 0 | False | no false escalation |
+| +2.9% | False | unchanged |
+| +27.6% | True | unchanged |
+| +147% | — | **denied**, `BOUND_EXCEEDED`, unchanged |
 
 ## 2. `core.describe_scope` and `res.company` — **NON-BLOCKING, documented**
 
@@ -251,9 +258,9 @@ instruction).
 
 | # | Finding | Class |
 |---|---|---|
-| 1 | `check_bound` zero baseline neither escalates nor refuses | **PRODUCT DECISION** |
+| 1 | `check_bound` zero baseline | **RESOLVED** — escalates (DL-008) |
 | 2 | `core.describe_scope` unusable for every shipped profile | **NON-BLOCKING** (documented, inert) |
-| 3 | Any `group_ai_user` sees every active profile in their companies | **PRODUCT DECISION** (architecture as designed) |
+| 3 | Any `group_ai_user` sees every active profile in their companies | **RESOLVED** — leave as is; architecture as designed |
 | 4 | Quant-scanning tools degrade ~60× at 60k quants | **NON-BLOCKING**, optimisation **DEFERRED** |
 | 5 | Odoo.sh has no secrets mechanism; key lives in `odoo.conf` | **NON-BLOCKING** deployment limitation; **DL-001** still a **PRODUCT DECISION** for production |
 | 6 | Idempotency ignores quantity | **NON-BLOCKING**, explicit contract trade-off |
