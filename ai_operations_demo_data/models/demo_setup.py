@@ -56,6 +56,7 @@ ASSIGNMENTS = {
         ('procurement.prepare_draft_rfq', 2),
     ],
     'manufacturing': [
+        ('manufacturing.get_open_mos', 4),
         ('manufacturing.check_readiness', 4),
         ('manufacturing.raise_handoff', 2),
     ],
@@ -101,7 +102,6 @@ class AIOperationsDemoSetup(models.AbstractModel):
         for code, profile in profiles.items():
             self._assign_tools(profile, code)
         self._grant_ai_group()
-        self._compensate_pack_defects(profiles)
         channels = self._build_channels(profiles)
         self._seed_scenario_records(company)
         _logger.info(
@@ -299,45 +299,6 @@ class AIOperationsDemoSetup(models.AbstractModel):
                 channel.ai_profile_id = profile.id
                 built |= channel
         return built
-
-    # -- compensating for a reported production defect --------------------
-
-    @api.model
-    def _compensate_pack_defects(self, profiles):
-        """⚠ REPORTED DEFECT, compensated here and NOT fixed in production.
-
-        ``ai_operations_manufacturing`` ships the ``manufacturing.raise_handoff``
-        tool and the ``MATERIAL_SHORTAGE`` handoff type, but its policy pack
-        grants no model permission on ``ai.operations.handoff``. The guard
-        therefore denies its own pack's handoff tool with
-        ``MODEL_NOT_PERMITTED: ai.operations.handoff is not in the allowlist``,
-        which makes the handoff feature unreachable as shipped.
-
-        This module adds the missing permission so the handoff scenario can be
-        tested. It is deliberately **here and not in the pack**: changing a
-        production policy pack is a decision for the approver, not something a
-        demo module should do quietly. The fix, once approved, is two records in
-        ``ai_operations_manufacturing/data/policy_pack.xml`` -- read and create
-        on ``ai.operations.handoff`` -- after which this method becomes a no-op
-        and should be deleted.
-        """
-        Permission = self.env['ai.operations.model.permission']
-        model = self.env['ir.model']._get('ai.operations.handoff')
-        profile = profiles['manufacturing']
-        existing = Permission.with_context(active_test=False).search(
-            [('profile_id', '=', profile.id), ('model_id', '=', model.id)], limit=1)
-        if existing:
-            return existing
-        _logger.warning(
-            "ai_operations_demo_data: adding the ai.operations.handoff "
-            "permission the manufacturing pack does not ship -- see the "
-            "reported defect in README.md")
-        return Permission.create({
-            'profile_id': profile.id,
-            'model_id': model.id,
-            'perm_read': True,
-            'perm_create': True,
-        })
 
     # -- the two source records the scenarios read ------------------------
 

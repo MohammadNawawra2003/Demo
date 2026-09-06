@@ -547,3 +547,103 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         created = Purchase.search([]) - before
         self.assertEqual(len(created), 1, "the workflow produced no draft")
         self.assertEqual(created.state, 'draft')
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestKhalidManufacturingPath(TestDemoConfiguration):
+    """Manual Test 3, from business references only.
+
+    Khalid says "MO for FG-330 is short 100000 units of PK-BTL-330". He must
+    never be asked for a production_id, a product_id or a warehouse_id: those
+    are database facts, and an agent that cannot reach them from a business
+    reference cannot do the job.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.khalid = self._user('khalid.m')
+        self.runner = self.env['ai.operations.execution'].with_user(self.khalid)
+
+    def _call(self, code, params):
+        return self.runner.execute_tool(
+            self.manufacturing, code, params, 'INTERACTIVE', 'CHAT', 'test-3')
+
+    def test_the_manufacturing_agent_is_granted_a_way_to_find_its_orders(self):
+        offered = set(self.manufacturing.tool_assignment_ids.filtered('enabled')
+                      .tool_id.filtered('enabled').mapped('code'))
+        self.assertIn('manufacturing.get_open_mos', offered,
+                      "the agent cannot find a manufacturing order at all")
+
+    def test_an_mo_resolves_from_its_finished_product(self):
+        orders = self._call('manufacturing.get_open_mos', {})['orders']
+        match = [o for o in orders if 'FG-330' in o['product_name']]
+        self.assertTrue(match, "the FG-330 order is not reachable")
+        self.assertTrue(match[0]['reference'])
+
+    def test_readiness_names_the_short_component_and_its_numbers(self):
+        production_id = self._resolve_production()
+        readiness = self._call('manufacturing.check_readiness',
+                               {'production_id': production_id})
+        bottles = [c for c in readiness['components']
+                   if 'PK-BTL-330' in c['product_name']]
+        self.assertTrue(bottles, "the component is not visible on the order")
+        self.assertIn('required', bottles[0])
+        self.assertIn('shortage', bottles[0])
+
+    def _resolve_production(self):
+        orders = self._call('manufacturing.get_open_mos', {})['orders']
+        return next(o['id'] for o in orders if 'FG-330' in o['product_name'])
+
+    def _raise(self, key_suffix=''):
+        production_id = self._resolve_production()
+        readiness = self._call('manufacturing.check_readiness',
+                               {'production_id': production_id})
+        component = next(c for c in readiness['components']
+                         if 'PK-BTL-330' in c['product_name'])
+        return self._call('manufacturing.raise_handoff', {
+            'production_id': production_id,
+            'product_id': component['product_id'],
+            'qty_required': component['required'],
+            'qty_available': component['available'],
+            'qty_shortage': component['shortage'] or 100000.0,
+        })
+
+    def test_a_handoff_is_raised_without_anyone_supplying_a_warehouse_id(self):
+        """The only field the agent could not reach from a business reference.
+        The order knows its own warehouse; the model should not have to."""
+        Handoff = self.env['ai.operations.handoff']
+        before = Handoff.search([])
+        self._raise()
+        created = Handoff.search([]) - before
+        self.assertEqual(len(created), 1, "no handoff was raised")
+        self.assertEqual(created.type_id.code, 'MATERIAL_SHORTAGE')
+        self.assertEqual(created.from_profile_id, self.manufacturing)
+        self.assertEqual(created.to_profile_id, self.procurement)
+
+    def test_the_same_shortage_raised_twice_is_one_handoff(self):
+        Handoff = self.env['ai.operations.handoff']
+        before = Handoff.search([])
+        self._raise()
+        self._raise()
+        self.assertEqual(len(Handoff.search([]) - before), 1,
+                         "the handoff idempotency key did not hold")
+
+    def test_raising_a_shortage_creates_no_purchase_order(self):
+        Purchase = self.env['purchase.order']
+        before = Purchase.search_count([])
+        self._raise()
+        self.assertEqual(Purchase.search_count([]), before,
+                         "a handoff bought something by itself")
+
+    def test_the_pack_ships_its_own_handoff_permission(self):
+        """Previously the demo module compensated for this. The pack must carry
+        it, or the handoff feature is unreachable in production."""
+        permission = self.env['ai.operations.model.permission'].search([
+            ('profile_id', '=', self.manufacturing.id),
+            ('model_name', '=', 'ai.operations.handoff')], limit=1)
+        self.assertTrue(permission, "the manufacturing pack still cannot hand off")
+        data = self.env['ir.model.data'].search([
+            ('model', '=', 'ai.operations.model.permission'),
+            ('res_id', '=', permission.id)], limit=1)
+        self.assertEqual(data.module, 'ai_operations_manufacturing',
+                         "the permission still comes from the demo module")

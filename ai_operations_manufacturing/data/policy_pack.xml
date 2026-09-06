@@ -90,6 +90,23 @@
         normalise an attempted leak into a success. Note what is absent — no
         cost, no price, no conversation history, no record dump.
     -->
+    <!--
+        The pack's own handoff tool needs to see the handoff model. Without
+        this the guard refuses manufacturing.raise_handoff with
+        MODEL_NOT_PERMITTED and the MATERIAL_SHORTAGE type below is
+        unreachable: the pack ships a feature it does not permit itself to use.
+        Found in manual Test 3 and compensated for in the demo module until
+        now; it belongs here.
+
+        Read and create only. A handoff is raised and read, never rewritten.
+    -->
+    <record id="perm_ai_handoff" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_manufacturing"/>
+        <field name="model_id" ref="ai_operations.model_ai_operations_handoff"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
     <record id="handoff_type_material_shortage" model="ai.operations.handoff.type">
         <field name="code">MATERIAL_SHORTAGE</field>
         <field name="name">Material Shortage</field>

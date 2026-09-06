@@ -12,7 +12,11 @@ class RaiseShortageInput(Schema):
     qty_required = Float(min=0.0)
     qty_available = Float(min=0.0)
     qty_shortage = Float(min=0.0)
-    warehouse_id = Int(min=1)
+    #: Optional, and derived from the order when absent. The warehouse of a
+    #: shortage is a fact of the manufacturing order, not a choice: requiring it
+    #: as input asked the model for a database id it has no way to reach from a
+    #: business reference, and manual Test 3 stalled there.
+    warehouse_id = Int(min=1, required=False)
     required_date = Date(required=False)
 
 
@@ -45,10 +49,12 @@ def raise_material_shortage(ctx, params):
     ctx.check_records('mrp.production', production.ids)
     product = ctx.model('product.product').browse(params['product_id'])
 
+    warehouse_id = params.get('warehouse_id') or (
+        production.picking_type_id.warehouse_id.id)
     key = handoff_idempotency_key(
         ctx.company_ids[0] if ctx.company_ids else 0,
         'shortage', product.default_code or product.id,
-        params['warehouse_id'],
+        warehouse_id,
         params.get('required_date') or 'open')
 
     before = ctx.env['ai.operations.handoff'].search_count(
@@ -63,7 +69,7 @@ def raise_material_shortage(ctx, params):
             'uom_id': product.uom_id.id,
             'required_date': str(params.get('required_date') or ''),
             'origin_ref': production.name,
-            'warehouse_id': params['warehouse_id'],
+            'warehouse_id': warehouse_id,
             'priority': '2',
         },
         source_model='mrp.production', source_res_id=production.id,
