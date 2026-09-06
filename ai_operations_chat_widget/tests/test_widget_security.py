@@ -112,3 +112,52 @@ class TestChatWidgetSecurity(TransactionCase):
 
         self.assertNotEqual(mine['channel_id'], theirs['channel_id'],
                             "two employees shared one conversation")
+
+    # -- one send is one turn ------------------------------------------
+
+    def _channel_messages(self, channel):
+        return self.env['mail.message'].search_count(
+            [('model', '=', 'discuss.channel'), ('res_id', '=', channel.id)])
+
+    def test_opening_a_conversation_writes_no_message(self):
+        """Reading a conversation must never look like taking part in one."""
+        profile = self.profile.with_user(self.employee)
+        opened = profile.ai_widget_open()
+        channel = self.env['discuss.channel'].browse(opened['channel_id'])
+        before = self._channel_messages(channel)
+
+        profile.ai_widget_open()
+        profile.ai_widget_open()
+
+        self.assertEqual(self._channel_messages(channel), before,
+                         "opening the panel posted something")
+
+    def test_the_discuss_button_writes_no_message(self):
+        profile = self.profile.with_user(self.employee)
+        action = profile.action_open_chat()
+        channel = self.env['discuss.channel'].browse(action['params']['channel_id'])
+        before = self._channel_messages(channel)
+
+        profile.action_open_chat()
+
+        self.assertEqual(self._channel_messages(channel), before,
+                         "'Open in Discuss' posted something")
+
+    def test_one_send_is_one_user_message_and_one_reply(self):
+        """The whole question behind the duplicated-refusal report."""
+        profile = self.profile.with_user(self.employee)
+        opened = profile.ai_widget_open()
+        channel = self.env['discuss.channel'].browse(opened['channel_id'])
+        before = self._channel_messages(channel)
+
+        profile.ai_widget_send('one question')
+
+        self.assertEqual(self._channel_messages(channel), before + 2,
+                         "one send did not produce exactly one turn")
+        newest = self.env['mail.message'].search(
+            [('model', '=', 'discuss.channel'), ('res_id', '=', channel.id)],
+            order='id desc', limit=2)
+        authors = newest.mapped('author_id')
+        self.assertIn(self.partner, authors, "the agent did not answer")
+        self.assertIn(self.employee.partner_id, authors,
+                      "the question was not recorded as the user's")

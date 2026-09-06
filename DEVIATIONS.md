@@ -1160,3 +1160,58 @@ no business record appears · a permitted answer is unchanged.
 | internal detail leaked | **none** |
 | audit reason kept | **USER_ACL_DENIED** |
 | purchase orders created | **0** |
+
+---
+
+## 2026-09-06 — the "duplicated refusal" was not a duplicate
+
+Reported: a refusal appeared twice in Fahad's conversation, with a Fahad-authored message carrying
+the refusal text between them. **The database says the backend behaved correctly.**
+
+### Message timeline — `discuss.channel` 15, times UTC
+
+| id | time | author | body |
+|---|---|---|---|
+| 1428 | 12:31:13 | Fahad (partner 1002) | "We are short 100000 units of PK-BTL-330…" |
+| 1429 | 12:31:29 | AI / Procurement (partner 1021) | "Refused: …" |
+| **1430** | **12:31:55** | **Fahad (partner 1002)** | **"Refused: …"** |
+| 1431 | 12:32:08 | AI / Procurement (partner 1021) | "Refused: …" |
+
+`parent_id` is null on all four, so no threading artefact.
+
+### The audit log agrees — two separate runs, not one run twice
+
+```
+12:31:13  find_product ALLOWED ; prepare_draft_rfq DENIED USER_ACL_DENIED
+12:31:55  prepare_draft_rfq DENIED USER_ACL_DENIED
+```
+
+Each run's timestamp matches its own user message. **One assistant reply per user message.**
+
+### Not the widget
+
+The widget writes `state.draft` in exactly two places: it clears it on send, and `retry()` restores
+**the user's own previously failed text** (`lastFailed`, set from the outgoing body). No path puts a
+server message into the draft, and message 1430 arrived 26 seconds after 1429 as its own `comment`
+authored by Fahad's partner — not within a transaction, not in the same second.
+
+### Verdict
+
+**User action, not a defect. No code change.** Message 1430 was a genuine second send whose content
+happened to be the refusal text; the agent then treated it as a turn, because every message in a
+bound channel is a turn (decision B-ii), tried the tool, was denied again, and answered neutrally —
+correctly, twice.
+
+### Tests added anyway — the invariant is worth holding
+
+Opening a conversation writes no message · "Open in Discuss" writes no message · **one send is
+exactly one user message and one reply**, with the right authors.
+
+### Two incidental findings, no action taken
+
+- Channel 23, `AI / Manufacturing Intelligence, Fahad Al-Otaibi`, exists with **0 messages** — created
+  by opening that agent. Opening creates a *channel* (documented get-or-create) but no message.
+- The widget offered Fahad the **Manufacturing** agent as well as Procurement. That is the rule
+  working — he holds `group_ai_user` and both profiles are active in his company — but the demo
+  intended him for procurement only. Not a security gap: the guard still applies per call. Worth a
+  decision if the demo should scope him tighter.
