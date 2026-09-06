@@ -526,3 +526,65 @@ file are repeated here.
   outside `base`/`mail`", and `discuss.channel` is in `mail`.
 - **CI check 11 now has a test.** It was a grep nobody ran. See DL-001 — including the reason the
   credential decision is *not* resolved by that test.
+
+---
+
+## 2026-09-06 — manual Test 1 failed with HTTP 400: dot-namespaced tool names
+
+Found by the first real end-to-end message on Odoo.sh staging, not by any suite. The agent replied
+*"I am unavailable right now"*, and the audit log held an `ERROR` row with **no** profile, tool,
+provider or model and **0 tokens in and out** — the request was rejected before anything ran.
+
+### Root cause
+
+Anthropic requires a tool name to match `^[a-zA-Z0-9_-]{1,128}$`. Our tool codes are dot-namespaced
+(`procurement.get_open_pos`) and `build_tool_definitions()` sent `spec.code` verbatim as the vendor
+tool name. **A dot is not in that set, and the vendor rejects the whole request rather than the one
+tool.**
+
+Isolated on staging with three probes at minimum tokens:
+
+| Probe | Result |
+|---|---|
+| A — no tools | **HTTP 200** |
+| B — name `procurement.get_open_pos` | **HTTP 400** `tools.0.custom.name: String should match pattern '^[a-zA-Z0-9_-]{1,128}$'` |
+| C — name `procurement_get_open_pos` | **HTTP 200** |
+
+So the endpoint, the `anthropic-version` header, the model id `claude-sonnet-5`, the request JSON
+shape, `system`/`messages`, `max_tokens`, and reading the credential from `odoo.conf` were **all
+already correct**. One defect, one line.
+
+### Fix
+
+In `ai_operations_anthropic` only. This is one vendor's naming grammar and the kernel must not know a
+vendor exists (CI check 16), so nothing in `ai_operations/` changed.
+
+`_vendor_tools()` rewrites illegal characters and returns `{vendor name: our code}`; `_normalise()`
+maps the name back, because the runtime looks a tool up by the name that comes back and a one-way
+rename would miss the registry on every call. Collisions are resolved rather than assumed away. A
+name we never sent is passed through untouched, so it reaches the guard and is denied and logged
+there instead of being silently dropped.
+
+### Tests — all three watched failing first
+
+- `test_tool_names_sent_to_the_vendor_match_the_vendor_pattern`
+- `test_a_tool_call_is_returned_under_our_own_tool_code`
+- `test_an_unknown_tool_name_is_passed_through_untouched`
+
+**420 tests across 9 modules, 0 failed.**
+
+### Staging verification
+
+`ai_operations_anthropic` **19.0.1.1.0** on `stage` `973cc08`. One live call with the exact payload
+that had failed — the four real procurement tool definitions — returned **HTTP 200**, 148 input / 4
+output tokens, `stop_reason=end_turn`. Only `complete()` was called, so no tool executed and no
+business record was created; the transaction was rolled back.
+
+### The credential, resolved (see DL-001)
+
+The key lives in `[options]` of `/home/odoo/.config/odoo/odoo.conf`, whose own header states it *"is
+loaded by Odoo.sh workers"*. Odoo keeps unknown keys (`config.py:906-918`) and `config.options` is a
+`ChainMap` including them (`config.py:164-170`), so `config.get('ai_anthropic_token')` resolves in
+the web worker. **No ORM, no database, no git, no logged value** — CI check 11 stays green and this
+is C §5.10's own second permitted location. ⚠ The file is baked into the container image, so a **new
+build resets it** and the key must be re-entered.
