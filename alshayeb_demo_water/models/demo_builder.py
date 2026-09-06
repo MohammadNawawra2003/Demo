@@ -91,12 +91,23 @@ class AlshayebDemoBuilder(models.AbstractModel):
 
     def _build_products(self, companies):
         products = {}
+        # The operating company. `standard_price` is company-dependent, so a
+        # cost written while the builder runs as the installing user lands on
+        # THAT user's company and every Naqaa read returns 0.0 -- which is how a
+        # draft RFQ came out priced at zero. Same defect the supplier pricing
+        # had; written and repaired explicitly here.
+        company = companies['c1']
+
+        def _set_cost(product, cost):
+            if cost and product.with_company(company).standard_price != cost:
+                product.with_company(company).standard_price = cost
 
         def make(code, name, uom, cost=0.0, tracking='none', purchase_ok=False,
                  sale_ok=False, expiry=False, price=0.0):
             product = self.env['product.product'].with_context(
                 active_test=False).search([('default_code', '=', code)], limit=1)
             if product:
+                _set_cost(product, cost)
                 products[code] = product
                 return product
             values = {
@@ -111,6 +122,9 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 values['expiration_time'] = 365      # §8.2 shelf life 12 months
                 values['alert_time'] = 90            # alert at 90 days remaining
             products[code] = self.env['product.product'].create(values)
+            # create() writes standard_price against the CURRENT company; write
+            # it again explicitly for the operating one.
+            _set_cost(products[code], cost)
             return products[code]
 
         # Finished goods: lot tracked with expiry, sold not purchased.

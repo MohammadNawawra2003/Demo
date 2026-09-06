@@ -440,6 +440,50 @@ class TestNouraProcurementPath(TestDemoConfiguration):
         self.assertEqual(created.state, 'draft',
                          "the agent confirmed a business transaction")
 
+    def test_the_draft_rfq_carries_the_vendor_price(self):
+        """P00004 was created at 0.00 while the agent had just quoted 0.0550.
+
+        The tool wrote ``product.standard_price`` -- our AVCO cost, which is
+        company-dependent and was 0.0 under Naqaa -- instead of letting Odoo
+        price the line from the vendor. Two sources of truth for one number,
+        and the wrong one of the two.
+        """
+        product_id = self._product_id()
+        offers = self._call('procurement.compare_suppliers',
+                            {'product_id': product_id})['offers']
+        jeddah = next(o for o in offers
+                      if o['vendor'] == 'Jeddah Plastic Industries')
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+
+        result = self._call('procurement.prepare_draft_rfq', {
+            'product_id': product_id, 'partner_id': jeddah['partner_id'],
+            'deterministic_shortage': 0.0,
+            'recommended_quantity': 100000.0,
+            'idempotency_key': 'test-vendor-price'})
+
+        order = Purchase.search([]) - before
+        line = order.order_line
+        self.assertEqual(order.state, 'draft')
+        self.assertAlmostEqual(line.price_unit, jeddah['price'], places=4,
+                               msg="the RFQ was not priced from the vendor")
+        self.assertAlmostEqual(line.price_subtotal, 100000.0 * jeddah['price'],
+                               places=2, msg="the subtotal does not follow price x quantity")
+        self.assertAlmostEqual(result['lines'][0]['price_unit'], line.price_unit,
+                               places=4,
+                               msg="what the tool reported and what Odoo stored disagree")
+
+    def test_the_naqaa_cost_is_set_on_the_operating_company(self):
+        """``standard_price`` is company-dependent and was written while the
+        builder ran as the installing user, so every Naqaa read returned 0.0 --
+        the same defect the supplier pricing had."""
+        from ..models.demo_setup import COMPANY, SEED_COMPONENT
+        company = self.env['res.company'].search([('name', '=', COMPANY)], limit=1)
+        product = self.env['product.product'].search(
+            [('default_code', '=', SEED_COMPONENT)], limit=1)
+        self.assertGreater(product.with_company(company).standard_price, 0.0,
+                           "Naqaa sees no cost for its own component")
+
     def test_repeating_the_request_does_not_duplicate_the_rfq(self):
         product_id = self._product_id()
         offers = self._call('procurement.compare_suppliers',

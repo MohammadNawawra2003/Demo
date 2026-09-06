@@ -297,10 +297,21 @@ def prepare_draft_rfq(ctx, params):
         'ai_approval_required': approval_required,
         'ai_deterministic_qty': deterministic,
         'ai_variance_pct': variance,
+        # No price_unit. purchase.order.line.price_unit is a stored compute
+        # (_compute_price_unit_and_date_planned_and_name) that prices the line
+        # from the VENDOR via _select_seller, which is the same figure
+        # compare_suppliers reports. Passing a value overrides that compute, and
+        # what was being passed was product.standard_price -- our AVCO cost, not
+        # the vendor's quote, and company-dependent besides, so it read 0.0 for
+        # any company it had not been written on. That is how an RFQ came out at
+        # 0.00 while the vendor comparison had just said 0.0550.
+        #
+        # One number, one source. If Odoo cannot price the line, that is a real
+        # answer -- no vendor price on file -- and it belongs in front of the
+        # human who confirms the order, not papered over with a cost figure.
         'order_line': [(0, 0, {
             'product_id': product.id,
             'product_qty': recommended,
-            'price_unit': product.standard_price,
         })],
     })
     return _render_rfq(order, idempotent_hit=False)
