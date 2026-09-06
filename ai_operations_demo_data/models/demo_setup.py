@@ -49,6 +49,7 @@ ROUTING = {
 #: permissions to make a demo look better. Reported, not worked around.
 ASSIGNMENTS = {
     'procurement': [
+        ('procurement.find_product', 4),
         ('procurement.get_shortage_context', 4),
         ('procurement.get_open_pos', 4),
         ('procurement.compare_suppliers', 4),

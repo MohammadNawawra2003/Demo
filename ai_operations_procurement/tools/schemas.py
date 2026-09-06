@@ -21,6 +21,18 @@ class ProductRef(Schema):
     product_id = Int(min=1)
 
 
+class FindProductInput(Schema):
+    #: Not 'query'. The kernel refuses that name outright (registry.py
+    #: PROHIBITED_PARAM_NAMES) because a parameter the LLM fills must never be
+    #: mistakable for a domain, a model name or an expression.
+    product_ref = Str(max_length=64)
+
+
+class FindProductOutput(Schema):
+    products = List(Nested({'id': Int(), 'code': Str(), 'name': Str(),
+                            'uom': Str()}), max_items=10)
+
+
 class ShortageContextInput(Schema):
     product_id = Int(min=1)
     warehouse_id = Int(min=1, required=False)

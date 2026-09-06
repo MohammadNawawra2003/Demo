@@ -362,3 +362,93 @@ class TestDemoScenarios(TestDemoConfiguration):
         self.assertEqual(created.from_profile_id, self.manufacturing)
         self.assertEqual(created.to_profile_id, self.procurement)
         self.assertTrue(created.idempotency_key)
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestNouraProcurementPath(TestDemoConfiguration):
+    """Manual Test 2, as the guard actually sees it, with no vendor involved.
+
+    Every call goes through ``execute_tool`` as Noura, so the full intersection
+    USER n AGENT n TOOL n ACTION n COMPANY is enforced exactly as it is in the
+    chat. Nothing here grants a permission or uses sudo().
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.noura = self._user('noura.p')
+        self.runner = self.env['ai.operations.execution'].with_user(self.noura)
+
+    def _call(self, code, params):
+        return self.runner.execute_tool(
+            self.procurement, code, params, 'INTERACTIVE', 'CHAT', 'test-2')
+
+    def _product_id(self):
+        return self.env['product.product'].search(
+            [('default_code', '=', 'PK-BTL-330')], limit=1).id
+
+    def test_the_agent_can_resolve_a_product_code_to_an_id(self):
+        """The defect behind Manual Test 2: every procurement tool takes
+        ``product_id``, no tool resolved a code to one, so the model guessed
+        330 from 'PK-BTL-330' and the guard denied a record that does not
+        exist -- reported as USER_ACL_DENIED, which reads like a rights
+        problem and is not one."""
+        found = self._call('procurement.find_product', {'product_ref': 'PK-BTL-330'})
+        codes = [p['code'] for p in found['products']]
+        self.assertIn('PK-BTL-330', codes)
+        match = next(p for p in found['products'] if p['code'] == 'PK-BTL-330')
+        self.assertEqual(match['id'], self._product_id())
+
+    def test_shortage_context_succeeds_for_noura(self):
+        result = self._call('procurement.get_shortage_context',
+                            {'product_id': self._product_id()})
+        self.assertEqual(result['product_id'], self._product_id())
+        self.assertIn('PK-BTL-330', result['product_name'])
+
+    def test_compare_suppliers_returns_the_seeded_vendors_for_noura(self):
+        """The second defect: Naqaa's supplier pricing was created without a
+        company, so it landed on the installing user's company and no Naqaa
+        user could see any of it -- compare_suppliers returned an empty list
+        for every product."""
+        result = self._call('procurement.compare_suppliers',
+                            {'product_id': self._product_id()})
+        vendors = [o['vendor'] for o in result['offers']]
+        self.assertTrue(vendors, "no vendor offers are visible to Noura")
+        self.assertIn('Jeddah Plastic Industries', vendors)
+
+    def test_prepare_draft_rfq_creates_a_draft_and_never_confirms_it(self):
+        product_id = self._product_id()
+        offers = self._call('procurement.compare_suppliers',
+                            {'product_id': product_id})['offers']
+        partner_id = next(o['partner_id'] for o in offers
+                          if o['vendor'] == 'Jeddah Plastic Industries')
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+
+        self._call('procurement.prepare_draft_rfq', {
+            'product_id': product_id, 'partner_id': partner_id,
+            'deterministic_shortage': 100000.0,
+            'recommended_quantity': 100000.0,
+            'idempotency_key': 'test2-noura'})
+
+        created = Purchase.search([]) - before
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created.state, 'draft',
+                         "the agent confirmed a business transaction")
+
+    def test_repeating_the_request_does_not_duplicate_the_rfq(self):
+        product_id = self._product_id()
+        offers = self._call('procurement.compare_suppliers',
+                            {'product_id': product_id})['offers']
+        partner_id = offers[0]['partner_id']
+        Purchase = self.env['purchase.order']
+        before = Purchase.search([])
+        params = {'product_id': product_id, 'partner_id': partner_id,
+                  'deterministic_shortage': 100000.0,
+                  'recommended_quantity': 100000.0,
+                  'idempotency_key': 'test2-noura-twice'}
+
+        self._call('procurement.prepare_draft_rfq', dict(params))
+        self._call('procurement.prepare_draft_rfq', dict(params))
+
+        self.assertEqual(len(Purchase.search([]) - before), 1,
+                         "the idempotency key did not hold")

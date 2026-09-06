@@ -230,12 +230,24 @@ class AlshayebDemoBuilder(models.AbstractModel):
                  'country_id': country.id if country else False,
                  'customer_rank': 1, 'company_type': 'company'})
 
-        self._build_supplier_pricing(partners, products)
+        self._build_supplier_pricing(companies['c1'], partners, products)
         return partners
 
-    def _build_supplier_pricing(self, partners, products):
+    def _build_supplier_pricing(self, company, partners, products):
         """§9's planted tensions: caps dual-sourced local against import with a
-        34-day lead gap, labels sole-sourced per SKU, bottles freight-heavy."""
+        34-day lead gap, labels sole-sourced per SKU, bottles freight-heavy.
+
+        **The company is explicit, and that is not cosmetic.**
+        ``product.supplierinfo.company_id`` defaults to the *installing user's*
+        company, which is whatever company the administrator happens to be in --
+        not Naqaa. The products themselves are company-less and so stay visible,
+        but every supplier price landed on another company and the multi-company
+        record rule hid all of it from every Naqaa user: ``compare_suppliers``
+        returned an empty offer list for every product, with no error anywhere.
+        Existing rows are corrected on the way past, because a database built
+        before this fix cannot be repaired by creating records that already
+        exist.
+        """
         Supplierinfo = self.env['product.supplierinfo']
         sourcing = [
             ('SUP-JPI', ['PK-BTL-200', 'PK-BTL-330', 'PK-BTL-600', 'PK-BTL-1500'], 1.00, 18),
@@ -258,11 +270,16 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 product = products.get(product_code)
                 if not product:
                     continue
-                if Supplierinfo.search([('partner_id', '=', partner.id),
-                                        ('product_tmpl_id', '=', product.product_tmpl_id.id)],
-                                       limit=1):
+                existing = Supplierinfo.with_context(active_test=False).search(
+                    [('partner_id', '=', partner.id),
+                     ('product_tmpl_id', '=', product.product_tmpl_id.id)],
+                    limit=1)
+                if existing:
+                    if existing.company_id != company:
+                        existing.company_id = company.id
                     continue
                 Supplierinfo.create({
+                    'company_id': company.id,
                     'partner_id': partner.id,
                     'product_tmpl_id': product.product_tmpl_id.id,
                     'price': round(product.standard_price * multiplier, 4),

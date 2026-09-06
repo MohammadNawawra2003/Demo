@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Deliberately updatable, and deliberately not only a post_init_hook.
+
+        A hook fires on install alone, so a database built before a fix in the
+        builder keeps the broken data for ever. That is exactly what happened to
+        the supplier pricing, whose company was wrong on every one of the 33
+        rows. build_all() is idempotent by construction, so running it again on
+        upgrade is a no-op that also repairs drift.
+    -->
+    <function model="alshayeb.demo.builder" name="build_all"/>
+</odoo>
