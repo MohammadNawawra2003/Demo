@@ -1018,3 +1018,86 @@ No manual price editing. Transaction rolled back, so P00008 does not persist.
 business record to tidy up a bug is not this session's call. It is a staging RFQ in Draft, so it costs
 nothing to leave; cancel or delete it whenever you prefer. Any RFQ created **after** `d8786ec` is
 priced correctly. **Production was not touched.**
+
+---
+
+## 2026-09-06 — the same request produced two draft orders
+
+P00004 and P00009: same company, vendor, product, quantity and delivery date, both Draft, both real.
+
+### Root cause — from the audit log, not from the chat
+
+`idempotency_key` was an **input parameter the LLM fills**, free text, `Str(max_length=200)`. The
+model invented a different value on every turn:
+
+| time | key the model supplied | order |
+|---|---|---|
+| 09:59 | `PK-BTL-330-JPI-100000-20250520` | — |
+| 10:22 | `PK-BTL-330-JPI-100000-req1` | **P00004** |
+| 11:09 | `PK-BTL-330-JeddahPlastic-shortage100k-2025` | — |
+| 11:59 | `PK-BTL-330-JPI-100000-shortage-2024` | **P00009** |
+
+Replay protection was a property of the model repeating itself, which it does not do. Its explanation
+in the chat — *"the idempotency key I used this time didn't match"* — was true but was a symptom; the
+audit `input_args` are the evidence.
+
+### The frozen contract already said what the key is
+
+**Document D §13:** *"the key itself is
+`{profile_code}:{company_id}:{purpose}:{product_ref}:{location_ref}:{date}`"*, unique on
+`(company_id, ai_idempotency_key)`. **Document C §13:** every DRAFT_WRITE tool takes a mandatory key
+and the service returns the existing record when it matches.
+
+And the kernel **already ships `record_idempotency_key()`** — added by review finding B1 to key *"a
+RECORD an agent creates"*. `manufacturing.raise_handoff` uses its sibling
+`handoff_idempotency_key()`. `prepare_draft_rfq` was the one place that ignored both.
+
+### Fix
+
+`idempotency_key` is removed from `PrepareDraftRfqInput` and built in the tool from the business
+facts. The model cannot satisfy the contract's shape anyway: it knows neither the company id nor the
+profile code.
+
+The vendor sits in the `location_ref` slot — for a purchase the counterparty is what scopes the
+request. The date is the delivery date when given, otherwise today, so a replay within the day
+returns the first order while tomorrow's genuine reorder is its own request.
+
+### ⚠ Quantity is deliberately not in the key
+
+The contract's composition does not include it, so **same product, same vendor, same date, different
+quantity returns the existing order**. That is narrower than business duplicate detection, on
+purpose: this protects the same intent arriving twice; it does not stop anyone ordering the same
+product from the same vendor again on another day, and it is not a rule about whether a second order
+is commercially sensible.
+
+**This differs from one stated test expectation** ("different quantity → distinct"). Implemented to
+the contract rather than to the expectation; if quantity should be part of identity, that is a
+contract change and needs a ruling, not a quiet edit.
+
+### Tests — seven, all watched failing first
+
+The model cannot supply the key · the same intent replayed produces one order and returns the
+original · a different required date is a different request · a different vendor is a different
+request · the key is composed the way the contract says · two companies do not collide (T-74) · the
+order carries the namespaced key and stays Draft.
+
+**473 tests across 10 modules, 0 failed.**
+
+### Staging verification — rolled back
+
+| | |
+|---|---|
+| same intent twice | **1 order**, `idempotent_hit: True`, same order returned |
+| derived key | `procurement:212:draft_rfq:PK-BTL-330:976:2026-09-06` |
+| order | Draft · 0.055 · 5500.0 |
+| different required date | a second order |
+| different vendor | a third order |
+| after rollback | count back to 3 |
+
+### P00004 and P00009
+
+Both **left untouched** as requested. P00004 records the pricing defect (0.00); P00009 records the
+idempotency defect (a duplicate of P00004's intent). Both are Draft on staging and cost nothing to
+keep. For a clean final demo, **cancel both** rather than delete them — cancelling preserves the
+audit trail and the numbering, and neither is a real commitment. That is a call for the owner of the
+demo, not something to do quietly.
