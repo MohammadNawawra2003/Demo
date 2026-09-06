@@ -18,6 +18,7 @@ import logging
 import uuid
 
 from odoo import api, models
+from odoo.exceptions import AccessError
 
 from .enums import Decision, DenialReason, ExecutionMode, TriggerType
 from .exceptions import (
@@ -64,6 +65,26 @@ class AIExecutionRunner(models.AbstractModel):
                 raw = spec.func(ctx, ctx.validated_params)
                 result = self.env['ai.operations.serializer'].serialize(
                     ctx, raw, spec.output_schema)               # steps 21-22
+        except AccessError as refusal:
+            # The ORM refused the executing identity mid-tool. That is a
+            # permission decision and must read as one: a DENIED row rather than
+            # an ERROR row, and a neutral string to the model.
+            #
+            # It used to escape as a raw Odoo exception. In CHAT that unwound
+            # message_post and rolled back the whole transaction, so the user's
+            # own message vanished from the conversation and the audit row went
+            # with it -- the guard never got to say no, and nothing recorded
+            # that it had happened.
+            audit.record_decision(
+                correlation_id, Decision.DENIED, profile=profile,
+                reason=DenialReason.USER_ACL_DENIED,
+                detail='the executing user may not perform this operation on %s'
+                       % ', '.join(spec.models or ['the target model']),
+                tool_code=tool_code)
+            raise AIAccessDenied(
+                DenialReason.USER_ACL_DENIED,
+                detail='the executing user may not perform this operation'
+            ) from refusal
         except (AIAccessDenied, AIBlocklistViolation, AIBudgetExceeded) as failure:
             # Outside the savepoint: the rollback has already happened, so this
             # row survives it. B3-b.
@@ -238,6 +259,17 @@ class AIExecutionRunner(models.AbstractModel):
                 except AIBudgetExceeded:
                     return {'status': 'BUDGET_EXCEEDED',
                             'correlation_id': correlation_id}
+                except Exception as error:      # noqa: BLE001
+                    # Nothing a tool does may escape into the caller. In CHAT
+                    # the caller is message_post, and an exception there
+                    # destroys the user's message and every audit row written
+                    # in the same transaction. The run continues; the model is
+                    # told nothing beyond the neutral string.
+                    _logger.exception(
+                        "ai_operations: tool %s failed during %s",
+                        call.get('name'), correlation_id)
+                    audit.record_error(correlation_id, error)
+                    payload = NEUTRAL_DENIAL
                 messages.append({'role': 'tool', 'tool_use_id': call.get('id'),
                                  'content': payload})
 

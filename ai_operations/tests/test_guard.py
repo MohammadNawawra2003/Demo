@@ -325,3 +325,123 @@ class TestGuard(AIOperationsCommon):
         visible = self.Log.with_user(auditor).search([
             ('correlation_id', '=', 'corr-audited')])
         self.assertTrue(visible)
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestOrmRefusalIsADenial(AIOperationsCommon):
+    """Manual Test 4. A read-only user asked for a draft and the message itself
+    failed to post, with a warning triangle in Discuss.
+
+    The tool reached ``purchase.order.create`` and Odoo raised a plain
+    ``AccessError``. That is not an ``AIAccessDenied``, so it escaped
+    ``execute_tool``, escaped ``run()``, escaped ``message_post`` and rolled the
+    whole transaction back -- taking the user's message and the audit row with
+    it. The guard never got to say no, and nothing recorded that it happened.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.runner = self.env['ai.operations.execution']
+        self.Log = self.env['ai.operations.audit.log']
+        # The policy permits the model; the ORM is what refuses. That is the
+        # whole point: the guard says yes and the database says no.
+        self.env['ai.operations.model.permission'].create({
+            'profile_id': self.profile.id,
+            'model_id': self.env['ir.model']._get('res.company').id,
+            'perm_read': True,
+        })
+
+    def _register_refusing_tool(self, error):
+        from ..services.registry import ai_tool
+        from ..services import registry as registry_module
+        from ..services.enums import AutonomyLevel, ToolCategory
+        from ..services.schema import Schema, Str
+
+        class _In(Schema):
+            pass
+
+        class _Out(Schema):
+            ok = Str()
+
+        self.addCleanup(registry_module._REGISTRY.pop, 'kt.refuses', None)
+
+        @ai_tool(code='kt.refuses', category=ToolCategory.READ,
+                 autonomy=AutonomyLevel.QUERY, models=['res.company'],
+                 input_schema=_In, output_schema=_Out)
+        def _tool(ctx, params):
+            """A tool whose body is refused by the ORM."""
+            raise error
+
+        Tool = self.env['ai.operations.tool']
+        Tool._sync_from_registry()
+        tool = Tool.search([('code', '=', 'kt.refuses')], limit=1)
+        tool.enabled = True
+        self.env['ai.operations.tool.assignment'].create({
+            'profile_id': self.profile.id, 'tool_id': tool.id})
+
+    def test_an_orm_access_error_is_recorded_as_a_denial(self):
+        from odoo.exceptions import AccessError
+        from ..services.exceptions import AIAccessDenied
+        from ..services.enums import DenialReason
+        self._register_refusing_tool(
+            AccessError("You are not allowed to create 'Purchase Order' records."))
+
+        # Caught directly, not with assertRaises: Odoo wraps that in a
+        # savepoint it rolls back, which would discard the very audit row this
+        # test exists to find. Finding B3-b, again.
+        reason = None
+        try:
+            self.runner.execute_tool(self.profile, 'kt.refuses', {},
+                                     'INTERACTIVE', 'CHAT', 'sess-acl')
+        except AIAccessDenied as denial:
+            reason = denial.reason
+        self.assertEqual(reason, DenialReason.USER_ACL_DENIED)
+
+        self.env.flush_all()
+        denied = self.Log.search([('tool_code', '=', 'kt.refuses'),
+                                  ('decision', '=', 'DENIED')])
+        self.assertTrue(denied, "an ORM refusal left no DENIED row")
+
+    def test_the_denial_never_names_the_model_to_the_caller(self):
+        from odoo.exceptions import AccessError
+        from ..services.exceptions import AIAccessDenied
+        self._register_refusing_tool(
+            AccessError("You are not allowed to create 'Purchase Order' "
+                        "(purchase.order) records."))
+        with self.assertRaises(AIAccessDenied) as caught:
+            self.runner.execute_tool(self.profile, 'kt.refuses', {},
+                                     'INTERACTIVE', 'CHAT', 'sess-acl2')
+        self.assertNotIn('purchase.order', str(caught.exception))
+
+    def test_an_unexpected_error_in_a_tool_never_escapes_the_run(self):
+        """Whatever a tool does, the user's message must survive it."""
+        from ..services import provider as provider_module
+        self._register_refusing_tool(ZeroDivisionError('a tool did something silly'))
+
+        calls = []
+
+        class _Double:
+            def complete(self, messages, system=None, tools=None, model=None,
+                         max_tokens=4096, timeout=120):
+                calls.append(1)
+                if len(calls) == 1:
+                    return {'content': '', 'stop_reason': 'tool_use',
+                            'tool_calls': [{'id': 't1', 'name': 'kt.refuses',
+                                            'input': {}}],
+                            'usage': {'input_tokens': 1, 'output_tokens': 1}}
+                return {'content': 'done', 'tool_calls': [],
+                        'stop_reason': 'end_turn',
+                        'usage': {'input_tokens': 1, 'output_tokens': 1}}
+
+        double = _Double()
+        self.patch(type(self.runner), '_provider_for',
+                   lambda self, profile: double)
+        if not provider_module.has_provider('kt_null'):
+            pass
+        self.profile.write({'provider_code': False})
+
+        result = self.runner.run(self.profile.code, 'CHAT',
+                                 session_id='sess-escape',
+                                 entry_prompt='go')
+        self.assertEqual(result['status'], 'COMPLETED',
+                         "a tool's exception escaped the run")

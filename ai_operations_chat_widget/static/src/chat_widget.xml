@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ai_operations_chat_widget.ChatWidget">
+        <div class="o_ai_chat_widget" t-if="state.available">
+
+            <div class="o_ai_chat_panel" t-if="state.open" role="dialog"
+                 aria-label="AI Operations chat">
+                <div class="o_ai_chat_header">
+                    <div class="o_ai_chat_title">
+                        <span class="o_ai_chat_app">AI Operations</span>
+                        <small t-if="activeProfile" t-esc="activeProfile.name"/>
+                    </div>
+                    <button class="o_ai_chat_icon" t-on-click="close"
+                            title="Close" aria-label="Close">&#215;</button>
+                </div>
+
+                <div class="o_ai_chat_agent" t-if="state.profiles.length > 1">
+                    <select t-on-change="onSelectProfile" aria-label="Agent">
+                        <t t-foreach="state.profiles" t-as="profile" t-key="profile.id">
+                            <option t-att-value="profile.id"
+                                    t-att-selected="profile.id === state.profileId"
+                                    t-esc="profile.name"/>
+                        </t>
+                    </select>
+                </div>
+
+                <div class="o_ai_chat_thread" t-ref="thread">
+                    <p class="o_ai_chat_empty" t-if="!state.messages.length">
+                        Ask about your own data. Every answer is checked against what you
+                        are allowed to see.
+                    </p>
+                    <t t-foreach="state.messages" t-as="message" t-key="message_index">
+                        <div t-attf-class="o_ai_chat_message o_ai_chat_{{message.author}}">
+                            <span t-esc="message.body"/>
+                        </div>
+                    </t>
+                    <div class="o_ai_chat_message o_ai_chat_agent_typing" t-if="state.sending">
+                        <span class="o_ai_chat_dot"/><span class="o_ai_chat_dot"/><span class="o_ai_chat_dot"/>
+                    </div>
+                </div>
+
+                <div class="o_ai_chat_compose">
+                    <textarea t-model="state.draft" t-on-keydown="onKeydown"
+                              rows="1" placeholder="Message the agent…"
+                              aria-label="Message"/>
+                    <button class="btn btn-primary o_ai_chat_send"
+                            t-on-click="send" t-att-disabled="state.sending"
+                            aria-label="Send">Send</button>
+                </div>
+
+                <div class="o_ai_chat_footer" t-if="state.channelId">
+                    <button class="o_ai_chat_link" t-on-click="openInDiscuss">
+                        Open in Discuss
+                    </button>
+                </div>
+            </div>
+
+            <button class="o_ai_chat_launcher" t-on-click="toggle"
+                    title="AI Operations" aria-label="AI Operations chat">
+                <i class="fa fa-comments" role="img"/>
+            </button>
+        </div>
+    </t>
+
+</templates>

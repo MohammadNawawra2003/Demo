@@ -568,6 +568,11 @@ class TestKhalidManufacturingPath(TestDemoConfiguration):
         return self.runner.execute_tool(
             self.manufacturing, code, params, 'INTERACTIVE', 'CHAT', 'test-3')
 
+    def _post(self, channel, login, body):
+        return channel.with_user(self._user(login)).message_post(
+            body=Markup('<p>%s</p>' % body), message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
     def test_the_manufacturing_agent_is_granted_a_way_to_find_its_orders(self):
         offered = set(self.manufacturing.tool_assignment_ids.filtered('enabled')
                       .tool_id.filtered('enabled').mapped('code'))
@@ -647,3 +652,63 @@ class TestKhalidManufacturingPath(TestDemoConfiguration):
             ('res_id', '=', permission.id)], limit=1)
         self.assertEqual(data.module, 'ai_operations_manufacturing',
                          "the permission still comes from the demo module")
+
+    def test_scenario_4_the_read_only_users_message_survives_the_refusal(self):
+        """Manual Test 4. Fahad's message vanished from Discuss with a warning
+        triangle: the ORM refused purchase.order.create, the raw AccessError
+        escaped the run and unwound message_post, so the post rolled back and
+        took the audit row with it.
+
+        The message must survive, the refusal must be neutral, and the denial
+        must be on the record.
+        """
+        channel = self._channel('Fahad')
+        product = self.env['product.product'].search(
+            [('default_code', '=', 'PK-BTL-330')], limit=1)
+        vendor = self.env['res.partner'].search(
+            [('name', '=', 'Jeddah Plastic Industries')], limit=1)
+        Purchase = self.env['purchase.order']
+        Log = self.env['ai.operations.audit.log']
+        orders_before = Purchase.search_count([])
+        messages_before = len(channel.message_ids)
+
+        with scripted(self.env,
+                      _tool_call('procurement.prepare_draft_rfq', {
+                          'product_id': product.id, 'partner_id': vendor.id,
+                          'deterministic_shortage': 0.0,
+                          'recommended_quantity': 100000.0,
+                          'idempotency_key': 'test4-fahad'}),
+                      _text('I am not able to do that.')):
+            self._post(channel, 'fahad.p',
+                       'We are short 100000 units of PK-BTL-330. '
+                       'Prepare a draft RFQ with Jeddah Plastic Industries.')
+
+        self.assertGreater(len(channel.message_ids), messages_before,
+                           "the user's own message did not survive the refusal")
+        self.assertEqual(Purchase.search_count([]), orders_before,
+                         "a purchase order was created for a read-only user")
+        denied = Log.search([('decision', '=', 'DENIED'),
+                             ('tool_code', '=', 'procurement.prepare_draft_rfq')])
+        self.assertTrue(denied, "the refusal was never recorded")
+        self.assertEqual(denied[0].denial_reason, 'USER_ACL_DENIED')
+
+    def test_scenario_4_the_refusal_names_nothing_to_the_user(self):
+        channel = self._channel('Fahad')
+        product = self.env['product.product'].search(
+            [('default_code', '=', 'PK-BTL-330')], limit=1)
+        vendor = self.env['res.partner'].search(
+            [('name', '=', 'Jeddah Plastic Industries')], limit=1)
+
+        with scripted(self.env,
+                      _tool_call('procurement.prepare_draft_rfq', {
+                          'product_id': product.id, 'partner_id': vendor.id,
+                          'deterministic_shortage': 0.0,
+                          'recommended_quantity': 100000.0,
+                          'idempotency_key': 'test4-fahad-2'}),
+                      _text('I am not able to do that.')):
+            self._post(channel, 'fahad.p', 'Prepare a draft RFQ.')
+
+        posted = ' '.join(channel.message_ids.mapped('body'))
+        for leak in ('purchase.order', 'AccessError', 'USER_ACL_DENIED',
+                     'not allowed to create'):
+            self.assertNotIn(leak, posted, "%r leaked into the conversation" % leak)
