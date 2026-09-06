@@ -38,6 +38,10 @@ const TWO_PROFILES = [
 
 function mockProfiles(profiles) {
     onRpc("ai.operations.agent.profile", "ai_widget_profiles", () => profiles);
+    // Opening the panel loads the conversation that already exists.
+    onRpc("ai.operations.agent.profile", "ai_widget_open", () => ({
+        channel_id: 7, profile_id: profiles[0] ? profiles[0].id : 1, messages: [],
+    }));
 }
 
 test("no launcher when the user may talk to no agent", async () => {
@@ -128,6 +132,9 @@ test("a server failure answers with a neutral sentence, never a traceback", asyn
     });
     const widget = await mountWithCleanup(AiOperationsChatWidget);
 
+    // The panel has to be open, or there is no DOM to assert against.
+    await click(".o_ai_chat_launcher");
+    await animationFrame();
     widget.state.draft = "hello";
     await widget.send();
     await animationFrame();
