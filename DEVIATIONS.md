@@ -1215,3 +1215,39 @@ exactly one user message and one reply**, with the right authors.
   working — he holds `group_ai_user` and both profiles are active in his company — but the demo
   intended him for procurement only. Not a security gap: the guard still applies per call. Worth a
   decision if the demo should scope him tighter.
+
+
+---
+
+## 2026-09-06 — final technical audit before main
+
+Full audit at `7a4f37d`: **`docs/reviews/final-technical-audit-2026-09-06.md`**.
+
+**Verdict: READY FOR MAIN. No blockers.** Nothing was changed to reach it; the audit is
+documentation only.
+
+Re-verified rather than carried over: no `sudo()` anywhere outside tests, no secret in the
+repository, autonomy capped at Prepare, denial neutral to the user with the exact reason audit-only,
+company isolation, the kernel still `base` + `mail`, and no production module depending on a demo
+module.
+
+**Newly proven in this audit**
+
+- **Community gate for the packs, not only the kernel** — kernel, all four packs, the adapter, the
+  widget and `stock_security_warehouse` install on a Community-only addons path: **380 tests, 0
+  failed**. CI check 14 run rather than asserted.
+- **Measured scaling.** Guard overhead is 10–20 ms per tool call. With 60,000 `stock.quant` rows
+  (inserted locally in a rolled-back transaction, staging untouched) `get_shortage_context` goes
+  21 ms → **1264 ms** and `check_readiness` 25 ms → **1203 ms**; `get_open_pos` is flat because it
+  carries `limit=50`. Both scanners `search()` without a limit and sum in Python. Fix is an SQL
+  aggregation; **deferred, not applied during a signoff audit**, and recorded with numbers.
+
+**Outstanding decisions, unchanged by this audit**
+
+1. `check_bound` treats a zero deterministic baseline as variance 0.0 — neither escalated nor
+   refused. The contract is **silent**, so this is an implementation choice, not a requirement.
+   Recommended: escalate rather than deny. **George's ruling.**
+2. Any `group_ai_user` holder is offered every active profile in their companies. There is no
+   per-user agent eligibility in the architecture; restricting a persona would be a new concept.
+   **Product decision.**
+3. DL-001 credential storage for production remains open.
