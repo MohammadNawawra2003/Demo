@@ -34,9 +34,16 @@ PROVIDER = 'anthropic'
 MODEL = 'claude-sonnet-5'
 
 #: profile code -> (reviewer login, escalation login, service user login)
+#: Document B 12's table, verbatim: routine reviewer, escalation user, service
+#: user. Every pair was previously wrong or unset -- procurement escalated to
+#: the warehouse manager, and inventory and quality had no routing at all, which
+#: the fail-closed rule turned into "no activity is ever created" rather than
+#: into a visible misroute.
 ROUTING = {
-    'procurement': ('ahmed.q', 'salem.i', 'ai.procurement'),
-    'manufacturing': ('khalid.m', 'salem.i', 'ai.manufacturing'),
+    'procurement': ('noura.p', 'ahmed.q', 'ai.procurement'),
+    'inventory': ('mansour.i', 'salem.i', 'ai.inventory'),
+    'manufacturing': ('yousef.m', 'khalid.m', 'ai.manufacturing'),
+    'quality': ('rania.q', 'huda.q', 'ai.quality'),
 }
 
 #: profile code -> [(tool code, max calls per run)]
@@ -47,18 +54,54 @@ ROUTING = {
 #: profile as shipped. Assigning it would be a grant that can only ever produce
 #: a denial, and granting res.company to make it work would be widening
 #: permissions to make a demo look better. Reported, not worked around.
+#: Document B 5's catalogue, in full. This was a five-and-three whitelist, which
+#: disabled quality.trace_forward -- the headline of scenario 3 -- and
+#: procurement.get_forecast_demand, which is the whole of scenario 4. Least
+#: privilege is what the GUARD enforces per call; withholding a documented tool
+#: from its own agent is not least privilege, it is an incomplete demo.
 ASSIGNMENTS = {
     'procurement': [
         ('procurement.find_product', 4),
         ('procurement.get_shortage_context', 4),
-        ('procurement.get_open_pos', 4),
+        ('procurement.get_forecast_demand', 4),
         ('procurement.compare_suppliers', 4),
+        ('procurement.get_open_pos', 4),
+        ('procurement.get_price_history', 4),
         ('procurement.prepare_draft_rfq', 2),
+        ('procurement.update_draft_rfq', 2),
+        ('procurement.create_review_activity', 4),
+        ('procurement.accept_handoff', 4),
+        ('procurement.complete_handoff', 4),
+    ],
+    'inventory': [
+        ('inventory.get_stock_position', 4),
+        ('inventory.get_forecast', 4),
+        ('inventory.get_below_reorder', 4),
+        ('inventory.get_late_transfers', 4),
+        ('inventory.get_expiring_lots', 4),
+        ('inventory.get_stock_discrepancies', 4),
+        ('inventory.create_review_activity', 4),
+        ('inventory.raise_handoff', 2),
     ],
     'manufacturing': [
-        ('manufacturing.get_open_mos', 4),
         ('manufacturing.check_readiness', 4),
+        ('manufacturing.get_open_mos', 4),
+        ('manufacturing.get_capacity_load', 4),
+        ('manufacturing.get_scrap_analysis', 4),
+        ('manufacturing.get_bom_explosion', 4),
+        ('manufacturing.post_readiness_note', 4),
+        ('manufacturing.create_review_activity', 4),
         ('manufacturing.raise_handoff', 2),
+    ],
+    'quality': [
+        ('quality.get_check_results', 4),
+        ('quality.get_out_of_spec', 4),
+        ('quality.trace_forward', 4),
+        ('quality.trace_backward', 4),
+        ('quality.get_lot_disposition', 4),
+        ('quality.propose_hold', 2),
+        ('quality.create_review_activity', 4),
+        ('quality.raise_handoff', 2),
     ],
 }
 
@@ -69,7 +112,9 @@ ASSIGNMENTS = {
 #: own seeded least privilege rather than from a weakened profile.
 CHANNELS = {
     'procurement': ('AI / Procurement Intelligence', ['noura.p', 'fahad.p']),
+    'inventory': ('AI / Inventory Intelligence', ['mansour.i']),
     'manufacturing': ('AI / Manufacturing Intelligence', ['khalid.m']),
+    'quality': ('AI / Quality Intelligence', ['rania.q']),
 }
 
 #: The two source records the scenarios read, and the keys that make them
@@ -82,7 +127,9 @@ SEED_VENDOR = 'Jeddah Plastic Industries'
 CHANNEL_NAMES = {
     ('procurement', 'noura.p'): 'AI Demo — Procurement (Noura)',
     ('procurement', 'fahad.p'): 'AI Demo — Procurement (Fahad, read-only)',
+    ('inventory', 'mansour.i'): 'AI Demo — Inventory (Mansour)',
     ('manufacturing', 'khalid.m'): 'AI Demo — Manufacturing (Khalid)',
+    ('quality', 'rania.q'): 'AI Demo — Quality (Rania)',
 }
 
 

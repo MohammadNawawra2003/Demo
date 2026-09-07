@@ -22,6 +22,14 @@ class MailActivity(models.Model):
 
     _inherit = 'mail.activity'
 
+    ai_severity = fields.Selection(
+        [('INFO', 'Info'), ('ATTENTION', 'Attention'), ('CRITICAL', 'Critical')],
+        string='AI Severity',
+        help="Document B 8. INFO is noted, ATTENTION needs action within days, "
+             "CRITICAL needs action today and is routed to the manager. It was "
+             "a parameter that nothing read and nothing stored.",
+    )
+
     ai_dedup_key = fields.Char(
         index=True, copy=False,
         help="{agent}:{model}:{res_id}:{reason_code}. A matching open activity "

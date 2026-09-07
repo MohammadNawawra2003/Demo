@@ -15,8 +15,12 @@ from odoo.addons.ai_operations.services.handoff_service import (
     record_idempotency_key,
 )
 from odoo.addons.ai_operations.services.registry import ai_tool
+from odoo.addons.ai_operations.tools import activity_mixin
 
 from . import schemas
+from odoo.addons.ai_operations.services.schema import (
+    Bool, Float, Int, Schema, Str,
+)
 
 
 # ======================================================================
@@ -370,3 +374,163 @@ def _render_rfq(order, idempotent_hit):
         'approval_required': order.ai_approval_required,
         'idempotent_hit': idempotent_hit,
     }
+
+
+# -- Document B §5.1, the four tools this pack never had -------------------
+
+class UpdateDraftInput(Schema):
+    order_id = Int(min=1)
+    quantity = Float(min=0.0)
+    deterministic_shortage = Float(min=0.0)
+
+
+class UpdateDraftOutput(Schema):
+    order_id = Int()
+    reference = Str()
+    state = Str()
+    quantity = Float()
+    deterministic_shortage = Float()
+    variance_pct = Float()
+    approval_required = Bool()
+
+
+class AcceptHandoffInput(Schema):
+    handoff_id = Int(min=1)
+
+
+class AcceptHandoffOutput(Schema):
+    handoff_id = Int()
+    reference = Str()
+    state = Str()
+    handoff_type = Str()
+    product_id = Int()
+    qty_shortage = Float()
+
+
+class CompleteHandoffInput(Schema):
+    handoff_id = Int(min=1)
+    result_ref = Str(max_length=64)
+
+
+class CompleteHandoffOutput(Schema):
+    handoff_id = Int()
+    reference = Str()
+    state = Str()
+    result_ref = Str()
+
+
+@ai_tool(
+    code='procurement.update_draft_rfq',
+    category=ToolCategory.DRAFT_WRITE,
+    autonomy=AutonomyLevel.PREPARE,
+    models=['purchase.order', 'purchase.order.line'],
+    input_schema=UpdateDraftInput,
+    output_schema=UpdateDraftOutput,
+)
+def update_draft_rfq(ctx, params):
+    """Amend a DRAFT purchase order, within §6.3's bounds.
+
+    ⚠ This is the tool the model permission's `state_restriction` exists for.
+    Until it was written nothing amended an existing order, so §4.1's "write:
+    draft only" had never been exercised — and it turned out the restriction was
+    declared and never read. The guard enforces it now, in `check_records`,
+    before this function is reached: a confirmed order is refused with
+    STATE_NOT_PERMITTED rather than quietly amended.
+
+    The bound behaves as §6.3 says: above +20% the amendment still happens and
+    is stamped for a manager, above +100% it is refused.
+    """
+    order = ctx.model('purchase.order').browse(params['order_id'])
+    # Step 10b denies here if the order has left draft.
+    ctx.check_records('purchase.order', order.ids, operation='write')
+    ctx.security.check_action(ctx, 'purchase.order', 'UPDATE_DRAFT', records=order)
+
+    variance, approval_required = ctx.security.check_bound(
+        ctx, params['deterministic_shortage'], params['quantity'],
+        model_name='purchase.order', action_code='UPDATE_DRAFT',
+        category_ref=order.order_line[:1].product_id.categ_id.name or None)
+
+    line = order.order_line[:1]
+    if line:
+        line.product_qty = params['quantity']
+    order.ai_approval_required = approval_required
+    return {
+        'order_id': order.id,
+        'reference': order.name,
+        'state': order.state,
+        'quantity': params['quantity'],
+        'deterministic_shortage': params['deterministic_shortage'],
+        'variance_pct': variance,
+        'approval_required': approval_required,
+    }
+
+
+@ai_tool(
+    code='procurement.accept_handoff',
+    category=ToolCategory.HANDOFF,
+    autonomy=AutonomyLevel.PREPARE,
+    models=['ai.operations.handoff'],
+    input_schema=AcceptHandoffInput,
+    output_schema=AcceptHandoffOutput,
+)
+def accept_handoff(ctx, params):
+    """Claim work from this agent's own queue. §6.1.
+
+    ⚠ Accepting tells the agent *what to work on*; it grants nothing. The
+    payload's `product_id` is a number, and reading that product still needs the
+    profile's own permission — a handoff naming a model Procurement may not read
+    leaves it exactly as unable to read it.
+    """
+    handoff = ctx.env['ai.operations.handoff'].browse(params['handoff_id'])
+    ctx.check_records('ai.operations.handoff', handoff.ids)
+    accepted = ctx.env['ai.operations.handoff.service'].accept(ctx, handoff)
+    payload = accepted.payload_json or {}
+    return {
+        'handoff_id': accepted.id,
+        'reference': accepted.name,
+        'state': accepted.state,
+        'handoff_type': accepted.type_id.code,
+        'product_id': int(payload.get('product_id') or 0),
+        'qty_shortage': float(payload.get('qty_shortage')
+                              or payload.get('qty_suggested') or 0.0),
+    }
+
+
+@ai_tool(
+    code='procurement.complete_handoff',
+    category=ToolCategory.HANDOFF,
+    autonomy=AutonomyLevel.PREPARE,
+    models=['ai.operations.handoff'],
+    input_schema=CompleteHandoffInput,
+    output_schema=CompleteHandoffOutput,
+)
+def complete_handoff(ctx, params):
+    """Close a handoff with the reference of what was produced. §6.4."""
+    handoff = ctx.env['ai.operations.handoff'].browse(params['handoff_id'])
+    ctx.check_records('ai.operations.handoff', handoff.ids)
+    done = ctx.env['ai.operations.handoff.service'].complete(
+        ctx, handoff, result_ref=params['result_ref'])
+    return {
+        'handoff_id': done.id,
+        'reference': done.name,
+        'state': done.state,
+        'result_ref': params['result_ref'],
+    }
+
+
+@ai_tool(
+    code='procurement.create_review_activity',
+    category=ToolCategory.DRAFT_WRITE,
+    autonomy=AutonomyLevel.PREPARE,
+    models=['mail.activity', 'purchase.order'],
+    input_schema=activity_mixin.ReviewActivityInput,
+    output_schema=activity_mixin.ReviewActivityOutput,
+)
+def create_review_activity(ctx, params):
+    """Put the draft on a human's desk. §7 steps 21 and 22.
+
+    The activity is what makes the cascade end somewhere a person looks. Above
+    the routine bound the caller passes `escalate`, and §12 swaps the routine
+    reviewer for the escalation user — same type, same content, same dedup key.
+    """
+    return activity_mixin.create_review_activity(ctx, params, 'purchase.order')

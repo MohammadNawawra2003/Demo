@@ -142,7 +142,8 @@
         <field name="name">AI Operations: Procurement daily review</field>
         <field name="model_id" ref="ai_operations.model_ai_operations_execution"/>
         <field name="state">code</field>
-        <field name="code">model.run('procurement', 'CRON')</field>
+        <field name="code">model.run('procurement', 'CRON', entry_prompt='Daily procurement review. Work the open handoffs on your queue first, then overdue purchase orders, critical supplier status and forecast requirements. Prepare drafts for a human to confirm; show the deterministic figure beside every recommendation.')</field>
+        <field name="nextcall" eval="(DateTime.now().replace(hour=7, minute=15, second=0, microsecond=0) + relativedelta(days=1))"/>
         <field name="interval_number">1</field>
         <field name="interval_type">days</field>
         <field name="active" eval="False"/>

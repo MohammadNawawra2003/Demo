@@ -9,6 +9,7 @@ import datetime
 
 from odoo.addons.ai_operations.services.enums import AutonomyLevel, ToolCategory
 from odoo.addons.ai_operations.services.registry import ai_tool
+from odoo.addons.ai_operations.tools import activity_mixin
 
 from . import schemas
 
@@ -226,3 +227,23 @@ def post_readiness_note(ctx, params):
         'message_id': message.id,
         'posted': 'chatter',
     }
+
+
+# -- Document B §5.3: the activity tool every pack owes §12 ----------------
+
+@ai_tool(
+    code='manufacturing.create_review_activity',
+    category=ToolCategory.DRAFT_WRITE,
+    autonomy=AutonomyLevel.PREPARE,
+    models=['mail.activity', 'mrp.production'],
+    input_schema=activity_mixin.ReviewActivityInput,
+    output_schema=activity_mixin.ReviewActivityOutput,
+)
+def create_review_activity(ctx, params):
+    """Ask a named human to decide something about a manufacturing order.
+
+    An activity is a request for a decision, never a decision. This changes no
+    production state and presses no button; §12 keeps it strictly apart from a
+    handoff, which is machine-to-machine work.
+    """
+    return activity_mixin.create_review_activity(ctx, params, 'mrp.production')

@@ -106,6 +106,17 @@ class AIActivityService(models.AbstractModel):
             _logger.warning("ai_operations: activity not created, %s", denial.detail)
             return None
 
+        # Document B 8: CRITICAL goes to the manager. Severity was a parameter
+        # that was never read, so the three delivery behaviours the table
+        # describes did not exist.
+        if severity == SEVERITY_CRITICAL and not escalate:
+            escalate = True
+            try:
+                user = self._validate_override(ctx, assignee) if assignee \
+                    else self.resolve_assignee(ctx, escalate=True)
+            except AIAccessDenied:
+                pass
+
         key = self.dedup_key(ctx.profile.code, model_name, res_id, reason_code)
         existing = Activity.search([
             ('ai_dedup_key', '=', key),
@@ -115,15 +126,17 @@ class AIActivityService(models.AbstractModel):
             existing.write({
                 'summary': summary,
                 'note': note,
+                'ai_severity': severity,
                 'ai_occurrence_count': (existing.ai_occurrence_count or 1) + 1,
             })
             return existing
 
         if self._over_daily_ceiling(ctx, user):
-            _logger.info(
-                "ai_operations: %s is at the daily activity ceiling for %s; "
-                "consolidating instead of adding another",
-                user.login, ctx.profile.code)
+            # Document B 8: "the agent consolidates into one summary activity
+            # and says so". Silently dropping the item was half the rule -- a
+            # human at the ceiling could not tell the difference between a quiet
+            # day and a suppressed one.
+            self._say_it_consolidated(ctx, user, summary, model_name, res_id)
             return None
 
         model = self.env['ir.model']._get(model_name)
@@ -134,9 +147,46 @@ class AIActivityService(models.AbstractModel):
             'summary': summary,
             'note': note,
             'activity_type_id': self._activity_type(ctx).id,
+            'ai_severity': severity,
             'ai_dedup_key': key,
             'ai_profile_code': ctx.profile.code,
             'ai_reason_code': reason_code,
+        })
+
+    @api.model
+    def _say_it_consolidated(self, ctx, user, summary, model_name, res_id):
+        """Fold the suppressed item into the day's consolidation activity."""
+        Activity = self.env['mail.activity']
+        key = self.dedup_key(ctx.profile.code, 'res.users', user.id,
+                             'DAILY_CEILING')
+        existing = Activity.search([('ai_dedup_key', '=', key),
+                                    ('user_id', '=', user.id)], limit=1)
+        line = '\n- %s' % summary
+        if existing:
+            existing.write({
+                'note': (existing.note or '') + line,
+                'ai_occurrence_count': (existing.ai_occurrence_count or 1) + 1,
+            })
+            return existing
+        # Attached to the record that triggered it, not to the user: an
+        # activity on res.users renders through a notification template that
+        # does not survive it, and the consolidation is more use sitting where
+        # the work is anyway. The KEY is still per user per agent per day.
+        model = self.env['ir.model']._get(model_name)
+        return Activity.create({
+            'res_model_id': model.id,
+            'res_id': res_id,
+            'user_id': user.id,
+            'summary': '%s: further items today, consolidated'
+                       % ctx.profile.code,
+            'note': 'The daily activity ceiling was reached, so the rest of '
+                    'today is summarised here rather than raised '
+                    'individually:' + line,
+            'activity_type_id': self._activity_type(ctx).id,
+            'ai_dedup_key': key,
+            'ai_profile_code': ctx.profile.code,
+            'ai_reason_code': 'DAILY_CEILING',
+            'ai_severity': SEVERITY_INFO,
         })
 
     @api.model
@@ -153,10 +203,22 @@ class AIActivityService(models.AbstractModel):
         ])
         return count >= MAX_ACTIVITIES_PER_USER_PER_DAY
 
+    #: Document B 12's table: one type per department, so a human can filter
+    #: their inbox by the agent that raised it. A single shared type made every
+    #: agent's work look the same in the list.
+    ACTIVITY_TYPE_NAMES = {
+        'procurement': 'AI Review Required',
+        'inventory': 'AI Inventory Exception',
+        'manufacturing': 'AI Production Alert',
+        'quality': 'AI Quality Alert',
+    }
+
     @api.model
     def _activity_type(self, ctx):
         Type = self.env['mail.activity.type']
-        existing = Type.search([('ai_generated', '=', True)], limit=1)
+        name = self.ACTIVITY_TYPE_NAMES.get(ctx.profile.code, 'AI Review Required')
+        existing = Type.search([('name', '=', name),
+                                ('ai_generated', '=', True)], limit=1)
         if existing:
             return existing
-        return Type.create({'name': 'AI Review Required', 'ai_generated': True})
+        return Type.create({'name': name, 'ai_generated': True})

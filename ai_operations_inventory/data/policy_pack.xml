@@ -55,7 +55,8 @@
         <field name="name">AI Operations: Inventory daily review</field>
         <field name="model_id" ref="ai_operations.model_ai_operations_execution"/>
         <field name="state">code</field>
-        <field name="code">model.run('inventory', 'CRON')</field>
+        <field name="code">model.run('inventory', 'CRON', entry_prompt="Daily inventory review. Check, in order: late receipts and deliveries, products below their reorder point, lots inside the expiry alert window, and count discrepancies. Raise a replenishment handoff for anything genuinely short and put an activity on the reviewer's desk for anything that needs a human decision.")</field>
+        <field name="nextcall" eval="(DateTime.now().replace(hour=6, minute=0, second=0, microsecond=0) + relativedelta(days=1))"/>
         <field name="interval_number">1</field>
         <field name="interval_type">days</field>
         <field name="active" eval="False"/>
@@ -120,6 +121,20 @@
         <field name="allowed" eval="True"/>
         <field name="autonomy_required">2</field>
         <field name="risk_level">LOW</field>
+    </record>
+
+
+    <!-- Document B 6.2. Inventory notices a shortage from an orderpoint breach
+         where Manufacturing notices the same one from an unreservable component.
+         Two types, one receiver, and 6.5 scopes uniqueness to the RECEIVER so
+         Procurement sees one item of work however many agents noticed it. -->
+    <record id="handoff_type_replenishment" model="ai.operations.handoff.type">
+        <field name="code">REPLENISHMENT_REQUEST</field>
+        <field name="name">Replenishment Request</field>
+        <field name="from_profile_ids" eval="[Command.link(ref('profile_inventory'))]"/>
+        <field name="to_profile_id" ref="ai_operations_procurement.profile_procurement"/>
+        <field name="priority_default">2</field>
+        <field name="payload_schema">{"product_id": "int", "qty_suggested": "float", "uom_id": "int", "warehouse_id": "int", "required_date": "date", "reason_code": "str", "priority": "str"}</field>
     </record>
 
 </odoo>

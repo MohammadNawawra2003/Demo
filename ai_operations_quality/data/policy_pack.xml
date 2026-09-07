@@ -67,7 +67,8 @@
         <field name="name">AI Operations: Quality daily review</field>
         <field name="model_id" ref="ai_operations.model_ai_operations_execution"/>
         <field name="state">code</field>
-        <field name="code">model.run('quality', 'CRON')</field>
+        <field name="code">model.run('quality', 'CRON', entry_prompt='Daily quality review. Check overnight check results, anything out of spec, and lots still pending release past the 48 hour hold. For a confirmed exceedance: trace it forward, propose a hold, and hand the impact to Inventory and the affected orders to Manufacturing.')</field>
+        <field name="nextcall" eval="(DateTime.now().replace(hour=6, minute=45, second=0, microsecond=0) + relativedelta(days=1))"/>
         <field name="interval_number">1</field>
         <field name="interval_type">days</field>
         <field name="active" eval="False"/>
@@ -152,6 +153,29 @@
         <field name="allowed" eval="True"/>
         <field name="autonomy_required">2</field>
         <field name="risk_level">LOW</field>
+    </record>
+
+
+    <!-- Document B 6.2 and 9 steps 9 and 10. A confirmed exceedance fans out
+         two ways: Inventory is told where the affected stock sits, Manufacturing
+         which orders are consuming it. Neither payload carries a value, and
+         neither grants the receiver anything it did not already hold. -->
+    <record id="handoff_type_hold_impact" model="ai.operations.handoff.type">
+        <field name="code">QUALITY_HOLD_IMPACT</field>
+        <field name="name">Quality Hold Impact</field>
+        <field name="from_profile_ids" eval="[Command.link(ref('profile_quality'))]"/>
+        <field name="to_profile_id" ref="ai_operations_inventory.profile_inventory"/>
+        <field name="priority_default">3</field>
+        <field name="payload_schema">{"lot_ids": "list", "product_id": "int", "reason_code": "str", "severity": "str", "locations_affected": "list", "origin_ref": "str"}</field>
+    </record>
+
+    <record id="handoff_type_hold_production" model="ai.operations.handoff.type">
+        <field name="code">QUALITY_HOLD_PRODUCTION</field>
+        <field name="name">Quality Hold Production</field>
+        <field name="from_profile_ids" eval="[Command.link(ref('profile_quality'))]"/>
+        <field name="to_profile_id" ref="ai_operations_manufacturing.profile_manufacturing"/>
+        <field name="priority_default">3</field>
+        <field name="payload_schema">{"lot_ids": "list", "product_id": "int", "mo_ids_affected": "list", "reason_code": "str", "severity": "str", "origin_ref": "str"}</field>
     </record>
 
 </odoo>
