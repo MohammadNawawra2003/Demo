@@ -203,6 +203,9 @@ class AIOperationsDemoSetup(models.AbstractModel):
         channels = self._build_channels(profiles)
         self._seed_scenario_records(company)
         self._seed_production_schedule(company)
+        # After the schedule, deliberately: the scenario sizes its top-ups
+        # against the reservations the schedule has just made.
+        self.env['ai.operations.e2e.scenario'].build()
         self._focus_on_naqaa(company)
         _logger.info(
             "ai_operations_demo_data: %d profile(s) active, %d channel(s) bound",

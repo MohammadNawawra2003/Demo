@@ -1,0 +1,289 @@
+"""The end-to-end demo scenario. Built for George, 2026-09-07.
+
+George asked for a demo he can follow mechanically in a customer meeting: every
+prompt written down, every expected answer known, no inventing questions in
+front of a client. That needs a shape the seeded dataset does not have on its
+own, for a reason worth writing down.
+
+**Why the existing data cannot carry it.** Document A's production schedule
+creates eighteen manufacturing orders that reserve their components, and it does
+its job well: on a freshly built database `PK-BTL-600`, `PK-CAP-S`,
+`PK-CTN-600` and `PK-FILM-SHR` are each 100% reserved and `PR-WATER-TRT` is
+reserved beyond what is on hand. Free stock is zero. Any new manufacturing order
+is therefore short of *everything*, which is not a story anyone can follow --
+"the agent found five shortages" demonstrates nothing about judgement. Finished
+goods have the opposite problem: over 300,000 cartons of FG-600 on hand, so no
+plausible sales order ever fails to be fulfilled from stock and the
+manufacturing half of the chain never triggers.
+
+**What this builds instead.** One scenario product, its own sales orders, and a
+deterministic top-up sized so that exactly ONE component is short:
+
+* `FG-600-E2E` -- a 600 ml scenario SKU with no finished stock and the same bill
+  of materials as `FG-600`, on Manufacture + Replenish-on-Order, so confirming
+  the sales order creates the manufacturing order the way Odoo normally would.
+* Component top-ups for everything the order needs EXCEPT bottles, plus 8,000
+  bottles against a requirement of 12,000. `PK-BTL-600` is short by 4,000 and
+  nothing else is short at all.
+* `PK-BTL-600` is deliberately the shortage: it is the one component with two
+  real vendors in Document A -- Jeddah Plastic Industries at 18 days against
+  Riyadh PET Co. at 21 -- so `procurement.compare_suppliers` has an actual
+  decision to show rather than a single row.
+
+**Scenario B is the contrast.** A small order for the real `FG-600`, which has
+ample stock, so the agent reports sufficiency and creates no work. Without it
+the demo only ever shows an AI that generates tasks, which is the opposite of
+the point.
+
+Everything here carries ``SCENARIO_ORIGIN`` and is created idempotently, so the
+fixture can be reset and rebuilt without touching one row of the historical
+dataset. Nothing existing is deleted or reduced; the top-ups only add.
+"""
+
+import logging
+
+from odoo import api, models
+
+_logger = logging.getLogger(__name__)
+
+#: Stamped on every record this file creates, so the whole scenario can be found
+#: -- and reset -- with one domain.
+SCENARIO_ORIGIN = 'AI-DEMO-E2E'
+
+#: The scenario SKU. Not a Document A product: it exists so the demo can run
+#: repeatedly without disturbing the seeded FG-600 history.
+SCENARIO_FG = 'FG-600-E2E'
+SCENARIO_FG_NAME = 'Naqaa Still Water 600 ml x24 — Demo Scenario'
+
+#: The real product the sufficiency contrast uses. It has six figures of stock.
+CONTRAST_FG = 'FG-600'
+
+#: Cartons on each order. 500 needs 12,000 bottles; 8,000 are provided.
+SHORTAGE_QTY = 500
+CONTRAST_QTY = 100
+
+#: The component the demo is about, and its shortfall.
+SHORT_COMPONENT = 'PK-BTL-600'
+SHORT_COMPONENT_ONHAND = 8_000
+
+#: Everything else the order needs, topped up past its requirement so that the
+#: bottle is the only thing missing. PR-WATER-TRT is reserved beyond what is on
+#: hand on a fresh build, which is why its figure is large.
+COMPONENT_TOPUP = {
+    'PK-CAP-S': 15_000,
+    'PK-CTN-600': 1_000,
+    'PK-FILM-SHR': 100,
+    'PR-WATER-TRT': 80_000,
+}
+
+#: Who C1 sells to. Every named customer in Document A §7 -- Bin Dawood,
+#: Carrefour, the camps -- belongs to the DISTRIBUTION company, because that is
+#: the structure §3 describes: the plant manufactures and sells to distribution,
+#: distribution sells to the market. Odoo enforces it too; a C1 order naming a
+#: C2 customer is refused outright as a company crossover.
+COMPANY = 'Naqaa Water Manufacturing Co.'
+CUSTOMER_COMPANY = 'Naqaa Distribution Co.'
+RAW_MATERIAL_LOCATION = 'RM/Stock'
+
+
+class AIOperationsE2EScenario(models.AbstractModel):
+    _name = 'ai.operations.e2e.scenario'
+    _description = 'AI Operations End-to-End Demo Scenario (non-production)'
+
+    # ------------------------------------------------------------------
+
+    @api.model
+    def build(self):
+        """Idempotent. Safe to run on every upgrade."""
+        company = self.env['res.company'].search([('name', '=', COMPANY)], limit=1)
+        if not company:
+            _logger.info("e2e scenario: %s absent, nothing to build", COMPANY)
+            return False
+        self = self.with_company(company)
+
+        product = self._scenario_product(company)
+        self._top_up_components(company)
+        shortage = self._sales_order(
+            product, SHORTAGE_QTY, '%s/SHORTAGE' % SCENARIO_ORIGIN, company)
+        contrast = self._contrast_order(company)
+        _logger.info(
+            "e2e scenario: %s ready, shortage order %s, contrast order %s",
+            product.default_code, shortage.name, contrast and contrast.name)
+        return True
+
+    # -- the scenario product ---------------------------------------------
+
+    @api.model
+    def _scenario_product(self, company):
+        Product = self.env['product.product']
+        existing = Product.with_context(active_test=False).search(
+            [('default_code', '=', SCENARIO_FG)], limit=1)
+        source = Product.search([('default_code', '=', CONTRAST_FG)], limit=1)
+        if not source:
+            raise ValueError(
+                "%s is missing; alshayeb_demo_water has not been built."
+                % CONTRAST_FG)
+        if existing:
+            self._scenario_bom(existing, source, company)
+            return existing
+
+        product = Product.create({
+            'name': SCENARIO_FG_NAME,
+            'default_code': SCENARIO_FG,
+            'is_storable': True,
+            'uom_id': source.uom_id.id,
+            'categ_id': source.categ_id.id,
+            'list_price': source.list_price,
+            'standard_price': source.standard_price,
+            'company_id': False,
+            'route_ids': [(6, 0, self._scenario_routes().ids)],
+        })
+        self._scenario_bom(product, source, company)
+        return product
+
+    @api.model
+    def _scenario_routes(self):
+        """Manufacture, plus Replenish on Order.
+
+        Both are needed and for different reasons: Manufacture is what makes the
+        product buildable at all, and MTO is what makes CONFIRMING the sales
+        order create the manufacturing order. Without MTO the demo would need a
+        human to create the MO by hand, which breaks the chain George wants to
+        show -- sales demand producing production demand by itself.
+        """
+        Route = self.env['stock.route']
+        names = ['Manufacture', 'Replenish on Order (MTO)']
+        routes = Route.with_context(active_test=False).search(
+            [('name', 'in', names)])
+        for route in routes:
+            if not route.active:
+                route.active = True
+        return routes
+
+    @api.model
+    def _scenario_bom(self, product, source, company):
+        """Mirror FG-600's bill of materials onto the scenario product."""
+        Bom = self.env['mrp.bom']
+        if Bom.search([('product_tmpl_id', '=', product.product_tmpl_id.id)],
+                      limit=1):
+            return
+        source_bom = Bom.search(
+            [('product_tmpl_id', '=', source.product_tmpl_id.id)], limit=1)
+        if not source_bom:
+            raise ValueError("%s has no bill of materials to copy." % CONTRAST_FG)
+        Bom.create({
+            'product_tmpl_id': product.product_tmpl_id.id,
+            'product_qty': source_bom.product_qty,
+            'product_uom_id': source_bom.product_uom_id.id,
+            'type': 'normal',
+            'company_id': company.id,
+            'bom_line_ids': [(0, 0, {
+                'product_id': line.product_id.id,
+                'product_qty': line.product_qty,
+                'product_uom_id': line.product_uom_id.id,
+            }) for line in source_bom.bom_line_ids],
+        })
+
+    # -- the one shortage, and nothing else --------------------------------
+
+    @api.model
+    def _top_up_components(self, company):
+        """Bring free stock to a known figure for every component but one.
+
+        Written as a floor rather than an addition: running twice must not keep
+        adding stock, or the shortage the whole demo turns on would quietly
+        disappear on the second upgrade.
+        """
+        location = self.env['stock.location'].search(
+            [('complete_name', '=', RAW_MATERIAL_LOCATION)], limit=1)
+        if not location:
+            raise ValueError("%s is missing." % RAW_MATERIAL_LOCATION)
+
+        targets = dict(COMPONENT_TOPUP)
+        targets[SHORT_COMPONENT] = SHORT_COMPONENT_ONHAND
+        for code, free_target in targets.items():
+            product = self.env['product.product'].search(
+                [('default_code', '=', code)], limit=1)
+            if not product:
+                _logger.warning("e2e scenario: component %s missing", code)
+                continue
+            self._set_free_quantity(product, location, free_target)
+
+    @api.model
+    def _set_free_quantity(self, product, location, free_target):
+        """Make ``free_target`` units available, counting existing reservations.
+
+        Reserved stock is not available stock, and on a freshly built database
+        almost all of this component stock is reserved by the seeded schedule.
+        Topping up to an ON HAND figure would leave the scenario still short of
+        everything, so the target is FREE quantity and the reservation is added
+        back on top.
+        """
+        quants = self.env['stock.quant'].with_context(
+            inventory_mode=True).search([
+                ('product_id', '=', product.id),
+                ('location_id', 'child_of', location.id),
+            ])
+        on_hand = sum(quants.mapped('quantity'))
+        reserved = sum(quants.mapped('reserved_quantity'))
+        free = on_hand - reserved
+        if free >= free_target:
+            return
+        needed = free_target - free
+        quant = quants[:1]
+        if not quant:
+            quant = self.env['stock.quant'].with_context(
+                inventory_mode=True).create({
+                    'product_id': product.id,
+                    'location_id': location.id,
+                })
+        quant.with_context(inventory_mode=True).write({
+            'inventory_quantity': quant.quantity + needed,
+        })
+        quant.with_context(inventory_mode=True).action_apply_inventory()
+        _logger.info(
+            "e2e scenario: %s free stock %s -> %s",
+            product.default_code, free, free_target)
+
+    # -- the two orders -----------------------------------------------------
+
+    @api.model
+    def _customer(self):
+        company = self.env['res.company'].search(
+            [('name', '=', CUSTOMER_COMPANY)], limit=1)
+        if not company:
+            raise ValueError("Company %r is missing." % CUSTOMER_COMPANY)
+        return company.partner_id
+
+    @api.model
+    def _sales_order(self, product, quantity, origin, company):
+        Order = self.env['sale.order']
+        existing = Order.search([('origin', '=', origin)], limit=1)
+        if existing:
+            return existing
+        order = Order.create({
+            'partner_id': self._customer().id,
+            'company_id': company.id,
+            'origin': origin,
+            'order_line': [(0, 0, {
+                'product_id': product.id,
+                'product_uom_qty': quantity,
+            })],
+        })
+        order.action_confirm()
+        return order
+
+    @api.model
+    def _contrast_order(self, company):
+        """Scenario B. Ordinary product, ample stock, no work created.
+
+        Confirmed like the other one so the demo compares like with like: the
+        difference the agent reports must come from the stock position, not from
+        one order being a draft and the other not.
+        """
+        product = self.env['product.product'].search(
+            [('default_code', '=', CONTRAST_FG)], limit=1)
+        if not product:
+            return False
+        return self._sales_order(
+            product, CONTRAST_QTY, '%s/SUFFICIENT' % SCENARIO_ORIGIN, company)
