@@ -116,6 +116,9 @@ class DenialReason(str, Enum):
     BLOCKLIST_HIT            = 'BLOCKLIST_HIT'
     BUDGET_EXCEEDED          = 'BUDGET_EXCEEDED'
     ASSIGNEE_UNRESOLVED      = 'ASSIGNEE_UNRESOLVED'
+    #: The model permission's own state_restriction refused a write. Document B
+    #: §4.1's "draft only" was declared and never enforced until 19.0.1.18.0.
+    STATE_NOT_PERMITTED      = 'STATE_NOT_PERMITTED'
 
 
 def to_selection(enum_cls):

@@ -61,6 +61,25 @@ class AIActivityService(models.AbstractModel):
         return user
 
     @api.model
+    def _validate_override(self, ctx, user):
+        """A pack-supplied assignee faces exactly the checks a configured one
+        does. Same reasons, same audit, same fail-closed outcome."""
+        if not user or not user.active:
+            raise AIAccessDenied(
+                DenialReason.ASSIGNEE_UNRESOLVED,
+                detail='the override assignee is missing or archived')
+        if user.share:
+            raise AIAccessDenied(
+                DenialReason.ASSIGNEE_UNRESOLVED,
+                detail='%s is a portal user' % user.login)
+        profile = ctx.profile
+        if profile.company_ids and not (user.company_ids & profile.company_ids):
+            raise AIAccessDenied(
+                DenialReason.ASSIGNEE_UNRESOLVED,
+                detail='%s is outside the effective company scope' % user.login)
+        return user
+
+    @api.model
     def create_or_update(self, ctx, model_name, res_id, summary, note,
                          reason_code, severity=SEVERITY_ATTENTION,
                          escalate=False, assignee=None):
@@ -70,7 +89,15 @@ class AIActivityService(models.AbstractModel):
         audit = self.env['ai.operations.audit']
 
         try:
-            user = assignee or self.resolve_assignee(ctx, escalate=escalate)
+            # An override is checked, not trusted. §12 lets a tool pack name a
+            # better assignee from business context and says it "may never widen
+            # what the agent is allowed to do" -- and `assignee or resolve(...)`
+            # skipped both the active check and the company-scope check for any
+            # user a pack passed in. That was the one path by which an AI task
+            # could land on an archived user, or outside the effective company
+            # scope, with no ASSIGNEE_UNRESOLVED row and no audit.
+            user = (self._validate_override(ctx, assignee) if assignee
+                    else self.resolve_assignee(ctx, escalate=escalate))
         except AIAccessDenied as denial:
             audit.record_decision(
                 ctx.correlation_id, 'DENIED', profile=ctx.profile,

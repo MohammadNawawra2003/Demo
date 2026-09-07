@@ -25,6 +25,20 @@ GLOBAL_FIELD_BLOCKLIST = {
 #: Caught by name, wherever they appear, on any model.
 FIELD_NAME_PATTERNS = ('password', 'token', 'secret', 'api_key', 'private_key')
 
+#: The model-specific names above, flattened so `scan` can reach them.
+#:
+#: Without this the second layer was not in the path at all. `scan` matched only
+#: FIELD_NAME_PATTERNS, and the `res.partner` entry above was consulted solely by
+#: `is_field_blocked`, which is called only from the serialiser's record walker
+#: -- and no tool in any pack uses that walker; they all hand-build dicts. So a
+#: schema declaring `vat` and a tool returning it would have passed. The output
+#: schemas are still the defence; this is the depth the docstring promises.
+BLOCKED_FIELD_NAMES = frozenset(
+    name
+    for blocked in GLOBAL_FIELD_BLOCKLIST.values() if blocked != '*'
+    for name in blocked
+)
+
 
 def is_model_blocked(model_name):
     """True when the whole model is off limits."""
@@ -42,7 +56,9 @@ def is_field_blocked(model_name, field_name):
 
 def matches_pattern(name):
     lowered = (name or '').lower()
-    return any(pattern in lowered for pattern in FIELD_NAME_PATTERNS)
+    if any(pattern in lowered for pattern in FIELD_NAME_PATTERNS):
+        return True
+    return lowered in BLOCKED_FIELD_NAMES
 
 
 def scan(data, _path=''):

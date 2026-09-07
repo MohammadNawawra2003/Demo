@@ -61,4 +61,65 @@
         <field name="active" eval="False"/>
     </record>
 
+
+
+    <record id="perm_stock_move_line_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_move_line"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_stock_warehouse_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="stock.model_stock_warehouse"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_product_tmpl_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="product.model_product_template"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- 4.2: demand context only, never a write. -->
+    <record id="perm_mrp_production_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="mrp.model_mrp_production"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- 4.2: raises REPLENISHMENT_REQUEST. -->
+    <record id="perm_handoff_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="ai_operations.model_ai_operations_handoff"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
+    <!-- Document B 4.5. Write is scoped to the activities this identity created: an agent updates its own activity to deduplicate and can never touch a human's or another agent's. $EXECUTION_USER is resolved by the guard; the domain itself stays a literal. -->
+    <record id="perm_mail_activity_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="mail.model_mail_activity"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="domain">[('create_uid', '=', '$EXECUTION_USER')]</field>
+    </record>
+
+    <!-- Create only, never read. An agent may add to a conversation and may never rewrite one, and chatter is exactly where a prompt-injection payload would be planted. -->
+    <record id="perm_mail_message_i" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="mail.model_mail_message"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
+    <record id="action_create_activity_i" model="ai.operations.action.permission">
+        <field name="profile_id" ref="profile_inventory"/>
+        <field name="model_id" ref="mail.model_mail_activity"/>
+        <field name="action_code">CREATE</field>
+        <field name="allowed" eval="True"/>
+        <field name="autonomy_required">2</field>
+        <field name="risk_level">LOW</field>
+    </record>
+
 </odoo>

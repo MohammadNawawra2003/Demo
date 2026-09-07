@@ -22,8 +22,13 @@ class AIOperationsProcurementPolicy(models.AbstractModel):
         """
         Tool = self.env['ai.operations.tool']
         Tool._sync_from_registry()
-        profile = self.env['ai.operations.agent.profile'].search(
-            [('code', '=', PROFILE_CODE)], limit=1)
+        # active_test=False: policy packs ship their profile INACTIVE (an active
+        # one needs company scope and routing users no pack can know), so a
+        # plain search finds nothing and the pack wires no assignments at all.
+        # Procurement and manufacturing only worked because the demo module
+        # activates them before the next registry load.
+        profile = self.env['ai.operations.agent.profile'].with_context(
+            active_test=False).search([('code', '=', PROFILE_CODE)], limit=1)
         if not profile:
             return
         Assignment = self.env['ai.operations.tool.assignment']

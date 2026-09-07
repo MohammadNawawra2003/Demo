@@ -56,6 +56,10 @@ class TestEnumsAndExceptions(TransactionCase):
                 'ACTION_NOT_PERMITTED', 'USER_ACL_DENIED', 'SCHEMA_INVALID',
                 'HANDOFF_SCHEMA_VIOLATION', 'BOUND_EXCEEDED', 'BLOCKLIST_HIT',
                 'BUDGET_EXCEEDED', 'ASSIGNEE_UNRESOLVED',
+                # Added 19.0.1.18.0 with the enforcement of the model
+                # permission's own state_restriction, which Document B 4.1
+                # ("draft only") declared and nothing had ever read.
+                'STATE_NOT_PERMITTED',
             },
         )
 

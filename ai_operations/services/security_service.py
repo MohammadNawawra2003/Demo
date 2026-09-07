@@ -254,7 +254,18 @@ class AISecurityService(models.AbstractModel):
                 detail='one or more ids do not resolve for this user',
                 model=model_name)
 
-        agent_domain = self.agent_domain(ctx.profile, model_name)   # 13
+        # 10b. The model permission's own state restriction. Document B §4.1
+        # writes "✅ draft only" for purchase.order, and that was decorative: the
+        # field was declared on ai.operations.model.permission and validated at
+        # write time, and then no code path ever read it. Only the ACTION
+        # permission's variant was enforced, so a tool amending an existing
+        # record was bounded by nothing. Read-only operations are exempt --
+        # restricting a *read* to draft would hide the confirmed orders every
+        # analysis tool legitimately reports on.
+        if operation != 'read':
+            self._check_permission_state(ctx, model_name, operation, existing)
+
+        agent_domain = self.agent_domain(ctx.profile, model_name, ctx)  # 13
         if agent_domain:
             allowed = existing.filtered_domain(agent_domain)
             if len(allowed) != len(existing):
@@ -278,6 +289,21 @@ class AISecurityService(models.AbstractModel):
                 detail='record company outside the effective scope',
                 model=model_name)
         return existing
+
+    def _check_permission_state(self, ctx, model_name, operation, records):
+        """Enforce ``state_restriction`` on the model permission itself."""
+        permission = self._permission_for(ctx.profile, model_name)
+        if not permission or not permission.state_restriction or not records:
+            return
+        field_path, expected = validate_state_restriction(
+            permission.state_restriction)
+        for record in records:
+            if str(self._traverse(record, field_path)) != expected:
+                raise AIAccessDenied(
+                    DenialReason.STATE_NOT_PERMITTED,
+                    detail='%s on %s requires %s' % (
+                        operation, model_name, permission.state_restriction),
+                    model=model_name)
 
     def check_action(self, ctx, model_name, action_code, records=None):
         """Step 15. Business actions, separately from CRUD."""
@@ -363,12 +389,37 @@ class AISecurityService(models.AbstractModel):
     # Helpers
     # ==================================================================
 
-    def agent_domain(self, profile, model_name):
-        """AND of the agent domain and its state restriction. Never OR."""
+    EXECUTION_USER_PLACEHOLDER = '$EXECUTION_USER'
+
+    def _resolve_placeholders(self, domain, ctx):
+        if not domain or ctx is None:
+            return domain
+        resolved = []
+        for leaf in domain:
+            if (isinstance(leaf, (list, tuple)) and len(leaf) == 3
+                    and leaf[2] == self.EXECUTION_USER_PLACEHOLDER):
+                resolved.append((leaf[0], leaf[1], ctx.execution_user.id))
+            else:
+                resolved.append(leaf)
+        return resolved
+
+    def agent_domain(self, profile, model_name, ctx=None):
+        """AND of the agent domain and its state restriction. Never OR.
+
+        ``$EXECUTION_USER`` in a domain value is substituted for the id of the
+        identity the run is executing as. It exists for exactly one requirement:
+        Document B §4.5 scopes the ``mail.activity`` write to
+        ``create_uid = execution identity``, and the domain validator is
+        ``literal_eval``-only by design -- a domain that can call is a domain
+        that can escalate. A literal placeholder the guard resolves keeps the
+        validator closed and still expresses the one dynamic value the
+        specification needs.
+        """
         permission = self._permission_for(profile, model_name)
         if not permission:
             return []
-        domain = Domain(validate_domain(permission.domain) or [])
+        domain = Domain(self._resolve_placeholders(
+            validate_domain(permission.domain) or [], ctx))
         if permission.state_restriction:
             field_path, expected = validate_state_restriction(
                 permission.state_restriction)

@@ -1,11 +1,11 @@
 from odoo import api, models
 
-PROFILE_CODE = 'manufacturing'
+PROFILE_CODE = 'inventory'
 
 
-class AIOperationsManufacturingPolicy(models.AbstractModel):
-    _name = 'ai.operations.manufacturing.policy'
-    _description = 'AI Operations manufacturing Policy Wiring'
+class AIOperationsInventoryPolicy(models.AbstractModel):
+    _name = 'ai.operations.inventory.policy'
+    _description = 'AI Operations inventory Policy Wiring'
 
     def _register_hook(self):
         super()._register_hook()
@@ -19,6 +19,11 @@ class AIOperationsManufacturingPolicy(models.AbstractModel):
         after every data file has loaded -- so an XML ref to one cannot resolve.
         The assignment is created disabled-by-default only in the sense that the
         TOOL is: enabling remains a Technical Administrator's act.
+
+        This pack shipped without this hook, which meant its profile received no
+        assignment rows at all and guard step 4 denied every one of its tools
+        with TOOL_NOT_ASSIGNED. Two of Document B's four agents could not execute
+        a single tool as shipped.
         """
         Tool = self.env['ai.operations.tool']
         Tool._sync_from_registry()

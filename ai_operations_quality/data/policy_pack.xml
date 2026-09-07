@@ -49,10 +49,16 @@
         <field name="perm_read" eval="True"/>
     </record>
 
+    <!-- Document B 4.4 constrains this to the trace endpoints, and the record
+         had no domain: every partner in company scope was readable, held back
+         only by what the output schemas happened to emit. Field exposure was
+         bounded; RECORD exposure was not. A recall follows product to whoever
+         received it, so the endpoints are customers and suppliers. -->
     <record id="perm_res_partner_q" model="ai.operations.model.permission">
         <field name="profile_id" ref="profile_quality"/>
         <field name="model_id" ref="base.model_res_partner"/>
         <field name="perm_read" eval="True"/>
+        <field name="domain">['|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)]</field>
     </record>
 
     <!-- The autonomous trigger. See ai_operations_procurement for why it ships
@@ -65,6 +71,87 @@
         <field name="interval_number">1</field>
         <field name="interval_type">days</field>
         <field name="active" eval="False"/>
+    </record>
+
+
+
+    <!-- Document B 4.4: result and status only. The agent whose purpose is out-of-spec detection could not read a quality check at all. -->
+    <record id="perm_quality_check_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="quality.model_quality_check"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_quality_point_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="quality.model_quality_point"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- Decision 1: propose_hold writes a native DRAFT quality.alert. Draft only, enforced by the state restriction; it moves no stock. -->
+    <record id="perm_quality_alert_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="quality.model_quality_alert"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="state_restriction">state=draft</field>
+    </record>
+
+    <record id="perm_stock_picking_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_product_tmpl_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="product.model_product_template"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- 4.4: raises QUALITY_HOLD_IMPACT and QUALITY_HOLD_PRODUCTION. -->
+    <record id="perm_handoff_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="ai_operations.model_ai_operations_handoff"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
+    <!-- Document B 4.5. Write is scoped to the activities this identity created: an agent updates its own activity to deduplicate and can never touch a human's or another agent's. $EXECUTION_USER is resolved by the guard; the domain itself stays a literal. -->
+    <record id="perm_mail_activity_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="mail.model_mail_activity"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="domain">[('create_uid', '=', '$EXECUTION_USER')]</field>
+    </record>
+
+    <!-- Create only, never read. An agent may add to a conversation and may never rewrite one, and chatter is exactly where a prompt-injection payload would be planted. -->
+    <record id="perm_mail_message_q" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="mail.model_mail_message"/>
+        <field name="perm_create" eval="True"/>
+    </record>
+
+    <!-- 9 step 8: the agent proposes, the human executes. -->
+    <record id="action_create_alert_q" model="ai.operations.action.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="quality.model_quality_alert"/>
+        <field name="action_code">CREATE_DRAFT</field>
+        <field name="allowed" eval="True"/>
+        <field name="autonomy_required">2</field>
+        <field name="risk_level">MEDIUM</field>
+    </record>
+
+    <record id="action_create_activity_q" model="ai.operations.action.permission">
+        <field name="profile_id" ref="profile_quality"/>
+        <field name="model_id" ref="mail.model_mail_activity"/>
+        <field name="action_code">CREATE</field>
+        <field name="allowed" eval="True"/>
+        <field name="autonomy_required">2</field>
+        <field name="risk_level">LOW</field>
     </record>
 
 </odoo>
