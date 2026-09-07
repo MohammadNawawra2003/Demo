@@ -2,16 +2,17 @@
 title: ai_operations — progress log
 tags: [product, ai, progress]
 status: active
-updated: 2026-09-04
+updated: 2026-09-07
 ---
 
 # `ai_operations` — Progress Log
 
 Product docs: `01-demo-company-blueprint.md` (A) · `02-ai-operations-flow-design.md` (B) ·
 `03-phase1-security-kernel-spec.md` (C) · `04-implementation-contract.md` (D).
-Code: **ten modules; see DEVIATIONS.md and the Document A and Document B closure commits** — Session 1 has not started. Build sequence: Document C §17 (14 sessions, STOP gate each).
+Code: **eleven modules, 599 passing tests.** Build sequence: Document C §17 (14 sessions, STOP gate each) — all fourteen built.
 
-**Phase status:** documentation → **A–D freeze-ready**. Next: Session 1 (kernel skeleton).
+**Phase status:** **Documents A, B, C and D all closed against the implementation.** Deviations are
+recorded in `DEVIATIONS.md`; the frozen CI checks are runnable at `tools/ci_checks.sh`.
 
 ---
 
@@ -92,3 +93,61 @@ Paste-one-file resume: `prompts/SESSION_01_KERNEL_SKELETON_PROMPT.md`.
 - [x] Two freeze decisions → A v1.2, B v1.3, C v0.4, D v0.4
 - [x] Cross-check: 93 unique test ids, no stale idioms, version chain aligned
 - [x] Lessons captured to both stores (skills §178 + `20_Wiki/Odoo/`)
+
+---
+
+## 2026-09-07 — Documents A, B, C and D closed against the code
+
+**Scope.** Four gap audits, each followed by implementation, tests and a push to
+`development` and `stage`. `main` untouched throughout. Production untouched.
+
+**Test count: 499 → 599.** Every count below was measured on a fresh install onto a bare
+database as well as on the upgrade path.
+
+### Document A — the demo company
+
+The decisive finding was one line: `data_xml/build.xml` called `build_all` and nothing
+else, so `alshayeb.demo.history.generate` — written in Session 7 — had **never been
+invoked by anything**. Every installed database had zero manufacturing orders, zero sales
+orders, zero invoices, zero quality checks and about twelve stock moves, and **fourteen of
+§13's eighteen seeded conditions were absent, including every security condition except
+X-05**. The isolation proofs were passing against an empty database.
+
+Also closed: `product_expiry` was never a dependency, so §5.1's expiry and §8.2's FEFO were
+*silently inert on every database ever built*; `Product Price` precision was 2, flattening
+§5.2's costs (a cap is SAR 0.022 and was stored as 0.02); and §3's transfer price is now
+derived from the BoM, because the literal table put five of six SKUs outside the documented
+14–26% band and priced FG-200 **below plant cost**.
+
+### Document B — the flow design
+
+Acceptance went from **7 of 16 to 16 of 16**. Nineteen of §5's thirty-four tools existed;
+`create_review_activity` was missing from all four packs, so §12's entire activity design
+was implemented in the kernel and reachable by nothing, and the cascade ended at a draft
+that reached no one's desk. Three of four handoff types did not exist. **Inventory and
+Quality could not execute a single tool** — neither pack wired its assignments, so guard
+step 4 denied everything.
+
+### Documents C and D — the kernel and the contract
+
+Six specified security properties were believed true and were not implemented. **Neither
+registry was ever frozen.** **A policy could change and the log would not say so** —
+`policy_version` was stamped on every row and never incremented anywhere. **`record_write`
+had zero callers**, so what an agent changed was not recoverable. And all seventeen CI
+checks D calls "a build failure, not a warning" existed only as prose; four of them fail on
+correct code as written.
+
+### Owner decisions this session
+| # | Decision |
+|---|---|
+| 12 | **History runs at reduced scale**, not §14's literal counts — measured at 600 MB–1.2 GB against a 1 GB build cap. Shape over volume |
+| 13 | **§16's XML layout is not adopted**; the Python builders stay, because they repair drift on upgrade |
+| 14 | **§13 S-01 wins over the zero baseline** — the live demo walks the non-zero shortage path; DL-008 still holds and stays tested |
+| 15 | **All four agents activated** in the demo, per §3's roster and §8's four crons |
+| 16 | **An automated test per §11 isolation proof**, row 2 included — it is the go/no-go and was not the test the specification names |
+| 17 | **The Accountant agent joins the roster with no tools and no scope.** Document B §1 puts Finance out of Phase 1 and §11 rows 1, 2 and 4 are built on accounting being unreachable. Giving it `account.move` would remove the property the platform is sold on |
+
+### Open, needing a ruling
+- **Document D contradicts itself**: §3.2 makes `quality_mrp` mandatory for two packs and
+  check 14 requires Community installability. Quality is Enterprise-only.
+- **The credential still has no home on Odoo.sh** (C §5.10). Unchanged since 2026-09-06.
