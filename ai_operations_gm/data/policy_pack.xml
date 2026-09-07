@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <!--
+        General Manager Intelligence.
+
+        POST-FREEZE OWNER DECISION, 2026-09-07. Document B §1 put a General
+        Manager agent outside Phase 1. George asked for one explicitly after
+        trying the staging demo, so the boundary moves by his decision and is
+        recorded here and in DEVIATIONS.md rather than being quietly widened.
+
+        What did NOT move: this profile is READ-ONLY. Every permission below is
+        perm_read, there is not one action permission in this file, and there is
+        no write, create or unlink anywhere in the pack. max_autonomy_level is 0
+        (QUERY), which is the floor — guard step 15 refuses any action needing
+        more, so an executive agent cannot acquire a write path by configuration
+        drift alone.
+
+        On account.move: Document B §11's isolation rows say Procurement and
+        Quality must be REFUSED financial data, and X-04 exists so that a posted
+        move can be refused to them. Those rows are about the four operational
+        agents and remain exactly as they were — none of them gains a single
+        permission here. A General Manager reading a company total is a
+        different question from a Procurement agent reading net profit, and the
+        tests for both live side by side.
+
+        There is no account.move.line permission, deliberately. The only finance
+        tool returns six company-level numbers through a fixed output schema; a
+        ledger has no path into that shape.
+    -->
+    <record id="profile_gm" model="ai.operations.agent.profile">
+        <field name="name">General Manager Intelligence</field>
+        <field name="code">gm</field>
+        <field name="active" eval="False"/>
+        <field name="max_autonomy_level">0</field>
+        <field name="policy_version">1.0.0</field>
+        <field name="description">Cross-department executive view for the
+            company president: what is open, what is blocked, what is late and
+            what it is costing. Read-only by construction -- it holds no write
+            capability of any kind, and it can never see more than the manager
+            running it can see in Odoo itself.</field>
+    </record>
+
+    <!-- Sales: demand, and which of it is at risk. -->
+    <record id="perm_sale_order_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="sale.model_sale_order"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_sale_order_line_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="sale.model_sale_order_line"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- Purchase: what is late. -->
+    <record id="perm_purchase_order_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="purchase.model_purchase_order"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_res_partner_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- Manufacturing: what cannot start, and on what. -->
+    <record id="perm_mrp_production_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="mrp.model_mrp_production"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_stock_move_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="stock.model_stock_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- Inventory: what is below its required level. -->
+    <record id="perm_stock_quant_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_orderpoint_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="stock.model_stock_warehouse_orderpoint"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+    <record id="perm_product_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="product.model_product_product"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- Quality: what is open. -->
+    <record id="perm_quality_alert_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="quality.model_quality_alert"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <!-- Finance: read, for six aggregates. No account.move.line, no
+         account.journal, no res.partner.bank, no account.payment. -->
+    <record id="perm_account_move_gm" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_gm"/>
+        <field name="model_id" ref="account.model_account_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+</odoo>

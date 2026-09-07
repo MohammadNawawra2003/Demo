@@ -176,12 +176,33 @@ class TestAdversarial(AIOperationsCommon):
         self.assertEqual(row[0].denial_reason,
                          DenialReason.MODEL_NOT_PERMITTED.value)
 
-    def test_t80_no_reachable_tool_declares_finance_or_hr(self):
-        """The other half: nothing shipped can even ask."""
+    def test_t80_no_operational_tool_declares_finance_or_hr(self):
+        """The other half: nothing an operational agent runs can even ask.
+
+        This swept every registered tool until 2026-09-07, when the owner asked
+        for General Manager and Accountant agents. Their read tools declare
+        ``account.move`` legitimately, so the sweep is scoped to the four
+        operational packs -- which is the set T-80 was always about. §11's
+        refusal rows name Procurement and Quality, not "any tool anywhere".
+
+        The two finance-reading packs are not simply exempted: what they may do
+        with ``account.move`` is asserted in their own suites, and the models
+        that make a ledger writable stay forbidden to EVERY tool below.
+        """
         forbidden = {'account.move', 'account.move.line', 'account.payment',
                      'account.journal', 'hr.employee', 'hr.payslip'}
+        # No tool anywhere may reach these, whatever agent it belongs to.
+        never = {'account.move.line', 'account.payment', 'account.journal',
+                 'hr.employee', 'hr.payslip'}
+        operational = ('procurement.', 'inventory.', 'manufacturing.',
+                       'quality.')
         for code, spec in all_tools().items():
             if code.startswith('adv.') or code.startswith('test.'):
+                continue
+            self.assertFalse(
+                set(spec.models) & never,
+                "%s declares %s" % (code, set(spec.models) & never))
+            if not code.startswith(operational):
                 continue
             self.assertFalse(
                 set(spec.models) & forbidden,

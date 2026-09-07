@@ -347,10 +347,28 @@ USERS = [
      'Branch Manager, Jeddah — warehouse-scoped record domain test'),
     ('hr.admin', 'Hessa Al-Anzi',     'c1', ['hr.group_hr_user'],
      'HR Officer — HR data no Phase 1 agent may reach'),
+    # Added 2026-09-07 for the General Manager agent, which is a post-freeze
+    # owner decision. Broad READ across the five departments plus accounting
+    # read-only: the executive whose rights the GM profile narrows. Deliberately
+    # not an administrator -- the point of the agent is that it can never show
+    # him more than this login already sees.
+    ('faisal.gm', 'Faisal Al-Rasheed', 'c1',
+     ['sales_team.group_sale_manager', 'purchase.group_purchase_user',
+      'stock.group_stock_user', 'mrp.group_mrp_user',
+      'quality.group_quality_user', 'account.group_account_readonly'],
+     'General Manager — cross-department read-only executive'),
 ]
 
-#: §12. Four service users, one per agent. None administrators, none able to
-#: log in, none holding Accounting, HR or Sales groups.
+#: §12. One service user per agent. None administrators, none able to log in,
+#: none holding an HR group, and none holding an Accounting group that can write.
+#:
+#: This read "none holding Accounting, HR or Sales groups" until 2026-09-07,
+#: when the owner asked for General Manager and Accountant agents. The rule that
+#: mattered survives intact and is now stated as it always meant: the four
+#: OPERATIONAL service users still hold no Accounting group at all, which is
+#: what Document B §11's refusal rows depend on, and the two new identities hold
+#: only ``group_account_readonly`` -- a group with no posting, payment or
+#: reconciliation rights anywhere in it.
 SERVICE_USERS = [
     ('ai.procurement', 'AI / Procurement', 'procurement', ['c1'],
      ['purchase.group_purchase_user', 'stock.group_stock_user']),
@@ -360,6 +378,18 @@ SERVICE_USERS = [
      ['mrp.group_mrp_user', 'stock.group_stock_user']),
     ('ai.quality', 'AI / Quality', 'quality', ['c1'],
      ['quality.group_quality_user', 'mrp.group_mrp_user', 'stock.group_stock_user']),
+    # Added 2026-09-07 with the General Manager and Accountant agents. These two
+    # are the reason the "no Accounting" note above now reads "no Accounting for
+    # the four OPERATIONAL agents": §11's refusal rows are about those four, and
+    # none of them gains a group here. Both identities below are READ-ONLY --
+    # group_account_readonly cannot post, pay or reconcile, so even if a profile
+    # permission were widened by mistake the executing identity still could not.
+    ('ai.gm', 'AI / General Manager', 'gm', ['c1'],
+     ['sales_team.group_sale_salesman', 'purchase.group_purchase_user',
+      'stock.group_stock_user', 'mrp.group_mrp_user',
+      'quality.group_quality_user', 'account.group_account_readonly']),
+    ('ai.accounting', 'AI / Accounting', 'accounting', ['c1'],
+     ['account.group_account_readonly']),
 ]
 
 # -- §13 the seeded conditions ------------------------------------------------

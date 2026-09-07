@@ -1,9 +1,9 @@
 {
-    'name': 'AI Operations: Accounting (roster entry, Phase 2)',
-    'version': '19.0.1.0.0',
+    'name': 'AI Operations: Accounting',
+    'version': '19.0.1.1.0',
     'category': 'Productivity/AI',
-    'summary': 'The Accountant agent as a configured roster entry. It holds no '
-               'tools and no accounting scope in Phase 1, deliberately.',
+    'summary': 'Accounting Intelligence: read-only financial reporting. It '
+               'cannot post, pay, reconcile or alter anything.',
     'author': 'AlShayeb Partners',
     'license': 'OPL-1',
     'depends': ['ai_operations', 'account'],

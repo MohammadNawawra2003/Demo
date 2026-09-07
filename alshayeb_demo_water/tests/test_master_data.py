@@ -304,17 +304,54 @@ class TestNaqaaMasterData(TransactionCase):
             user = self.env['res.users'].search([('login', '=', login)], limit=1)
             self.assertFalse(user._has_group('base.group_system'), login)
 
-    def test_no_service_user_holds_accounting_hr_or_sales(self):
-        """§12: none have Accounting, HR or Sales groups."""
+    #: The four service users behind the operational agents. Document B §11's
+    #: refusal rows depend on these holding no accounting group at all.
+    OPERATIONAL_SERVICE_USERS = (
+        'ai.procurement', 'ai.inventory', 'ai.manufacturing', 'ai.quality')
+
+    def test_no_operational_service_user_holds_accounting_hr_or_sales(self):
+        """§12, as amended by the owner on 2026-09-07.
+
+        This swept every service user until the General Manager and Accountant
+        agents were added. Those two must read accounting to do the job George
+        asked for, so the sweep names the four whose refusal of financial data
+        is a Phase 1 acceptance criterion. The two new identities are covered by
+        the test below, which is stricter about what they may hold.
+        """
         forbidden = ['account.group_account_user', 'account.group_account_manager',
                      'hr.group_hr_user', 'sales_team.group_sale_salesman']
-        for login, *_ in bp.SERVICE_USERS:
+        for login in self.OPERATIONAL_SERVICE_USERS:
             user = self.env['res.users'].search([('login', '=', login)], limit=1)
+            if not user:
+                continue
             for xmlid in forbidden:
                 group = self.env.ref(xmlid, raise_if_not_found=False)
                 if group:
                     self.assertFalse(user._has_group(xmlid),
                                      "%s holds %s" % (login, xmlid))
+
+    def test_no_service_user_anywhere_can_write_accounting(self):
+        """The rule that survived the amendment, applied to all of them.
+
+        Reading a ledger and changing one are different capabilities.
+        ``group_account_readonly`` is the only accounting group any service user
+        may hold, and it cannot post, pay or reconcile -- so even a profile
+        permission widened by mistake could not turn into a written entry,
+        because the executing identity has nowhere to write.
+        """
+        writable = ['account.group_account_user',
+                    'account.group_account_manager',
+                    'hr.group_hr_user', 'hr.group_hr_manager']
+        for login, *_ in bp.SERVICE_USERS:
+            user = self.env['res.users'].search([('login', '=', login)], limit=1)
+            if not user:
+                continue
+            for xmlid in writable:
+                if self.env.ref(xmlid, raise_if_not_found=False):
+                    self.assertFalse(
+                        user._has_group(xmlid),
+                        "%s holds %s; a service user may read accounting but "
+                        "never write it" % (login, xmlid))
 
     def test_no_service_user_can_log_in(self):
         from odoo.exceptions import AccessDenied

@@ -1682,3 +1682,106 @@ would be a large mechanical refactor of working, tested code for no behavioural 
 and `open_entry` began returning a correlation id. **`run()` dropped `entry_tool`.**
 **`ormcache` on profile configuration** is not implemented; it is a performance
 instruction and nothing is cached at all, which is the safe direction.
+
+---
+
+# Owner decisions after the freeze — 2026-09-07
+
+George reviewed the platform on staging himself, got stuck, and gave direct product
+feedback. Three things follow from it. Each amends a frozen document, so each is recorded
+here rather than being absorbed quietly into a commit.
+
+## 1. The refusals George hit were a deploy defect, not a security one
+
+He asked Inventory Intelligence, in Arabic, to check raw materials and whether stock was
+sufficient, and got the neutral refusal. He asked Procurement Intelligence to raise a
+review activity for the department manager, and got the same.
+
+The audit log settled it. Rows 592–626 on staging:
+
+| tool | reason | detail |
+|---|---|---|
+| `inventory.create_review_activity` | `MODEL_NOT_PERMITTED` | `mail.activity is not in the allowlist` |
+| `inventory.raise_handoff` | `MODEL_NOT_PERMITTED` | `ai.operations.handoff is not in the allowlist` |
+| `procurement.create_review_activity` | `MODEL_NOT_PERMITTED` | `mail.activity is not in the allowlist` |
+
+The guard was correct every time. The permissions it looked for exist in the pack XML and
+were added in commit `3d4eb93`. They had never been loaded into any database, because
+every `data/policy_pack.xml` opens with `<odoo noupdate="1">` and the manifest versions
+were not bumped when the records were added, so Odoo never re-read the files.
+
+Measured consequence: **nine of the twenty-one shipped tools had never worked.** Inventory
+could not create an activity or raise a handoff; Quality could do neither and held no
+`quality.alert` permission at all, which made `propose_hold` dead on arrival; Manufacturing
+could not create an activity. Procurement worked on staging only because someone
+hand-created the `mail.activity` permission row at 14:09:53 — audit row 594, a
+`POLICY_CHANGE` — which is untracked drift that a rebuild would have erased.
+
+Fixed by bumping the four pack versions. Verified by reproducing staging's exact state on
+a local database — deleting the nine records and rolling the versions back — then running
+the upgrade and confirming all nine were recreated. Two facts worth keeping:
+
+* A `noupdate="1"` block **does** create a record whose xmlid does not exist yet. The
+  block was never the problem.
+* A version bump alone does nothing at plain startup. Odoo re-reads the data file only
+  when the module is actually updated, which is what Odoo.sh's build does and what a plain
+  `odoo-bin` start does not.
+
+`ai_operations/tests/test_pack_coverage.py` now fails if any profile is assigned a tool
+naming a model that profile has no permission for. That is the general form; it would have
+caught all nine on the day they were written.
+
+## 2. Accountant becomes operational, read-only
+
+**Amends:** Document B §1 (Finance outside Phase 1), Document C §4, Document D §3.
+
+`ai_operations_accounting` shipped as a roster entry with no tools and no scope, and its
+policy pack argued at length that giving it `account.move` would subtract from what the
+platform is sold on. George asked for a working Accountant agent. The boundary moves by
+his decision.
+
+The argument in that file was not wrong, it was aimed at a different target. Every
+isolation row it cited — §11 rows 1, 2 and 4, §13's X-04 — is about the four **operational**
+agents being refused financial data. None of them gains a permission in this change, and
+`test_accounting_roster.py` now asserts that explicitly, by name, per agent.
+
+What the Accountant got: four read tools returning aggregates through fixed output
+schemas — receivable ageing, payable ageing, open customer invoices, revenue by month.
+
+What it did not get, each with its own test: posting a journal entry, validating or
+registering a payment, creating or reversing an entry, changing a reconciliation, changing
+a tax, changing bank data. All six are prohibited by the absence of the models they need.
+The profile holds `perm_read` on `account.move`, `res.partner` and `res.currency`, holds no
+`perm_create`/`perm_write`/`perm_unlink` anywhere, has no action permission at all, and
+`max_autonomy_level` is pinned at 0 (QUERY).
+
+## 3. A General Manager agent, read-only
+
+**Amends:** Document B §1, which put a General Manager agent outside Phase 1.
+
+New module `ai_operations_gm`. Six read tools: an operational summary across the five
+departments, stock exceptions, blocked production with the blocking component, late
+procurement, open quality issues, and six company-level financial figures.
+
+It is read-only by construction, not by convention: every tool is `ToolCategory.READ` at
+`AutonomyLevel.QUERY`, every permission is `perm_read`, there is not one action permission
+in the pack, and it holds nothing on `ai.operations.handoff`, `mail.activity` or
+`mail.message` — so it cannot create work for anyone.
+
+The finance surface is `gm.get_financial_headlines`, which returns seven scalars and has
+no per-invoice, per-partner or per-line variant. There is no `account.move.line`
+permission behind it, and none of `account.payment`, `account.journal`, `account.tax`,
+`res.partner.bank` or any HR model is reachable.
+
+`EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` does the rest: the profile narrows
+whoever runs it. A general manager whose own Odoo login cannot read invoices gets nothing
+from the finance tool even though the profile permits the model, and that is asserted
+against a real user with real groups rather than argued from the design.
+
+### The Community claim, again
+
+`ai_operations_gm` depends on `quality_mrp` so the General Manager can see open quality
+issues, which makes it Enterprise-tier like the manufacturing and quality packs. It joins
+the set already recorded above; Document C §4's "the entire platform installs and runs on
+Odoo Community" remains false for those packs, and the kernel, the chat surface and the
+procurement, inventory and accounting packs remain Community-installable.

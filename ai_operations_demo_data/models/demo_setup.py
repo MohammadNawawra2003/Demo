@@ -42,7 +42,19 @@ COMPANY_SCOPE = {
     'inventory': ('c1', 'c2'),
     'manufacturing': ('c1',),
     'quality': ('c1',),
+    # Both read-only agents stay inside C1. A cross-company executive view is a
+    # bigger question than George asked, and "must not see another company's
+    # information" is easiest to guarantee by not granting the company.
+    'gm': ('c1',),
+    'accounting': ('c1',),
 }
+
+#: The read-only agents added by the owner's 2026-09-07 decision. They are
+#: configured like the others EXCEPT that their autonomy stays at the QUERY
+#: floor: _configure_profile writes '2' for an operational agent, and writing
+#: that here would silently promote a read-only executive agent to draft-write
+#: the moment the demo module ran.
+READ_ONLY_AGENTS = ('gm', 'accounting')
 DISTRIBUTION_COMPANY = 'Naqaa Distribution Co.'
 
 #: profile code -> (reviewer login, escalation login, service user login)
@@ -56,6 +68,12 @@ ROUTING = {
     'inventory': ('mansour.i', 'salem.i', 'ai.inventory'),
     'manufacturing': ('yousef.m', 'khalid.m', 'ai.manufacturing'),
     'quality': ('rania.q', 'huda.q', 'ai.quality'),
+    # Read-only agents create no activity and raise no handoff, so the routing
+    # users below are never actually used. They are set because §5.1 requires an
+    # active profile to carry them, and leaving them empty would fail closed for
+    # a reason that has nothing to do with these agents.
+    'gm': ('faisal.gm', 'faisal.gm', 'ai.gm'),
+    'accounting': ('omar.f', 'omar.f', 'ai.accounting'),
 }
 
 #: profile code -> [(tool code, max calls per run)]
@@ -115,6 +133,22 @@ ASSIGNMENTS = {
         ('quality.create_review_activity', 4),
         ('quality.raise_handoff', 2),
     ],
+    # Six reads and four reads. Not one write, not one handoff, not one
+    # activity -- the two agents added on 2026-09-07 report and nothing else.
+    'gm': [
+        ('gm.get_operational_summary', 4),
+        ('gm.get_stock_exceptions', 4),
+        ('gm.get_blocked_production', 4),
+        ('gm.get_late_procurement', 4),
+        ('gm.get_open_quality_issues', 4),
+        ('gm.get_financial_headlines', 4),
+    ],
+    'accounting': [
+        ('accounting.get_receivable_ageing', 4),
+        ('accounting.get_payable_ageing', 4),
+        ('accounting.get_open_invoices', 4),
+        ('accounting.get_revenue_by_period', 4),
+    ],
 }
 
 #: profile code -> (agent partner name, [employee logins who get a channel])
@@ -127,6 +161,8 @@ CHANNELS = {
     'inventory': ('AI / Inventory Intelligence', ['mansour.i']),
     'manufacturing': ('AI / Manufacturing Intelligence', ['khalid.m']),
     'quality': ('AI / Quality Intelligence', ['rania.q']),
+    'gm': ('AI / General Manager Intelligence', ['faisal.gm']),
+    'accounting': ('AI / Accounting Intelligence', ['omar.f']),
 }
 
 #: The two source records the scenarios read, and the keys that make them
@@ -142,6 +178,8 @@ CHANNEL_NAMES = {
     ('inventory', 'mansour.i'): 'AI Demo — Inventory (Mansour)',
     ('manufacturing', 'khalid.m'): 'AI Demo — Manufacturing (Khalid)',
     ('quality', 'rania.q'): 'AI Demo — Quality (Rania)',
+    ('gm', 'faisal.gm'): 'AI Demo — General Manager (Faisal)',
+    ('accounting', 'omar.f'): 'AI Demo — Accounting (Omar)',
 }
 
 
@@ -228,9 +266,15 @@ class AIOperationsDemoSetup(models.AbstractModel):
             'model_code': MODEL,
             'allow_interactive': True,
             'allow_autonomous': False,
-            'max_autonomy_level': '2',
+            # A read-only agent stays at the QUERY floor and gets no write
+            # budget. Writing '2' and 2 here for every profile would have
+            # promoted the General Manager and the Accountant to draft-write
+            # on the first demo build -- configuration quietly outrunning the
+            # policy pack, which is the exact failure guard step 15 exists to
+            # catch and which nobody would have noticed in a list view.
+            'max_autonomy_level': '0' if code in READ_ONLY_AGENTS else '2',
             'max_tool_calls': 8,
-            'max_write_ops': 2,
+            'max_write_ops': 0 if code in READ_ONLY_AGENTS else 2,
             'max_daily_tokens': 200000,
             'audit_level': 'FULL',
             'active': True,

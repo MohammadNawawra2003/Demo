@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations: Demo Data (NON-PRODUCTION)',
-    'version': '19.0.1.11.0',
+    'version': '19.0.1.12.0',
     'category': 'Productivity/AI',
     'summary': 'NON-PRODUCTION staging and manual-testing configuration for AI Operations',
     'description': """
@@ -32,6 +32,7 @@ platform working exactly as before. See README.md.
         'ai_operations_inventory',
         'ai_operations_quality',
         'ai_operations_accounting',
+        'ai_operations_gm',
         'alshayeb_demo_water',
     ],
     'data': [

@@ -8,6 +8,23 @@
 **Version:** 0.4
 **Date:** 2026-09-04
 **Changes in 0.4:** activity routing configured per profile and fail-closed with a new `ASSIGNEE_UNRESOLVED` denial reason (§5.1, §5.9, §16); warehouse-scoped user security stays outside the kernel (§12).
+
+> **POST-FREEZE OWNER AMENDMENT — 2026-09-07.** George reviewed the platform on staging
+> and gave direct product feedback. Three things changed, and this document was frozen
+> before them, so read it alongside `DEVIATIONS.md` § "Owner decisions after the freeze":
+>
+> 1. **Accountant is operational, read-only.** Finance was outside Phase 1; George asked
+>    for a working Accountant agent. Four aggregate read tools, no write capability, and
+>    posting, payments, reconciliation, taxes and bank data all remain unreachable.
+> 2. **A General Manager agent exists** (`ai_operations_gm`), read-only, six aggregate
+>    read tools across the five departments plus seven company-level financial scalars.
+> 3. **Neither change touches the four operational agents.** §11's isolation rows — a
+>    Procurement agent refused net profit, a Quality agent refused shipment values — hold
+>    exactly as written and are now asserted per-agent by name.
+>
+> What did not move: `sudo()` stays banned, the guard stays fail-closed, the neutral
+> denial stays neutral, `EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` is unchanged,
+> and both new agents are pinned at `AutonomyLevel.QUERY` with no action permission.
 **Changes in 0.3:** the provider layer is generic — `provider_code` / `model_code` resolved through a frozen provider registry, Anthropic as the Phase 1 implementation rather than a kernel assumption (§5.1, §6.4, §9, §11, §16, §20).
 **Changes in 0.2:** one runtime for chat and cron (§4, §9); approval permission fields and guard step 16 deleted (§5.3, §5.6, §5.7, §7); kernel purged of non-`base`/`mail` relations (§5.1, §5.3); API key moved out of the database (§5.10); autonomy composition corrected (§7); `state_restriction` now names its field (§5.2); handoff idempotency scoped to the receiver (§5.8); audit retention keyed on the event and sizing corrected (§5.9); daily cost ceiling added (§5.1, §7); Odoo 19 domain and constraint idioms corrected (§5.2); development sequence resequenced (§17).
 

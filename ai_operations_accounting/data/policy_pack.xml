@@ -2,42 +2,70 @@
 <odoo noupdate="1">
 
     <!--
-        The Accountant agent, as a ROSTER ENTRY only.
+        Accounting Intelligence.
 
-        Requested by the owner 2026-09-07 after reviewing the Agent Profiles
-        list. It is created here, visible and configured, and it holds **no
-        tools and no model permissions at all**.
+        POST-FREEZE OWNER DECISION, 2026-09-07. This file previously created the
+        agent with no tools and no permissions at all, because Document B §1 put
+        Finance outside Phase 1. George asked for a working Accountant agent
+        after trying the staging demo, so it becomes operational — READ-ONLY.
 
-        That is not an oversight, and it is not laziness. Document B 1 puts
-        Sales, Finance, HR and General Manager agents out of Phase 1 and says
-        their data "exists in the database purely as isolation targets". Doc B
-        11's sharp-edge note is more specific still: the figure a Finance Agent
-        would report "requires a Finance Agent that does not exist in Phase 1,
-        and even in Phase 2 it will require an explicit handoff type."
+        The earlier note in this file argued that granting account.move would
+        subtract from what the platform is sold on, and cited Document B §11's
+        isolation rows. That argument still stands, and nothing here weakens it,
+        because every one of those rows is about a DIFFERENT agent:
 
-        Granting this profile account.move would not be an addition, it would be
-        a subtraction from the thing the platform is sold on:
+          §11 row 1  PROCUREMENT asked for net profit          -> still refused
+          §11 row 2  the same with the system prompt rewritten -> still refused
+          §11 row 4  QUALITY asked the value of shipments      -> still refused
+          §13 X-04   a posted account.move exists so that the four operational
+                     agents can be refused it                  -> unchanged
 
-          - 11 row 1  Procurement asked for net profit -> refusal
-          - 11 row 2  the same with the system prompt rewritten -> THE GO/NO-GO
-          - 11 row 4  Quality asked the value of affected shipments -> refusal
-          - 13 X-04   posted account.move exists SO THAT it can be refused
-          - 15        "Every isolation proof in 11 passes" is Phase 1 acceptance
+        Not one of the four operational profiles gains a permission in this
+        change. An accountant reading an ageing report and a Procurement agent
+        reading net profit are different questions, and the tests for both now
+        sit side by side in tests/test_accounting_roster.py.
 
-        So the agent exists, is configured, and can do nothing. Giving it scope
-        is a Phase 2 decision that changes Document B and needs the owner's
-        sign-off, not a configuration change.
+        The boundary that did NOT move: this profile is read-only. Below there
+        are three perm_read grants and nothing else — no perm_create, no
+        perm_write, no perm_unlink, and not a single action permission in the
+        file. max_autonomy_level stays 0 (QUERY), so guard step 15 refuses any
+        action needing more even if a permission were added by mistake.
+
+        Deliberately absent, each with a test asserting it stays absent:
+        account.move.line, account.payment, account.journal, account.tax,
+        account.full.reconcile and res.partner.bank. Posting, paying,
+        reconciling, changing a tax and changing bank data are all out of reach
+        because the models behind them are out of reach.
     -->
     <record id="profile_accounting" model="ai.operations.agent.profile">
         <field name="name">Accounting Intelligence</field>
         <field name="code">accounting</field>
         <field name="active" eval="False"/>
         <field name="max_autonomy_level">0</field>
-        <field name="policy_version">1.0.0</field>
-        <field name="description">Financial reporting and analysis. PHASE 2:
-            this agent holds no tools and no model permissions in Phase 1. The
-            accounting data in this database exists so that the other four
-            agents can be refused it; see Document B section 11.</field>
+        <field name="policy_version">1.1.0</field>
+        <field name="description">Read-only financial reporting: receivable and
+            payable ageing, unpaid customer invoices, and invoiced revenue by
+            month. It cannot post a journal entry, validate a payment, change a
+            reconciliation, change a tax or touch bank data -- it holds no
+            permission on any of the models those actions need.</field>
+    </record>
+
+    <record id="perm_account_move_a" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_accounting"/>
+        <field name="model_id" ref="account.model_account_move"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_res_partner_a" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_accounting"/>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="perm_read" eval="True"/>
+    </record>
+
+    <record id="perm_res_currency_a" model="ai.operations.model.permission">
+        <field name="profile_id" ref="profile_accounting"/>
+        <field name="model_id" ref="base.model_res_currency"/>
+        <field name="perm_read" eval="True"/>
     </record>
 
 </odoo>

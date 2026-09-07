@@ -7,6 +7,23 @@
 **Version:** 0.4
 **Date:** 2026-09-04
 **Changes in 0.4:** `ASSIGNEE_UNRESOLVED` added to the closed denial set; `stock_security_warehouse` added to the module map (§3.2, §4).
+
+> **POST-FREEZE OWNER AMENDMENT — 2026-09-07.** George reviewed the platform on staging
+> and gave direct product feedback. Three things changed, and this document was frozen
+> before them, so read it alongside `DEVIATIONS.md` § "Owner decisions after the freeze":
+>
+> 1. **Accountant is operational, read-only.** Finance was outside Phase 1; George asked
+>    for a working Accountant agent. Four aggregate read tools, no write capability, and
+>    posting, payments, reconciliation, taxes and bank data all remain unreachable.
+> 2. **A General Manager agent exists** (`ai_operations_gm`), read-only, six aggregate
+>    read tools across the five departments plus seven company-level financial scalars.
+> 3. **Neither change touches the four operational agents.** §11's isolation rows — a
+>    Procurement agent refused net profit, a Quality agent refused shipment values — hold
+>    exactly as written and are now asserted per-agent by name.
+>
+> What did not move: `sudo()` stays banned, the guard stays fail-closed, the neutral
+> denial stays neutral, `EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` is unchanged,
+> and both new agents are pinned at `AutonomyLevel.QUERY` with no action permission.
 **Changes in 0.3:** `@ai_provider` registry mirroring the tool registry, generic `AIProvider` interface, adapter-owned credential names, provider parity invariant and CI checks (§8.2, §12, §15).
 **Changes in 0.2:** one runtime for chat and cron (§11); approval enum/fields removed; `AIAccessDenied` made neutral by construction (§5); secrets moved out of the ORM (§12); Odoo 19 constraint idiom (§13); idempotency key namespaced (§13); prompt-caching expectation corrected (§12); daily token ceiling added (§9, §11); CI checks extended (§15).
 
