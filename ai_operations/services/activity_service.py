@@ -221,4 +221,9 @@ class AIActivityService(models.AbstractModel):
                                 ('ai_generated', '=', True)], limit=1)
         if existing:
             return existing
-        return Type.create({'name': name, 'ai_generated': True})
+        # Never create. mail.activity.type is administrator-owned, and the
+        # execution identity is a Purchase Officer -- creating one raised
+        # "Access Denied by ACLs for operation: create" the moment a real
+        # employee ran an agent. Reading needs no elevation, and sudo() is
+        # banned outright, so the four types ship as data instead.
+        return Type.search([('ai_generated', '=', True)], limit=1)

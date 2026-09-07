@@ -1464,3 +1464,103 @@ FG-200 and FG-330 both run on L1, FG-1500 and FG-5000 both on L3, and the genera
 `sequence=1` for all of them — so two different SKUs produced on the same day received the
 **identical** lot name, which makes the genealogy ambiguous exactly where a recall needs it
 precise. `blueprint.LOT_SEQUENCE` now gives each SKU its own sequence within its line.
+
+---
+
+## 2026-09-07 — Document B: the flow design, and where the packs had not caught up
+
+The audit measured §15 Phase 1 acceptance at **7 of 16**, §11's isolation proofs at 6
+proven / 6 partial / 3 untested, §5's catalogue at 19 of 34 tools, and §6.2's handoff types
+at 1 of 4. The kernel was strong — the guard, decision 7's receiver-scoped idempotency,
+decision 6's bound escalation, the activity service and decision 3's one-runtime property
+were all correct and well tested. The shortfall was in the packs.
+
+### Four defects that changed behaviour
+
+**`state_restriction` on a model permission was never enforced.** Declared, validated at
+write time, and read by nothing — only the *action* permission's variant reached the guard.
+So §4.1's "purchase.order: write draft only" was decorative, and the procurement profile
+held unconditional write on `purchase.order` **and** on `purchase.order.line`, which
+declares no restriction at all. Unexploitable only because no tool amended an existing
+order, and `update_draft_rfq` is exactly that tool. Now enforced in `check_records` for
+write operations under a new `STATE_NOT_PERMITTED` reason. Reads are exempt: restricting a
+read to draft would hide the confirmed orders every analysis tool legitimately reports on.
+
+**The activity assignee override bypassed fail-closed routing.** `assignee or
+resolve_assignee(...)` skipped the active check and the company-scope check for any user a
+pack passed in — the one path by which an AI task could land on an archived user or outside
+the effective company scope with no `ASSIGNEE_UNRESOLVED` row and no audit.
+
+**`GLOBAL_FIELD_BLOCKLIST` was not on the live path.** `assert_clean` → `scan` matched field
+*name patterns* only; the `res.partner` entry was read solely by the serialiser's record
+walker, which no pack tool uses — they all hand-build dicts. The output schemas were holding
+the line alone, which is what the design says they should, but the "defence in depth" the
+module's own docstring promises did not exist. The model-specific names are now in the scan.
+
+**Inventory and Quality were non-functional as shipped.** Neither pack had a
+`models/policy.py`, so `_wire_assignments` never ran, so their profiles received zero tool
+assignments and guard step 4 denied every call with `TOOL_NOT_ASSIGNED`. Two of Document B's
+four agents could not execute a single tool. The lookup also needed `active_test=False`:
+packs ship their profile inactive, so the plain search found nothing, and procurement and
+manufacturing had only ever worked because the demo activates them before the next registry
+load.
+
+### Fifteen tools, three handoff types, and the reviews
+
+§5 lists thirty-four tools; nineteen existed. `create_review_activity` was missing from all
+four packs, which left §12's entire activity design — routing, escalation, deduplication,
+the volume ceiling, the fail-closed assignee — implemented in the kernel and reachable by
+nothing, and left §7's cascade ending at a draft that reached no one's desk.
+`quality.propose_hold`, §9's centrepiece and the subject of decision 1, did not exist.
+
+Three of four §6.2 handoff types were absent, so the recall could not fan out and §6.5's
+receiver-scoped idempotency was provable only against synthetic types.
+
+§8's crons carried no time and no agenda: `model.run(code,'CRON')` passes no `entry_prompt`,
+so an autonomous run opened with an empty user message. Severity was three constants and a
+parameter nothing read or stored. The volume ceiling suppressed silently where §8 requires
+the agent to consolidate "and say so".
+
+### Deliberate divergences, recorded
+
+**Quality holds three grants §4.4 does not list** — `stock.move`, `stock.location` and
+`product.product`. All three are load-bearing for `trace_forward`, `trace_backward` and
+`get_lot_disposition`: a trace that cannot read a move cannot walk genealogy. §4.4's table
+should name them. The fourth, `res.partner` with **no domain**, was a genuine over-grant —
+every partner in company scope was readable, bounded only by what schemas happened to emit —
+and is now narrowed to the trace endpoints.
+
+**`procurement.find_product` and `core.describe_scope` are not in §5.** The first is already
+recorded above (no tool resolved a product code to an id). The second is a kernel
+diagnostic, deliberately unassignable as shipped because it declares `res.company`, which no
+pack permits.
+
+**`country_id.name` and `supplier_rank` are permitted by §4.1 and emitted by nothing.** Safe
+direction — narrower than the document — but it means a question about a vendor's country
+cannot be answered.
+
+**The four activity types ship as data, not runtime creations.** `_activity_type` created
+one on demand, which fails the moment a real employee is the execution identity:
+`mail.activity.type` is administrator-owned and an agent running as a Purchase Officer hit
+"Access Denied by ACLs for operation: create". `sudo()` is banned, and reading needs no
+elevation, so the four types are data.
+
+**Cron times and agendas are applied by the demo module as well as the packs.** The pack
+records are `noupdate="1"`, which is correct — an administrator who has armed and retimed a
+cron should not have that overwritten by an upgrade — but it means a database built before
+the times existed keeps whatever it had. The demo's builder repairs it on every upgrade and
+leaves `active` alone.
+
+**`ai_operations_bridge` does not exist.** §14 and decision 3's mitigation both mark it
+optional and "not required to run"; its absence changes discoverability from the Enterprise
+AI app, never behaviour or security.
+
+**A QC Analyst cannot raise `QUALITY_HOLD_PRODUCTION`.** Naming the affected manufacturing
+orders needs to read `mrp.production`, and Document A §12 gives `rania.q` no MRP group at
+all. That is `USER ∩ AGENT` working exactly as §11 row 6 describes, not a defect: the QA
+Manager, `huda.q`, holds `mrp.group_mrp_user` and is the person §9 step 14 names anyway.
+
+**§12's reviewers and escalation users now hold `group_ai_user`.** An activity lands on
+their desk and they open the agent that raised it, and the runtime writes its audit row as
+the executing identity. The QA Manager found this: she could not run the agent that produced
+her own alert.

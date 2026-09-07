@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <!--
+        Document B 12's table: one activity type per department, so a human can
+        filter their inbox by the agent that raised the work.
+
+        Data rather than a runtime create. The service used to create the type
+        on demand, which fails the moment a real employee is the execution
+        identity: mail.activity.type is administrator-owned, so an agent running
+        as Noura hit "Access Denied by ACLs for operation: create". A type is
+        configuration; it belongs in a data file.
+    -->
+    <record id="activity_type_review" model="mail.activity.type">
+        <field name="name">AI Review Required</field>
+        <field name="ai_generated" eval="True"/>
+    </record>
+    <record id="activity_type_inventory" model="mail.activity.type">
+        <field name="name">AI Inventory Exception</field>
+        <field name="ai_generated" eval="True"/>
+    </record>
+    <record id="activity_type_production" model="mail.activity.type">
+        <field name="name">AI Production Alert</field>
+        <field name="ai_generated" eval="True"/>
+    </record>
+    <record id="activity_type_quality" model="mail.activity.type">
+        <field name="name">AI Quality Alert</field>
+        <field name="ai_generated" eval="True"/>
+    </record>
+
+</odoo>

@@ -16,6 +16,7 @@
         'security/ir.model.access.csv',
         'security/ir_rule.xml',
         'data/ir_sequence.xml',
+        'data/activity_types.xml',
         'views/agent_profile_views.xml',
         'views/model_permission_views.xml',
         'views/action_permission_views.xml',

@@ -481,10 +481,13 @@ def accept_handoff(ctx, params):
     profile's own permission — a handoff naming a model Procurement may not read
     leaves it exactly as unable to read it.
     """
-    handoff = ctx.env['ai.operations.handoff'].browse(params['handoff_id'])
-    ctx.check_records('ai.operations.handoff', handoff.ids)
-    accepted = ctx.env['ai.operations.handoff.service'].accept(ctx, handoff)
-    payload = accepted.payload_json or {}
+    ctx.check_records('ai.operations.handoff', [params['handoff_id']])
+    # The service takes an id, not a recordset: it re-resolves the handoff
+    # through _for_receiver, which is what refuses work from another agent's
+    # queue. Passing the record would skip that.
+    accepted = ctx.env['ai.operations.handoff.service'].accept(
+        ctx, params['handoff_id'])
+    payload = accepted.payload or {}
     return {
         'handoff_id': accepted.id,
         'reference': accepted.name,
@@ -506,10 +509,10 @@ def accept_handoff(ctx, params):
 )
 def complete_handoff(ctx, params):
     """Close a handoff with the reference of what was produced. §6.4."""
-    handoff = ctx.env['ai.operations.handoff'].browse(params['handoff_id'])
-    ctx.check_records('ai.operations.handoff', handoff.ids)
+    ctx.check_records('ai.operations.handoff', [params['handoff_id']])
     done = ctx.env['ai.operations.handoff.service'].complete(
-        ctx, handoff, result_ref=params['result_ref'])
+        ctx, params['handoff_id'],
+        result_model='purchase.order', result_res_id=0)
     return {
         'handoff_id': done.id,
         'reference': done.name,

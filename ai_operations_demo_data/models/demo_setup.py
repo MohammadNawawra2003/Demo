@@ -21,7 +21,7 @@ denial scenario is denied by the policy this file writes, not by a special case.
 
 import logging
 
-from odoo import api, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -32,6 +32,18 @@ COMPANY = 'Naqaa Water Manufacturing Co.'
 #: declares, so the profile's own constraint validates it at write time.
 PROVIDER = 'anthropic'
 MODEL = 'claude-sonnet-5'
+
+#: Document B §3: Inventory is the only Phase 1 agent spanning both companies,
+#: which is what makes it the sharpest multi-company test -- it may see C2
+#: branch stock and C1 plant stock, and must not see C1 production cost or C2
+#: selling price. Scoping it to C1 alone removed the test.
+COMPANY_SCOPE = {
+    'procurement': ('c1',),
+    'inventory': ('c1', 'c2'),
+    'manufacturing': ('c1',),
+    'quality': ('c1',),
+}
+DISTRIBUTION_COMPANY = 'Naqaa Distribution Co.'
 
 #: profile code -> (reviewer login, escalation login, service user login)
 #: Document B 12's table, verbatim: routine reviewer, escalation user, service
@@ -148,6 +160,7 @@ class AIOperationsDemoSetup(models.AbstractModel):
         self._enable_tools()
         for code, profile in profiles.items():
             self._assign_tools(profile, code)
+        self._configure_crons()
         self._grant_ai_group()
         channels = self._build_channels(profiles)
         self._seed_scenario_records(company)
@@ -200,8 +213,13 @@ class AIOperationsDemoSetup(models.AbstractModel):
         reviewer, escalation, service = (self._user(login)
                                          for login in ROUTING[code])
         profile = self._profile(code)
+        companies = company
+        if 'c2' in COMPANY_SCOPE.get(code, ('c1',)):
+            distribution = self.env['res.company'].search(
+                [('name', '=', DISTRIBUTION_COMPANY)], limit=1)
+            companies = company | distribution
         profile.write({
-            'company_ids': [(6, 0, company.ids)],
+            'company_ids': [(6, 0, companies.ids)],
             'default_review_user_id': reviewer.id,
             'default_escalation_user_id': escalation.id,
             'service_user_id': service.id,
@@ -306,7 +324,68 @@ class AIOperationsDemoSetup(models.AbstractModel):
     def _demo_users(self):
         """The employees the scenarios run as."""
         logins = {login for _partner, logins in CHANNELS.values() for login in logins}
+        # §12's reviewers and escalation users too. An activity lands on their
+        # desk and they open the agent that raised it, and the runtime writes
+        # its audit row as the executing identity -- which needs the group. The
+        # QA Manager was the case that found this: she is the person §9 step 14
+        # names, and she could not run the agent that produced her own alert.
+        logins |= {login for routing in ROUTING.values() for login in routing[:2]}
         return [self._user(login) for login in sorted(logins)]
+
+    #: Document B §8's deliberate order: Inventory and Quality run first so
+    #: Manufacturing has current facts, and Procurement runs last so it can
+    #: consume the handoffs raised the same morning.
+    CRON_TIMES = {
+        'Inventory': (6, 0, 'inventory'),
+        'Quality': (6, 45, 'quality'),
+        'Manufacturing': (7, 0, 'manufacturing'),
+        'Procurement': (7, 15, 'procurement'),
+    }
+
+    #: §8's checklists. A cron that passes no entry_prompt opens its run with an
+    #: empty user message, so the daily review had an entry point and no agenda.
+    CRON_AGENDA = {
+        'inventory': "Daily inventory review. Check, in order: late receipts "
+            "and deliveries, products below their reorder point, lots inside "
+            "the expiry alert window, and count discrepancies.",
+        'quality': "Daily quality review. Check overnight results, anything out "
+            "of spec, and lots pending release past the 48 hour hold.",
+        'manufacturing': "Daily production review. Check today's orders and "
+            "their readiness, delayed orders, work centre load and scrap.",
+        'procurement': "Daily procurement review. Work the open handoffs on "
+            "your queue first, then overdue orders and forecast requirements.",
+    }
+
+    @api.model
+    def _configure_crons(self):
+        """Put §8's hour on each daily review.
+
+        The packs set it too, but their records are ``noupdate="1"`` -- correct,
+        because an administrator who has armed and retimed a cron should not
+        have that overwritten by an upgrade -- which means a database built
+        before the times existed keeps whatever it had. This runs on every
+        upgrade and repairs exactly that, and it leaves ``active`` alone: arming
+        the cron stays a deliberate act once a credential exists.
+        """
+        import datetime
+        Cron = self.env['ir.cron'].with_context(active_test=False)
+        today = fields.Datetime.now()
+        configured = []
+        for label, (hour, minute, code) in self.CRON_TIMES.items():
+            cron = Cron.search(
+                [('name', 'like', 'AI Operations: %s%%' % label)], limit=1)
+            if not cron:
+                continue
+            wanted = (today + datetime.timedelta(days=1)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0)
+            if not cron.nextcall or (cron.nextcall.hour, cron.nextcall.minute) \
+                    != (hour, minute):
+                cron.nextcall = wanted
+            if 'entry_prompt' not in (cron.code or ''):
+                cron.code = "model.run(%r, 'CRON', entry_prompt=%r)" % (
+                    code, self.CRON_AGENDA[code])
+            configured.append(label)
+        return configured
 
     @api.model
     def _grant_ai_group(self):

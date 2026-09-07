@@ -9,7 +9,7 @@ updated: 2026-09-04
 
 Product docs: `01-demo-company-blueprint.md` (A) · `02-ai-operations-flow-design.md` (B) ·
 `03-phase1-security-kernel-spec.md` (C) · `04-implementation-contract.md` (D).
-Code: **none yet** — Session 1 has not started. Build sequence: Document C §17 (14 sessions, STOP gate each).
+Code: **ten modules; see DEVIATIONS.md and the Document A and Document B closure commits** — Session 1 has not started. Build sequence: Document C §17 (14 sessions, STOP gate each).
 
 **Phase status:** documentation → **A–D freeze-ready**. Next: Session 1 (kernel skeleton).
 
