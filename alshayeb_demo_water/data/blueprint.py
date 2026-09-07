@@ -10,6 +10,15 @@ depend on these exact values.
 # -- §2 identity ----------------------------------------------------------
 CURRENCY = 'SAR'
 COUNTRY = 'SA'
+VAT_RATE = 15.0                 # §2/§15 standard rate
+#: Distinct from l10n_sa's own tax names: account.tax enforces name uniqueness
+#: per company, so a second tax called plain 'VAT 15%' collides rather than
+#: being merely redundant.
+VAT_TAX_NAME = 'Naqaa VAT 15% (Sales)'
+LANG = 'ar_001'                 # §2 primary UI language, English secondary
+FISCAL_YEAR_LAST_DAY = 31       # §2 January – December
+FISCAL_YEAR_LAST_MONTH = '12'
+PLANT_CITY = 'Sabya'            # §2 plant location, Jazan Region
 
 # -- §3 the three companies -----------------------------------------------
 COMPANIES = [
@@ -18,6 +27,38 @@ COMPANIES = [
     ('c2', 'Naqaa Distribution Co.', 'parent'),
     ('c3', 'Naqaa Retail & Delivery Co.', 'parent'),   # dormant in Phase 1
 ]
+
+#: §2. Arabic is the primary UI language, so the names a user actually reads
+#: must exist in Arabic. Odoo stores these as translations of the same field,
+#: so they are applied with ``with_context(lang=...)`` rather than as a
+#: separate field. Keyed by the English name / product code.
+ARABIC_COMPANY_NAMES = {
+    'Naqaa Group': 'مجموعة نقاء',
+    'Naqaa Water Manufacturing Co.': 'نقاء لتصنيع المياه',
+    'Naqaa Distribution Co.': 'نقاء للتوزيع',
+    'Naqaa Retail & Delivery Co.': 'نقاء للبيع المباشر',
+}
+
+ARABIC_PRODUCT_NAMES = {
+    'FG-200': 'نقاء ٢٠٠ مل',
+    'FG-330': 'نقاء ٣٣٠ مل',
+    'FG-600': 'نقاء ٦٠٠ مل',
+    'FG-1500': 'نقاء ١٫٥ لتر',
+    'FG-5000': 'نقاء ٥ لتر',
+    'FG-12000': 'نقاء ١٢ لتر',
+    'PK-BTL-200': 'عبوة بلاستيكية فارغة ٢٠٠ مل',
+    'PK-BTL-330': 'عبوة بلاستيكية فارغة ٣٣٠ مل',
+    'PK-BTL-600': 'عبوة بلاستيكية فارغة ٦٠٠ مل',
+    'PK-BTL-1500': 'عبوة بلاستيكية فارغة ١٫٥ لتر',
+    'PK-BTL-5000': 'عبوة بلاستيكية فارغة ٥ لتر',
+    'PK-BTL-12000': 'جالون بلاستيكي فارغ ١٢ لتر',
+    'PK-CAP-S': 'غطاء ٢٩/٢٥ للعبوات الصغيرة',
+    'PK-CAP-L': 'غطاء ٤٨ مم (٥ و ١٢ لتر)',
+    'PR-WATER-RAW': 'مياه التغذية الخام (بئر)',
+    'PR-WATER-TRT': 'مياه معالجة',
+    'PR-ANTISCAL': 'مانع الترسبات للتناضح العكسي',
+    'PR-SANIT': 'مواد التعقيم والتنظيف',
+}
 
 # -- §4 warehouses ---------------------------------------------------------
 #   code, name, company
@@ -51,13 +92,23 @@ FINISHED_GOODS = [
 #: the §7 water balance impossible.
 PROCESS_WATER_FACTOR = 1.20
 
-#: §6. Transfer price is cost-plus, per SKU, and the markup table is withheld
-#: from C2. Version 1.0 carried 5.76 for FG-330, a 12.5% markup outside the
-#: §3 band; 5.86 is the corrected figure.
-TRANSFER_PRICE = {
-    'FG-200': 4.30, 'FG-330': 5.86, 'FG-600': 4.55,
-    'FG-1500': 6.40, 'FG-5000': 7.10, 'FG-12000': 8.60,
+#: §3/§6. Transfer price is **cost-plus**: it is DERIVED, never typed.
+#:
+#: A hand-written price table cannot stay inside the §3 band, and did not: the
+#: literal v1.2 figures put five of six SKUs outside 14-26% and priced FG-200
+#: 12.6% *below* plant cost. What §3 actually specifies is the markup — "varies
+#: by SKU (range 14-26%) and is not published to C2" — so the markup is what is
+#: stored, and the price is computed from the BoM at build time. The band then
+#: cannot be violated by construction, which is the only way a figure like this
+#: stays correct after someone edits a component cost.
+TRANSFER_MARKUP = {
+    'FG-200': 0.16, 'FG-330': 0.17, 'FG-600': 0.15,
+    'FG-1500': 0.19, 'FG-5000': 0.22, 'FG-12000': 0.24,
 }
+#: §3 the band the markup must stay inside, asserted per SKU.
+TRANSFER_MARKUP_BAND = (0.14, 0.26)
+#: §6 labour and overhead per carton, on top of BoM material cost.
+LABOUR_OVERHEAD_PER_CARTON = 0.70
 
 # -- §5.2 packaging, all purchased -----------------------------------------
 #   code, name, uom, unit cost SAR, lead days, lot tracked
@@ -133,6 +184,19 @@ WORK_CENTRES = [
     ('L4', 'Jerry Can Line',   'jerry'),
     ('WT', 'Water Treatment',  'water'),
 ]
+
+#: §7 rated speed, in bottles per hour. WT is rated in m³/day instead and is
+#: carried separately below, because it is a different quantity and folding the
+#: two into one column is how v1.0 ended up printing an RO yield as a
+#: utilisation figure.
+WORK_CENTRE_BPH = {'L1': 30_000, 'L2': 30_000, 'L3': 9_000, 'L4': 1_800}
+
+#: §7 availability basis: filling lines 320 days x 20 h, water treatment
+#: 350 days x 24 h. Odoo models availability as a working calendar, so these
+#: are the hours per day the calendar is built with.
+LINE_DAYS_PER_YEAR = 320
+LINE_HOURS_PER_DAY = 20
+WT_HOURS_PER_DAY = 24
 #: §6 sizing. Raised from 640 in v1.0: the original plant could not physically
 #: make its stated 199.3M L/yr and was 147% oversubscribed at the July peak.
 WT_FEED_M3_DAY = 900
@@ -179,15 +243,36 @@ CUSTOMERS = [
     ('CUS-CARR',   'Carrefour KSA',             'modern',      'c2'),
     ('CUS-LULU',   'LuLu Hypermarket',          'modern',      'c2'),
     ('CUS-BIND',   'Bin Dawood',                'modern',      'c2'),
+    # §10 names six regional wholesalers, not three.
     ('CUS-WHJZN',  'Jazan Wholesale Trading',   'traditional', 'c2'),
     ('CUS-WHASR',  'Asir Wholesale Est.',       'traditional', 'c2'),
     ('CUS-WHNJR',  'Najran Distribution',       'traditional', 'c2'),
+    ('CUS-WHSAB',  'Sabya Trading Est.',        'traditional', 'c2'),
+    ('CUS-WHKHM',  'Khamis Mushait Wholesale',  'traditional', 'c2'),
+    ('CUS-WHBSH',  'Bisha Supply Co.',          'traditional', 'c2'),
+    # §10 HORECA: two hotel groups, one caterer, and restaurant accounts.
     ('CUS-HOTEL',  'Southern Hotels Group',     'horeca',      'c2'),
+    ('CUS-HOTEL2', 'Jazan Corniche Hotels',     'horeca',      'c2'),
     ('CUS-CATER',  'Jazan Catering Co.',        'horeca',      'c2'),
+    ('CUS-RESTA',  'Al Bandar Restaurants',     'horeca',      'c2'),
+    ('CUS-RESTB',  'Farasan Seafood Group',     'horeca',      'c2'),
+    # §10 institutional: the two industrial camps were missing.
     ('CUS-HEALTH', 'Jazan Health Cluster',      'institutional', 'c2'),
     ('CUS-SCHOOL', 'Jazan School Districts',    'institutional', 'c2'),
+    ('CUS-CAMP1',  'Jazan City Industrial Camp', 'institutional', 'c2'),
+    ('CUS-CAMP2',  'Sabya Contractors Camp',    'institutional', 'c2'),
+    # §10 charity: endowment platform, mosque supply, seasonal donations.
     ('CUS-WAQF',   'Endowment Water Platform (سقيا)', 'charity', 'c2'),
+    ('CUS-MOSQUE', 'Jazan Mosque Supply Office', 'charity',    'c2'),
+    ('CUS-DONOR',  'Seasonal Donation Programme', 'charity',   'c2'),
 ]
+
+#: §10 channel shares. Carried as data because the history generator weights
+#: demand by them; without this the channel tag is decoration.
+CHANNEL_SHARES = {
+    'modern': 0.34, 'traditional': 0.31, 'horeca': 0.14,
+    'institutional': 0.13, 'charity': 0.08,
+}
 
 # -- §11 seasonality ---------------------------------------------------------
 MONTHLY_INDEX = [72, 78, 96, 104, 128, 141, 158, 152, 118, 92, 80, 74]

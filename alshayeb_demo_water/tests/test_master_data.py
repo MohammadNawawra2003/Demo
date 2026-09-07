@@ -81,9 +81,21 @@ class TestNaqaaMasterData(TransactionCase):
             [('product_tmpl_id', '=', bottle.product_tmpl_id.id)], limit=1))
 
     def test_component_costs_match_the_blueprint(self):
+        """Read in Naqaa's company, because that is where the cost lives.
+
+        `standard_price` is company-dependent. Reading it without a company
+        returns the *installing* user's value -- which is the same defect that
+        priced a draft RFQ at zero, and this assertion was quietly reading it
+        too. §5.2 costs run to three decimals, so the precision matters: a cap
+        is SAR 0.022 and rounding it to 0.02 is a 10% error in the component
+        that dominates the BoM.
+        """
+        company = self.env['res.company'].search(
+            [('name', '=', 'Naqaa Water Manufacturing Co.')], limit=1)
         for code, _name, _uom, cost, _lead, _tracked in bp.BOTTLES + bp.CLOSURES:
             self.assertAlmostEqual(
-                self._product(code).standard_price, cost, places=4, msg=code)
+                self._product(code).with_company(company).standard_price,
+                cost, places=4, msg=code)
 
     # -- §6 bills of material, and the water balance -------------------------
 
@@ -153,19 +165,51 @@ class TestNaqaaMasterData(TransactionCase):
             peak_day_m3, bp.WT_PRODUCT_M3_DAY,
             "the seeded capacity constraint has vanished from the data")
 
-    def test_the_transfer_price_sits_inside_the_declared_markup_band(self):
-        """§3 declares 14-26%. Version 1.0's FG-330 price of 5.76 was a 12.5%
-        markup, outside it; 5.86 is the corrected figure."""
-        bom = self.env['mrp.bom'].search(
-            [('product_tmpl_id', '=', self._product('FG-330').product_tmpl_id.id)],
-            limit=1)
-        material = sum(
-            line.product_id.standard_price * line.product_qty
-            for line in bom.bom_line_ids)
-        plant_cost = material + 0.70          # §6 labour and overhead
-        markup = (bp.TRANSFER_PRICE['FG-330'] - plant_cost) / plant_cost * 100
-        self.assertGreater(markup, 10.0, "markup %.1f%% is implausibly thin" % markup)
-        self.assertLess(markup, 30.0, "markup %.1f%% is outside the band" % markup)
+    def test_every_transfer_price_sits_inside_the_declared_markup_band(self):
+        """§3 declares 14-26%, per SKU, for all six.
+
+        This used to check FG-330 alone and against a widened 10-30%. Both
+        concessions hid the same defect: the price was a hand-written table, and
+        five of the six SKUs sat outside the band -- FG-200 was priced 12.6%
+        *below* plant cost. The price is now derived from the BoM, so the band
+        holds by construction and the assertion can be the documented one.
+        """
+        pricelist = self.env['product.pricelist'].with_context(
+            active_test=False).search([('name', '=', 'Naqaa Transfer Price')], limit=1)
+        self.assertTrue(pricelist, "the transfer pricelist does not exist")
+        low, high = bp.TRANSFER_MARKUP_BAND
+        company = self.env['res.company'].search(
+            [('name', '=', 'Naqaa Water Manufacturing Co.')], limit=1)
+
+        for code in bp.TRANSFER_MARKUP:
+            product = self._product(code)
+            bom = self.env['mrp.bom'].search(
+                [('product_tmpl_id', '=', product.product_tmpl_id.id),
+                 ('company_id', '=', company.id)], limit=1)
+            self.assertTrue(bom, "%s has no BoM" % code)
+            material = sum(
+                line.product_id.with_company(company).standard_price * line.product_qty
+                for line in bom.bom_line_ids)
+            plant_cost = material + bp.LABOUR_OVERHEAD_PER_CARTON
+            item = self.env['product.pricelist.item'].search(
+                [('pricelist_id', '=', pricelist.id),
+                 ('product_tmpl_id', '=', product.product_tmpl_id.id)], limit=1)
+            self.assertTrue(item, "%s carries no transfer price" % code)
+            markup = (item.fixed_price - plant_cost) / plant_cost
+            self.assertGreaterEqual(
+                markup, low,
+                "%s markup %.1f%% is below the band" % (code, markup * 100))
+            self.assertLessEqual(
+                markup, high,
+                "%s markup %.1f%% is above the band" % (code, markup * 100))
+
+    def test_no_sku_is_transferred_below_plant_cost(self):
+        """The failure the old single-SKU assertion could never have seen."""
+        pricelist = self.env['product.pricelist'].with_context(
+            active_test=False).search([('name', '=', 'Naqaa Transfer Price')], limit=1)
+        for item in pricelist.item_ids:
+            self.assertGreater(item.fixed_price, 0.0,
+                               "%s has no transfer price" % item.product_tmpl_id.name)
 
     # -- §9 suppliers, and the planted tensions ------------------------------
 

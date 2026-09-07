@@ -30,16 +30,60 @@ class AlshayebDemoBuilder(models.AbstractModel):
 
     @api.model
     def build_all(self):
+        self._enable_arabic()
         companies = self._build_companies()
+        self._build_taxes(companies)
+        category = self._build_product_category()
         self._build_warehouses(companies)
-        products = self._build_products(companies)
+        products = self._build_products(companies, category)
         self._build_boms(companies, products)
+        self._build_transfer_pricing(companies, products)
         self._build_work_centres(companies)
         self._build_partners(companies, products)
         self._build_quality_points(companies, products)
         self._build_people(companies)
         _logger.info("alshayeb_demo_water: Naqaa company built")
         return True
+
+    # -- §2 language ----------------------------------------------------
+
+    @api.model
+    def _enable_arabic(self):
+        """§2: Arabic is the primary UI language, English secondary.
+
+        Activating the language is what makes the Arabic names written later
+        reachable at all -- a translation written against an inactive language
+        is stored and never rendered.
+        """
+        lang = self.env['res.lang'].with_context(active_test=False).search(
+            [('code', '=', bp.LANG)], limit=1)
+        if lang and not lang.active:
+            self.env['base.language.install'].create({
+                'lang_ids': [(6, 0, [lang.id])]}).lang_install()
+            lang = self.env['res.lang'].search([('code', '=', bp.LANG)], limit=1)
+        return lang
+
+    def _translate(self, record, field, arabic):
+        """Write the Arabic of a **translatable** field, leaving English alone.
+
+        ⚠ The `translate` check is not defensive programming, it is the whole
+        point. Writing a field in a language context only stores a *translation*
+        when the field is translatable; on an ordinary field it is a plain write
+        that replaces the value. `res.partner.name` is not translatable, so
+        translating a company this way silently renamed it in every language and
+        the next `search([('name', '=', 'Naqaa Water Manufacturing Co.')])`
+        found nothing.
+        """
+        if not arabic or not record:
+            return
+        field_def = record._fields.get(field)
+        if not field_def or not field_def.translate:
+            return
+        lang = self.env['res.lang'].search([('code', '=', bp.LANG)], limit=1)
+        if not lang:
+            return
+        if record.with_context(lang=bp.LANG)[field] != arabic:
+            record.with_context(lang=bp.LANG).write({field: arabic})
 
     # -- helpers --------------------------------------------------------
 
@@ -71,25 +115,151 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 values['currency_id'] = currency.id
             if parent_key and parent_key in companies:
                 values['parent_id'] = companies[parent_key].id
-            companies[key] = self._get_or_create(
+            company = self._get_or_create(
                 'res.company', [('name', '=', name)], values)
+            # §2: fiscal year is January-December, and the plant is in Sabya.
+            # Written on every run rather than at create, so a database built
+            # before this fix repairs itself on upgrade.
+            fiscal = {}
+            if company.fiscalyear_last_day != bp.FISCAL_YEAR_LAST_DAY:
+                fiscal['fiscalyear_last_day'] = bp.FISCAL_YEAR_LAST_DAY
+            if company.fiscalyear_last_month != bp.FISCAL_YEAR_LAST_MONTH:
+                fiscal['fiscalyear_last_month'] = bp.FISCAL_YEAR_LAST_MONTH
+            if key == 'c1' and not company.city:
+                fiscal['city'] = bp.PLANT_CITY
+            if fiscal:
+                company.write(fiscal)
+            self._translate(company.partner_id, 'name',
+                            bp.ARABIC_COMPANY_NAMES.get(name))
+            companies[key] = company
         return companies
+
+    # -- §2/§15 VAT ------------------------------------------------------
+
+    @api.model
+    def _build_taxes(self, companies):
+        """§15: VAT 15% standard. l10n_sa supplies the taxes; this only asserts
+        one exists per operating company and makes it the default, so a sales
+        order raised by the demo carries the rate Document A states."""
+        Tax = self.env['account.tax']
+        Group = self.env['account.tax.group']
+        country = self.env['res.country'].search([('code', '=', bp.COUNTRY)], limit=1)
+        built = {}
+        for key in ('c1', 'c2'):
+            company = companies[key]
+            # Any 15% sales tax already on the company counts -- l10n_sa ships
+            # its own and installs them whenever a chart reaches this company,
+            # and creating a second one collides on Odoo's name uniqueness
+            # constraint rather than being merely redundant.
+            tax = Tax.with_context(active_test=False).search(
+                [('company_id', '=', company.id), ('type_tax_use', '=', 'sale'),
+                 ('amount', '=', bp.VAT_RATE)], limit=1)
+            name = '%s — %s' % (bp.VAT_TAX_NAME, company.name)
+            if not tax:
+                tax = Tax.with_context(active_test=False).search(
+                    [('company_id', '=', company.id), ('name', '=', name)], limit=1)
+            if tax:
+                built[key] = tax
+                continue
+            # l10n_sa ships the Saudi taxes, but a chart of accounts is only
+            # installed onto a company deliberately, and these companies are
+            # built by this module. Without a chart there is no tax group, and
+            # account.tax.group_id is required.
+            group = Group.search([('company_id', '=', company.id)], limit=1)
+            if not group:
+                group = Group.create({
+                    'name': name,
+                    'company_id': company.id,
+                    'country_id': country.id if country else False,
+                })
+            built[key] = Tax.create({
+                'name': name,
+                'amount': bp.VAT_RATE,
+                'amount_type': 'percent',
+                'type_tax_use': 'sale',
+                'company_id': company.id,
+                'tax_group_id': group.id,
+                'country_id': country.id if country else False,
+            })
+        return built
+
+    # -- §15 costing -----------------------------------------------------
+
+    @api.model
+    def _build_product_category(self):
+        """§15 AVCO with automated real-time valuation, and §8.2 FEFO.
+
+        Odoo puts all three on the product category, so Naqaa needs its own --
+        the default category is `standard` costing with manual valuation, which
+        is neither what §15 specifies nor what the rest of this codebase already
+        assumes (DEVIATIONS.md calls `standard_price` "our AVCO cost").
+        """
+        # §5.2 costs run to three and four decimals -- a cap is SAR 0.022 and a
+        # label SAR 0.010. Odoo's default Product Price precision is 2, and AVCO
+        # rounds `standard_price` to it, so every packaging cost was silently
+        # flattened (0.042 -> 0.04). Widen the precision before writing any cost.
+        precision = self.env['decimal.precision'].search(
+            [('name', '=', 'Product Price')], limit=1)
+        if precision and precision.digits < 4:
+            precision.digits = 4
+            # decimal.precision is ormcached and the field's `digits` are read
+            # through that cache, so without this the widened precision does
+            # not apply until the next registry load -- and every cost written
+            # later in this same run is still rounded to two places.
+            self.env.registry.clear_cache()
+
+        Category = self.env['product.category']
+        category = Category.search([('name', '=', 'Naqaa')], limit=1)
+        values = {'property_cost_method': 'average'}
+        # Removal strategy is FEFO: every finished good carries an expiry and
+        # §8.2 requires first-expiry-first-out, not first-in-first-out. FEFO
+        # ships with product_expiry, not with stock.
+        fefo = self.env.ref('product_expiry.removal_fefo', raise_if_not_found=False)
+        if not fefo:
+            fefo = self.env['product.removal'].search(
+                [('method', '=', 'fefo')], limit=1)
+        if fefo:
+            values['removal_strategy_id'] = fefo.id
+        if 'property_valuation' in Category._fields:
+            values['property_valuation'] = 'real_time'
+        if not category:
+            category = Category.create(dict(values, name='Naqaa'))
+        else:
+            category.write(values)
+        return category
 
     # -- §4 warehouses ---------------------------------------------------
 
     def _build_warehouses(self, companies):
+        """§4 warehouses, and §15's step configuration.
+
+        ⚠ Warehouse codes are truncated: ``SCRAP`` -> ``SCRP``, ``DC-JZN`` ->
+        ``DCJZN``, ``BR-ABH`` -> ``BRABH`` and so on. ``stock.warehouse.code``
+        is five characters in Odoo 19, so Document A's codes do not fit. See
+        DEVIATIONS.md.
+        """
         warehouses = {}
         for code, name, company_key in bp.WAREHOUSES:
             company = companies[company_key]
-            warehouses[code] = self._get_or_create(
+            warehouse = self._get_or_create(
                 'stock.warehouse',
                 [('code', '=', code), ('company_id', '=', company.id)],
                 {'name': name, 'code': code, 'company_id': company.id})
+            # §4/§15: incoming packaging is quarantined pending QC, so the raw
+            # material store receives in two steps. This is what creates the
+            # `RM/QC` input location -- without it §4's quarantine location
+            # does not exist and QCP-04/QCP-05 have nowhere to happen.
+            if code == 'RM' and warehouse.reception_steps != 'two_steps':
+                warehouse.reception_steps = 'two_steps'
+            # §15: multi-step delivery on C2 (pick + ship).
+            if company_key == 'c2' and warehouse.delivery_steps != 'pick_ship':
+                warehouse.delivery_steps = 'pick_ship'
+            warehouses[code] = warehouse
         return warehouses
 
     # -- §5 products ------------------------------------------------------
 
-    def _build_products(self, companies):
+    def _build_products(self, companies, category):
         products = {}
         # The operating company. `standard_price` is company-dependent, so a
         # cost written while the builder runs as the installing user lands on
@@ -108,6 +278,26 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 active_test=False).search([('default_code', '=', code)], limit=1)
             if product:
                 _set_cost(product, cost)
+                # Repair on upgrade: a database built before the Naqaa category
+                # existed has its products on Odoo's default one, which is
+                # `standard` costing with no FEFO.
+                if category and product.categ_id != category:
+                    product.categ_id = category.id
+                # Repair the expiry window too. product_expiry was not a
+                # dependency until 19.0.1.3.0, so every database built before it
+                # has finished goods with no expiry at all -- the builder
+                # guarded on the field existing and skipped them silently.
+                if expiry and 'use_expiration_date' in product.product_tmpl_id._fields:
+                    template = product.product_tmpl_id
+                    if not template.use_expiration_date:
+                        template.use_expiration_date = True
+                    for field, value in (('expiration_time', 365),
+                                         ('alert_time', 90),
+                                         ('removal_time', 30)):
+                        if template[field] != value:
+                            template[field] = value
+                self._translate(product, 'name',
+                                bp.ARABIC_PRODUCT_NAMES.get(code))
                 products[code] = product
                 return product
             values = {
@@ -117,14 +307,22 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 'purchase_ok': purchase_ok, 'sale_ok': sale_ok,
                 'tracking': tracking,
             }
+            if category:
+                values['categ_id'] = category.id
             if expiry and 'use_expiration_date' in self.env['product.template']._fields:
                 values['use_expiration_date'] = True
                 values['expiration_time'] = 365      # §8.2 shelf life 12 months
                 values['alert_time'] = 90            # alert at 90 days remaining
+                # §8.2 "block at 30". `removal_time` is the days-before-expiry
+                # at which FEFO stops handing the lot out, which is what
+                # "blocked" means operationally in Odoo.
+                values['removal_time'] = 30
             products[code] = self.env['product.product'].create(values)
             # create() writes standard_price against the CURRENT company; write
             # it again explicitly for the operating one.
             _set_cost(products[code], cost)
+            self._translate(products[code], 'name',
+                            bp.ARABIC_PRODUCT_NAMES.get(code))
             return products[code]
 
         # Finished goods: lot tracked with expiry, sold not purchased.
@@ -151,6 +349,19 @@ class AlshayebDemoBuilder(models.AbstractModel):
         return products
 
     # -- §6 bills of material ---------------------------------------------
+
+    def _bom_line(self, product, qty, scrap):
+        """§6's Qty and Scrap % are separate columns, and Odoo 19 has no scrap
+        field on ``mrp.bom.line``.
+
+        The BoM therefore carries the documented **standard** quantity -- a
+        carton of 330 ml is 40 bottles, not 40.2 -- and the scrap percentage
+        stays in ``blueprint.SCRAP_PCT``, where the history generator applies it
+        to *actual* consumption. That is also where it belongs: scrap is the gap
+        between the standard and what the line really used, and a BoM that
+        already includes it cannot express that gap at all.
+        """
+        return {'product_id': product.id, 'product_qty': qty}
 
     def _build_boms(self, companies, products):
         Bom = self.env['mrp.bom']
@@ -180,10 +391,9 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 'product_qty': 1,
                 'type': 'normal',
                 'company_id': company.id,
-                'bom_line_ids': [(0, 0, {
-                    'product_id': products[component].id,
-                    'product_qty': qty,
-                }) for component, qty, _scrap in lines],
+                'bom_line_ids': [(0, 0, self._bom_line(
+                    products[component], qty, scrap))
+                    for component, qty, scrap in lines],
             })
 
         # The daily treatment run: raw water in, one lot of treated water out.
@@ -202,6 +412,66 @@ class AlshayebDemoBuilder(models.AbstractModel):
             })
         return boms
 
+    # -- §3/§6 the transfer price, derived ---------------------------------
+
+    @api.model
+    def _material_cost(self, bom):
+        """BoM material cost at current component costs, in the BoM's company."""
+        company = bom.company_id
+        total = 0.0
+        for line in bom.bom_line_ids:
+            total += line.product_id.with_company(company).standard_price * line.product_qty
+        return total / (bom.product_qty or 1.0)
+
+    @api.model
+    def _build_transfer_pricing(self, companies, products):
+        """§3: cost-plus, per SKU, and the markup table is withheld from C2.
+
+        Computed rather than typed. The price C2 pays is
+        ``(material + labour/overhead) x (1 + markup)``, so it tracks a change
+        in any component cost instead of drifting out of the §3 band the way a
+        literal table did. The markup itself lives only here and on C1's side of
+        the pricelist -- what C2 can see is one number per SKU, which is exactly
+        the residual risk §3 accepts and documents.
+        """
+        Pricelist = self.env['product.pricelist']
+        c1, c2 = companies['c1'], companies['c2']
+        pricelist = Pricelist.with_context(active_test=False).search(
+            [('name', '=', 'Naqaa Transfer Price'), ('company_id', '=', c2.id)],
+            limit=1)
+        if not pricelist:
+            pricelist = Pricelist.create({
+                'name': 'Naqaa Transfer Price',
+                'company_id': c2.id,
+                'currency_id': c2.currency_id.id,
+            })
+
+        Item = self.env['product.pricelist.item']
+        priced = {}
+        for code, markup in bp.TRANSFER_MARKUP.items():
+            product = products.get(code)
+            if not product:
+                continue
+            bom = self.env['mrp.bom'].search(
+                [('product_tmpl_id', '=', product.product_tmpl_id.id),
+                 ('company_id', '=', c1.id)], limit=1)
+            if not bom:
+                continue
+            plant_cost = self._material_cost(bom) + bp.LABOUR_OVERHEAD_PER_CARTON
+            price = round(plant_cost * (1.0 + markup), 2)
+            priced[code] = price
+            item = Item.search([('pricelist_id', '=', pricelist.id),
+                                ('product_tmpl_id', '=', product.product_tmpl_id.id)],
+                               limit=1)
+            values = {'compute_price': 'fixed', 'fixed_price': price,
+                      'applied_on': '1_product',
+                      'product_tmpl_id': product.product_tmpl_id.id}
+            if item:
+                item.write(values)
+            else:
+                Item.create(dict(values, pricelist_id=pricelist.id))
+        return priced
+
     # -- §7 work centres ---------------------------------------------------
 
     def _build_work_centres(self, companies):
@@ -213,15 +483,66 @@ class AlshayebDemoBuilder(models.AbstractModel):
             calendar = self.env['resource.calendar'].create({
                 'name': 'Naqaa Plant Hours', 'company_id': company.id})
             company.resource_calendar_id = calendar
+        # §7 availability: filling lines 320 d x 20 h, water treatment
+        # 350 d x 24 h. Two calendars, because they are genuinely two regimes
+        # and a single one cannot express the WT constraint that the whole
+        # capacity story in §7 turns on.
+        wt_calendar = self._get_or_create(
+            'resource.calendar',
+            [('name', '=', 'Naqaa Water Treatment'), ('company_id', '=', company.id)],
+            {'name': 'Naqaa Water Treatment', 'company_id': company.id,
+             'hours_per_day': bp.WT_HOURS_PER_DAY})
+        if calendar.hours_per_day != bp.LINE_HOURS_PER_DAY:
+            calendar.hours_per_day = bp.LINE_HOURS_PER_DAY
 
         centres = {}
         for code, name, _kind in bp.WORK_CENTRES:
-            centres[code] = self._get_or_create(
+            centre_calendar = wt_calendar if code == 'WT' else calendar
+            values = {'name': name, 'company_id': company.id, 'code': code,
+                      'resource_calendar_id': centre_calendar.id}
+            centre = self._get_or_create(
                 'mrp.workcenter',
-                [('name', '=', name), ('company_id', '=', company.id)],
-                {'name': name, 'company_id': company.id,
-                 'resource_calendar_id': calendar.id})
+                [('name', '=', name), ('company_id', '=', company.id)], values)
+            if centre.code != code:
+                centre.code = code
+            if centre.resource_calendar_id != centre_calendar:
+                centre.resource_calendar_id = centre_calendar.id
+            centres[code] = centre
+        self._build_line_speeds(centres, company)
         return centres
+
+    def _build_line_speeds(self, centres, company):
+        """§7 rated speed, expressed the way Odoo 19 actually models it.
+
+        ``mrp.workcenter`` has no speed field -- capacity lives on
+        ``mrp.workcenter.capacity``, one row per product, which is the right
+        shape anyway: a line rated at 30,000 bottles/hour does not produce
+        30,000 *cartons* an hour, and the conversion is per SKU. So the bottles
+        per hour in §7 become cartons per hour on each SKU that runs on the line.
+        """
+        Capacity = self.env['mrp.workcenter.capacity']
+        for code, _name, units, _litres, _cartons, _price, line in bp.FINISHED_GOODS:
+            centre = centres.get(line)
+            bph = bp.WORK_CENTRE_BPH.get(line)
+            if not centre or not bph:
+                continue
+            product = self.env['product.product'].with_context(
+                active_test=False).search([('default_code', '=', code)], limit=1)
+            if not product:
+                continue
+            cartons_per_hour = round(bph / float(units), 2)
+            existing = Capacity.search(
+                [('workcenter_id', '=', centre.id),
+                 ('product_id', '=', product.id)], limit=1)
+            if existing:
+                if existing.capacity != cartons_per_hour:
+                    existing.capacity = cartons_per_hour
+                continue
+            Capacity.create({
+                'workcenter_id': centre.id,
+                'product_id': product.id,
+                'capacity': cartons_per_hour,
+            })
 
     # -- §9 / §10 partners ---------------------------------------------------
 
@@ -237,12 +558,27 @@ class AlshayebDemoBuilder(models.AbstractModel):
                  'country_id': country.id if country else False,
                  'supplier_rank': 1, 'company_type': 'company'})
 
-        for code, name, _channel, _company_key in bp.CUSTOMERS:
-            partners[code] = self._get_or_create(
+        # §10: the channel is what the demand model weights by, and the company
+        # is what the multi-company rules scope by. Both were being read from
+        # the blueprint and dropped, which left every customer untagged and
+        # company-less -- visible to everyone, belonging to no one.
+        for code, name, channel, company_key in bp.CUSTOMERS:
+            tag = self._get_or_create(
+                'res.partner.category', [('name', '=', channel)],
+                {'name': channel})
+            partner = self._get_or_create(
                 'res.partner', [('ref', '=', code)],
                 {'name': name, 'ref': code,
+                 'company_id': companies[company_key].id,
                  'country_id': country.id if country else False,
-                 'customer_rank': 1, 'company_type': 'company'})
+                 'customer_rank': 1, 'company_type': 'company',
+                 'category_id': [(4, tag.id)]})
+            # Repair on upgrade for partners built before either was written.
+            if not partner.company_id:
+                partner.company_id = companies[company_key].id
+            if tag not in partner.category_id:
+                partner.category_id = [(4, tag.id)]
+            partners[code] = partner
 
         self._build_supplier_pricing(companies['c1'], partners, products)
         return partners
@@ -339,9 +675,6 @@ class AlshayebDemoBuilder(models.AbstractModel):
         for login, name, company_key, group_xmlids, purpose in bp.USERS:
             existing = Users.with_context(active_test=False).search(
                 [('login', '=', login)], limit=1)
-            if existing:
-                people[login] = existing
-                continue
             company = companies[company_key]
             group_ids = []
             for xmlid in group_xmlids:
@@ -355,10 +688,29 @@ class AlshayebDemoBuilder(models.AbstractModel):
                     group = self.env.ref(xmlid, raise_if_not_found=False)
                     if group:
                         group_ids.append(group.id)
+            if existing:
+                # Repair rather than skip. Skipping is the same failure mode the
+                # supplier pricing had: a user created before a group changed
+                # never receives the change, and no amount of re-running fixes
+                # it because the record already exists. Groups are ADDED, never
+                # removed -- a privilege granted deliberately in the UI is not
+                # this builder's to take away.
+                missing = [gid for gid in group_ids
+                           if gid not in existing.group_ids.ids]
+                if missing:
+                    existing.write({'group_ids': [(4, gid) for gid in missing]})
+                if existing.lang != bp.LANG:
+                    existing.lang = bp.LANG
+                if login == 'bandar.s' and jeddah and not existing.allowed_warehouse_ids:
+                    existing.allowed_warehouse_ids = [(6, 0, [jeddah.id])]
+                people[login] = existing
+                continue
             values = {
                 'name': name, 'login': login, 'company_id': company.id,
                 'company_ids': [(6, 0, [company.id])],
                 'group_ids': [(4, gid) for gid in group_ids],
+                # §2/§15: Arabic is the operational users' UI language.
+                'lang': bp.LANG,
             }
             user = Users.create(values)
             if login == 'bandar.s' and jeddah:

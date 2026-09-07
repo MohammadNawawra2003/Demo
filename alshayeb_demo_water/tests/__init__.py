@@ -1,2 +1,3 @@
 from . import test_master_data
 from . import test_history
+from . import test_configuration

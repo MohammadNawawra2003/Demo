@@ -1251,3 +1251,96 @@ module.
    per-user agent eligibility in the architecture; restricting a persona would be a new concept.
    **Product decision.**
 3. DL-001 credential storage for production remains open.
+
+---
+
+## 2026-09-07 — Document A, and where Odoo cannot hold what it specifies
+
+Everything below concerns `alshayeb_demo_water` and Document A v1.2. Three of these
+were already being done and had never been written down; the rest were found while
+closing the gap between the document and the module.
+
+### The master data is Python, not the eleven XML files of §16
+
+§16 specifies `data/00_companies.xml` … `data/10_security_fixtures.xml` plus a
+`scripts/` directory. The module builds the same records from `data/blueprint.py`
+through `models/demo_builder.py`, driven by one `<function>` in an updatable data file.
+
+The reason is in `demo_builder.py:1-13`: the master data is *derived*, not arbitrary.
+Six BoMs are the same six lines with different numbers, and each of those numbers has
+to agree with the §7 water balance and the §6 transfer price. As XML that is ~2,000
+hand-maintained lines in which one wrong digit is invisible; as a table plus a loop it
+is checkable by eye and testable by assertion.
+
+The second reason is idempotency. A `<function>` in an updatable data file runs on
+install **and** on every `-u`, so the builder repairs drift — which is what fixed the
+supplier-price company bug, and what now repairs product categories, expiry windows and
+user groups on databases built before those existed. Static XML records cannot do that.
+
+**The owner ruled on 2026-09-07 to keep the Python builders and record the divergence
+rather than refactor a working module.** Everything else §16 requires still holds: the
+module depends on no `ai_operations`, installs standalone, is anchor-date relative, and
+is verified by a checksum over a declared field set rather than a dump.
+
+### `l10n_sa_edi` is absent
+
+The manifest said so and pointed here, and there was no entry. There is now: ZATCA
+Phase 2 is Enterprise-only and accounting exists in Phase 1 purely as an isolation
+target, so onboarding a Fatoora device buys the demo nothing.
+
+### Warehouse codes are truncated
+
+`stock.warehouse.code` is five characters in Odoo 19. Document A §4's codes do not fit,
+so `SCRAP` → `SCRP`, `DC-JZN` → `DCJZN`, `BR-ABH` → `BRABH`, `BR-KHM` → `BRKHM`,
+`BR-JED` → `BRJED`. The truncation leaks into `bandar.s`'s warehouse scoping and into
+the tests, which is why it is written down rather than left to be rediscovered.
+
+### §6's scrap percentages are not on the BoM lines
+
+Odoo 19 has no scrap field on `mrp.bom.line`. §6 lists Qty and Scrap % as separate
+columns, so the BoM carries the **standard** quantity — a carton of 330 ml is 40
+bottles, not 40.2 — and `SCRAP_PCT` stays in `blueprint.py`, where the history
+generator applies it to *actual* consumption. That is also where it belongs: scrap is
+the gap between standard and actual, and a BoM that already contains it cannot express
+that gap at all.
+
+### §7's rated speed is per product, because that is Odoo's shape
+
+`mrp.workcenter` has no speed field in Odoo 19; capacity lives on
+`mrp.workcenter.capacity`, one row per product. This is not a workaround — a line rated
+at 30,000 bottles/hour does not make 30,000 *cartons* an hour, and the conversion is per
+SKU. The bottles-per-hour figures in §7 are therefore stored as cartons per hour on each
+SKU that runs on the line. The line code (`L1`…`WT`) goes on `mrp.workcenter.code`.
+
+### §3's transfer price is derived, not typed
+
+Document A's literal price table could not satisfy Document A's own band: five of six
+SKUs fell outside 14-26% and FG-200 was priced **12.6% below plant cost**. The guard
+test checked FG-330 alone, against a widened 10-30%.
+
+What §3 actually specifies is the *markup* — "varies by SKU (range 14-26%) and is not
+published to C2". So `TRANSFER_MARKUP` is stored and the price is computed from the BoM
+at build time into a C2 pricelist. The band now holds by construction, and the
+assertion is per SKU at the documented 14-26%.
+
+### Two Odoo behaviours that silently discarded configuration
+
+**`res.partner.name` is not translatable.** Writing a field in a language context stores
+a *translation* only when the field is translatable; otherwise it is a plain write that
+replaces the value. Translating the companies renamed them in every language, and the
+next `search([('name', '=', 'Naqaa Water Manufacturing Co.')])` found nothing — which
+took the dependent module down on install. `_translate` now refuses non-translatable
+fields. Company Arabic names are consequently **not** stored; product names are.
+
+**`product_expiry` was never a dependency.** The builder guarded expiry on
+`'use_expiration_date' in product.template._fields` and skipped it silently, so §5.1's
+"lot tracked with expiry, 12-month shelf life" and §8.2's FEFO were both inert on every
+database ever built. `product_expiry` is now a dependency, and the builder repairs the
+expiry window on existing products.
+
+### `Product Price` precision is widened to 4
+
+§5.2 costs run to three and four decimals — a cap is SAR 0.022, a label SAR 0.010.
+Odoo's default is 2, which flattens them (0.042 → 0.04) and puts a 10% error into the
+component that dominates the BoM. The precision is widened before any cost is written,
+and the ormcache is cleared so it applies in the same run.

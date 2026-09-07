@@ -1,6 +1,6 @@
 {
     'name': 'Naqaa Water — Demo Company',
-    'version': '19.0.1.2.0',
+    'version': '19.0.1.3.0',
     'category': 'Productivity/AI',
     'summary': 'The archetype Saudi bottled-water company the AI platform is '
                'built, demonstrated and security-tested against',
@@ -15,6 +15,12 @@
     # DEVIATIONS.md.
     'depends': [
         'purchase', 'stock', 'mrp',
+        # product_expiry is what supplies use_expiration_date, alert_time,
+        # removal_time AND the FEFO removal strategy. Without it §5.1's
+        # "lot tracked with expiry, 12-month shelf life" and §8.2's FEFO are
+        # both silently inert -- the builder guarded on the field existing and
+        # skipped every one of them without a word.
+        'product_expiry',
         'quality_mrp', 'quality_mrp_workorder',
         'sale_management', 'account', 'l10n_sa', 'hr',
         'stock_security_warehouse',
