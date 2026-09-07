@@ -164,14 +164,14 @@ class TestGuard(AIOperationsCommon):
         with self.assertRaises(AIAccessDenied):
             ctx.check_records('res.company', self.company.ids, 'write')
 
-    def test_company_out_of_scope(self):
+    def test_t78_company_out_of_scope(self):
         other = self.env['res.company'].create({'name': 'Outside Scope'})
         ctx = self._ctx(company_ids=[self.company.id])
         with self.assertRaises(AIAccessDenied) as caught:
             ctx.check_records('res.company', other.ids, 'read')
         self.assertEqual(caught.exception.reason, DenialReason.COMPANY_OUT_OF_SCOPE)
 
-    def test_empty_company_intersection_is_denied(self):
+    def test_t79_empty_company_intersection_is_denied(self):
         stranger = self._make_user('ai.guard.stranger', 'Other Co', company=self.other_company)
         with self.assertRaises(AIAccessDenied) as caught:
             self.security.resolve_companies(self.profile, stranger)
@@ -363,6 +363,7 @@ class TestOrmRefusalIsADenial(AIOperationsCommon):
         class _Out(Schema):
             ok = Str()
 
+        registry_module.allow_registration_for_tests()
         self.addCleanup(registry_module._REGISTRY.pop, 'kt.refuses', None)
 
         @ai_tool(code='kt.refuses', category=ToolCategory.READ,

@@ -1,3 +1,4 @@
+from ..services.enums import Severity, to_selection
 from odoo import api, fields, models
 
 
@@ -23,7 +24,7 @@ class MailActivity(models.Model):
     _inherit = 'mail.activity'
 
     ai_severity = fields.Selection(
-        [('INFO', 'Info'), ('ATTENTION', 'Attention'), ('CRITICAL', 'Critical')],
+        to_selection(Severity),
         string='AI Severity',
         help="Document B 8. INFO is noted, ATTENTION needs action within days, "
              "CRITICAL needs action today and is routed to the manager. It was "

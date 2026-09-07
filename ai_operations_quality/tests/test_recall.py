@@ -68,7 +68,7 @@ class TestRecall(TransactionCase):
 
     # -- T-96: the trace ----------------------------------------------------
 
-    def test_the_bromate_batch_traces_forward_to_finished_lots(self):
+    def test_t96_the_bromate_batch_traces_forward_to_finished_lots(self):
         result = self._run('quality.trace_forward', {'lot_name': 'WT-260819-02'})
         self.assertGreaterEqual(
             result['finished_lot_count'], 4,

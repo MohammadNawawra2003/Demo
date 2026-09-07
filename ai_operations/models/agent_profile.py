@@ -18,6 +18,7 @@ class AIOperationsAgentProfile(models.Model):
     """
 
     _name = 'ai.operations.agent.profile'
+    _inherit = ['ai.operations.policy.audited']
     _description = 'AI Operations Agent Profile'
     _order = 'name'
 
@@ -264,3 +265,22 @@ class AIOperationsAgentProfile(models.Model):
             'tag': 'mail.action_discuss',
             'params': {'channel_id': channel.id},
         }
+
+    def sudo_free_bump_policy_version(self):
+        """Move the version when the policy behind it moves. Document C §15.
+
+        The name says what it is: no ``sudo()``. Whoever is permitted to change
+        a policy is by definition permitted to write this field, so there is
+        nothing to escalate. A row stamped 1.0.0 must not be able to describe
+        two different policies, which is what a version that never moved meant.
+        """
+        for profile in self:
+            parts = (profile.policy_version or '1.0.0').split('.')
+            while len(parts) < 3:
+                parts.append('0')
+            try:
+                parts[-1] = str(int(parts[-1]) + 1)
+            except ValueError:
+                parts = ['1', '0', '1']
+            profile.with_context(skip_policy_audit=True).policy_version = \
+                '.'.join(parts)

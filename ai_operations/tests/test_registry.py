@@ -27,6 +27,7 @@ class TestToolRegistry(AIOperationsCommon):
 
     def _register(self, code, **overrides):
         """Register a throwaway tool, cleaned up whether or not it registers."""
+        registry_module.allow_registration_for_tests()
         self.addCleanup(registry_module._REGISTRY.pop, code, None)
         kwargs = {
             'category': ToolCategory.READ,
@@ -119,11 +120,55 @@ class TestToolRegistry(AIOperationsCommon):
     # -- T-05: the registry closes ----------------------------------------
 
     def test_t05_runtime_registration_is_refused(self):
+        """Registers directly, not through the helper.
+
+        The helper reopens the registry, because the suite has to register
+        deliberately over-scoped doubles. Going through it here would test the
+        helper rather than the property.
+        """
         registry_module.freeze_registry()
         self.addCleanup(setattr, registry_module, '_FROZEN', False)
         self.assertTrue(registry_module.is_frozen())
         with self.assertRaises(AIToolRegistrationError):
-            self._register('test.too_late')
+            @ai_tool(code='test.too_late', category=ToolCategory.READ,
+                     autonomy=AutonomyLevel.QUERY, models=['res.company'],
+                     input_schema=_OkInput, output_schema=_OkOutput)
+            def _late(ctx, params):
+                """Registered after the freeze."""
+                return {}
+
+    def test_t05_the_runtime_itself_freezes_the_registry(self):
+        """Document C §6.2. The freeze had no production caller at all: both
+        freeze functions were defined and called nowhere, so T-05 passed only
+        because the test performed the freeze itself and proved nothing about
+        the running system."""
+        import inspect
+        from odoo.addons.ai_operations.services import execution
+        source = inspect.getsource(execution.AIExecutionRunner.run)
+        self.assertIn('freeze_registry()', source,
+                      "the runtime does not close the tool registry")
+        self.assertIn('freeze_provider_registry()', source,
+                      "the runtime does not close the provider registry")
+
+    def test_the_reopen_is_confined_to_tests(self):
+        """`allow_registration_for_tests` is named so it cannot hide. Nothing
+        outside tests/ may call it."""
+        import pathlib as _p
+        root = _p.Path(__file__).resolve().parents[2]
+        offenders = []
+        for path in root.glob('ai_operations*/**/*.py'):
+            if '/tests/' in str(path) or path.name.startswith('test_'):
+                continue
+            for line in path.read_text(encoding='utf-8').splitlines():
+                stripped = line.strip()
+                if stripped.startswith(('def ', '#', '"""', '*')):
+                    continue
+                if 'allow_registration_for_tests()' in stripped \
+                        or 'allow_provider_registration_for_tests()' in stripped:
+                    offenders.append('%s: %s' % (
+                        path.relative_to(root), stripped[:60]))
+        self.assertFalse(offenders,
+                         "production code reopens the registry: %s" % offenders)
 
     # -- T-06 / T-07: prohibited tool shapes ------------------------------
 

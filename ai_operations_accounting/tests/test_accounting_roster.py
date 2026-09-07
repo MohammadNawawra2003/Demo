@@ -38,7 +38,7 @@ class TestAccountingRoster(TransactionCase):
         self.assertFalse(permissions,
                          "the Phase 2 agent has been given scope")
 
-    def test_no_agent_anywhere_can_reach_a_ledger(self):
+    def test_t34_no_agent_anywhere_can_reach_a_ledger(self):
         """Document B §11 rows 1, 2 and 4, and §15's acceptance. This is the
         property the whole platform is demonstrated on, and adding a finance
         agent is the obvious way to lose it by accident."""

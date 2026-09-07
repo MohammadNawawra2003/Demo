@@ -67,8 +67,16 @@ def ai_provider(code, label, models):
 
 
 def freeze_provider_registry():
+    """Document C §6.3. A provider is an egress destination; registering one at
+    run time would be choosing where the data goes, at run time."""
     global _PROVIDERS_FROZEN
     _PROVIDERS_FROZEN = True
+
+
+def allow_provider_registration_for_tests():
+    """Tests only. See `registry.allow_registration_for_tests`."""
+    global _PROVIDERS_FROZEN
+    _PROVIDERS_FROZEN = False
 
 
 def is_frozen():

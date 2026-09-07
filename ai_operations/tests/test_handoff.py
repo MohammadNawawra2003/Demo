@@ -176,7 +176,7 @@ class TestHandoffs(AIOperationsCommon):
         self.assertNotIn('manufacturing', work_key)
         self.assertNotIn('inventory', work_key)
 
-    def test_a_different_receiver_is_a_different_unit_of_work(self):
+    def test_t94_a_different_receiver_is_a_different_unit_of_work(self):
         """Uniqueness is scoped to the receiver, not globally."""
         key = handoff_idempotency_key(self.company.id, 'shortage', 'X', 'RM', 'd')
         other_receiver = self._make_profile(code='kt_hoff_other', name='Other')

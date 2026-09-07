@@ -139,9 +139,30 @@ def ai_tool(code, category, autonomy, models, actions=(),
 
 
 def freeze_registry():
-    """Close the registry. Called once by the runtime, after every import."""
+    """Close the registry. Called by the runtime before its first provider call.
+
+    Document C §6.2. Registration is an import in an installed module, so that
+    adding a capability stays a deployment act somebody can review; a registry
+    that is still open at run time is, in §6.3's words, "an arbitrary
+    exfiltration primitive with full authorisation behind it".
+    """
     global _FROZEN
     _FROZEN = True
+
+
+def allow_registration_for_tests():
+    """Reopen the registry. **Tests only, and named so it cannot hide.**
+
+    The suite registers deliberately over-scoped tool doubles -- that is how
+    T-80 proves the guard denies a tool that asks for `account.move`, and there
+    is no other way to prove it without shipping such a tool. Those fixtures run
+    after the runtime has frozen the registry.
+
+    Nothing in `ai_operations*/` outside `tests/` calls this, and a CI check
+    asserts that. Production code freezes and never reopens.
+    """
+    global _FROZEN
+    _FROZEN = False
 
 
 def is_frozen():

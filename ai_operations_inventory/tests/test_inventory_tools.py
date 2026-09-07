@@ -112,7 +112,7 @@ class TestInventoryTools(TransactionCase):
                     field.lower(), money,
                     "%s can emit %s" % (code, field))
 
-    def test_row5_the_agent_cannot_reach_c1_production_cost(self):
+    def test_t76_row5_the_agent_cannot_reach_c1_production_cost(self):
         """The literal §11 row 5: Inventory spans C1 and C2 and is refused the
         one thing that would let it compare them."""
         with self.assertRaises(AIAccessDenied) as caught:
@@ -127,7 +127,7 @@ class TestInventoryTools(TransactionCase):
                 self.env['ai.operations.security'].check_model(
                     self.profile, model, 'read')
 
-    def test_row5_it_really_does_span_both_companies(self):
+    def test_t75_row5_it_really_does_span_both_companies(self):
         """The other half: the refusal is only interesting because the agent
         genuinely sees both companies' stock."""
         self.assertGreaterEqual(len(self.profile.company_ids), 2,
@@ -145,7 +145,7 @@ class TestInventoryTools(TransactionCase):
             self.assertEqual(
                 category, 'READ', "%s is not read-only" % code)
 
-    def test_validating_a_picking_is_not_a_permitted_action(self):
+    def test_t32_validating_a_picking_is_not_a_permitted_action(self):
         with self.assertRaises(AIAccessDenied) as caught:
             self.env['ai.operations.security'].check_action(
                 self._ctx(), 'stock.picking', 'button_validate')

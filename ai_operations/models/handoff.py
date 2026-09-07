@@ -3,7 +3,7 @@ import json
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
-from ..services.enums import DenialReason, HandoffState, to_selection
+from ..services.enums import Priority, DenialReason, HandoffState, to_selection
 from ..services.exceptions import AIAccessDenied
 
 
@@ -27,8 +27,7 @@ class AIOperationsHandoffType(models.Model):
              "administrator who could widen it could widen what crosses "
              "between two agents.")
     priority_default = fields.Selection(
-        [('0', 'Low'), ('1', 'Normal'), ('2', 'High'), ('3', 'Urgent')],
-        default='1')
+        to_selection(Priority), default=Priority.NORMAL.value)
     active = fields.Boolean(default=True)
 
     _code_uniq = models.Constraint('unique(code)', 'Handoff type codes are unique.')
@@ -75,8 +74,7 @@ class AIOperationsHandoff(models.Model):
     result_res_id = fields.Integer()
 
     priority = fields.Selection(
-        [('0', 'Low'), ('1', 'Normal'), ('2', 'High'), ('3', 'Urgent')],
-        default='1')
+        to_selection(Priority), default=Priority.NORMAL.value)
     required_date = fields.Date()
     state = fields.Selection(to_selection(HandoffState), required=True,
                              default=HandoffState.DRAFT.value, index=True)

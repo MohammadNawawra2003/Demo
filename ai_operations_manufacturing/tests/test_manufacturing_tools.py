@@ -146,7 +146,7 @@ class TestManufacturingTools(TransactionCase):
             leaked = spec.output_schema.field_names() & banned
             self.assertFalse(leaked, "%s emits %s" % (code, leaked))
 
-    def test_no_tool_in_this_pack_can_change_a_production_state(self):
+    def test_t33_no_tool_in_this_pack_can_change_a_production_state(self):
         for code, spec in all_tools().items():
             if not code.startswith('manufacturing.'):
                 continue

@@ -62,11 +62,30 @@ class AuditEvent(str, Enum):
     WRITE    = 'WRITE'      # values before and after
     VARIANCE = 'VARIANCE'   # a bound was evaluated
     ERROR    = 'ERROR'
+    #: Document C §15: somebody changed a permission, a bound, a provider or an
+    #: assignment. SECURITY retention, always, and never trimmed.
+    POLICY_CHANGE = 'POLICY_CHANGE'
 
 
 class RetentionClass(str, Enum):
     OPERATIONAL = 'OPERATIONAL'   # archived after 24 months
     SECURITY    = 'SECURITY'      # indefinite: denials, writes, escalations, policy changes
+
+
+class Priority(str, Enum):
+    """Handoff and activity priority. Document D §15 check 10: a selection
+    declared inline is a selection that drifts between two models."""
+    LOW      = '0'
+    NORMAL   = '1'
+    HIGH     = '2'
+    URGENT   = '3'
+
+
+class Severity(str, Enum):
+    """Document B §8's delivery table."""
+    INFO      = 'INFO'
+    ATTENTION = 'ATTENTION'
+    CRITICAL  = 'CRITICAL'
 
 
 class RiskLevel(str, Enum):

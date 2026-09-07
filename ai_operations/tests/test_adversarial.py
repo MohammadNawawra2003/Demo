@@ -56,6 +56,7 @@ class TestAdversarial(AIOperationsCommon):
             'perm_read': True})
 
     def _register(self, code, models_used, output=ScopeOutput, func=None):
+        registry_module.allow_registration_for_tests()
         self.addCleanup(registry_module._REGISTRY.pop, code, None)
         body = func or (lambda ctx, params: {'profile_code': ctx.profile.code})
 

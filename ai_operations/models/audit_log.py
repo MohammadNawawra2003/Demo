@@ -103,7 +103,9 @@ class AIOperationsAuditLog(models.Model):
         for row in self:
             is_security = (
                 row.decision == Decision.DENIED.value
-                or row.event_type in (AuditEvent.WRITE.value, AuditEvent.ERROR.value)
+                or row.event_type in (AuditEvent.WRITE.value,
+                                      AuditEvent.ERROR.value,
+                                      AuditEvent.POLICY_CHANGE.value)
                 or row.approval_required
             )
             row.retention_class = (

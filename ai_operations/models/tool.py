@@ -25,6 +25,7 @@ class AIOperationsTool(models.Model):
     """
 
     _name = 'ai.operations.tool'
+    _inherit = ['ai.operations.policy.audited']
     _description = 'AI Operations Tool'
     _order = 'code'
 

@@ -8,6 +8,7 @@ class AIOperationsToolAssignment(models.Model):
     """
 
     _name = 'ai.operations.tool.assignment'
+    _inherit = ['ai.operations.policy.audited']
     _description = 'AI Operations Tool Assignment'
     _order = 'profile_id, tool_id'
     _rec_name = 'tool_id'

@@ -126,7 +126,7 @@ class TestDocumentBScenarios(TransactionCase):
     # §7 the cascade, end to end
     # ==================================================================
 
-    def test_the_cascade_runs_from_shortage_to_a_human_desk(self):
+    def test_t95_the_cascade_runs_from_shortage_to_a_human_desk(self):
         """§15's "S-01 runs end to end from MO shortage to draft PO on a
         human's desk".
 
@@ -320,7 +320,7 @@ class TestDocumentBScenarios(TransactionCase):
             self.assertEqual(caught.exception.reason,
                              DenialReason.MODEL_NOT_PERMITTED)
 
-    def test_row11_a_warehouse_scoped_user_cannot_reach_another_branch(self):
+    def test_t24_row11_a_warehouse_scoped_user_cannot_reach_another_branch(self):
         """§11 row 11, asked of an agent rather than of the record rule.
 
         bandar.s is scoped to BR-JED. The intersection is what decides: the

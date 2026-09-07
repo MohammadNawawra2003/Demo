@@ -1564,3 +1564,121 @@ Manager, `huda.q`, holds `mrp.group_mrp_user` and is the person §9 step 14 name
 their desk and they open the agent that raised it, and the runtime writes its audit row as
 the executing identity. The QA Manager found this: she could not run the agent that produced
 her own alert.
+
+---
+
+## 2026-09-07 — Documents C and D: the security kernel and the contract
+
+Two audits. Document C scored the test matrix at 62 of 71 ids and the acceptance
+criteria at 9 of 11 on the kernel; Document D found the module map, the pack layout and
+all seventeen CI checks unenforced. The security-relevant findings are below.
+
+### Neither registry was ever frozen
+
+`freeze_registry()` and `freeze_provider_registry()` were defined and **called nowhere in
+production code**. Document D §8.2 calls a runtime-registerable provider "an arbitrary
+exfiltration primitive with full authorisation behind it" — that primitive was live. T-05
+and T-09 passed only because each test performed the freeze itself, so the two tests
+guarding the property proved nothing about the running system.
+
+Both are now closed at the top of `run()`. The suite needs to register deliberately
+over-scoped doubles — that is how T-80 proves the guard denies a tool asking for
+`account.move` — so there is one reopen, `allow_registration_for_tests()`, named so it
+cannot hide, and a test asserts no production file calls it.
+
+### A policy could change and the log would not say so
+
+Three separate requirements — C §15, C §5.9 and C §6.3 — say a policy change is a
+SECURITY audit event that increments `policy_version`. None was implemented.
+`policy_version` was stamped on every audit row and **never incremented anywhere**, so a
+permission could be widened, or the provider (an egress destination) switched, and every
+later row would state the old version with no record that anything had moved. Across N
+client databases drifting apart that defeats the exact investigation §15 was written for.
+
+`ai.operations.policy.audited` is now mixed into the five models that carry policy. It
+writes before/after itself rather than relying on Odoo's tracking, because the audit log
+is append-only and is the only record a reviewer is asked to trust.
+
+### What an agent changed was not recoverable from the log
+
+`record_write` had **zero callers**. Every draft creation completed with no WRITE row and
+no after-values — and WRITE rows are exactly the ones classified SECURITY and kept
+indefinitely. Now recorded centrally in the runtime for any `DRAFT_WRITE` tool, rather
+than asking four packs to remember.
+
+### Three smaller audit gaps
+
+`model_code` and `company_id` were declared on the audit row and never written, so §5.9's
+"an investigation can state which vendor saw the data" was half-answered and T-100's
+audit-row assertion was unassertable. `records_accessed` promised a 200-id cap in help
+text and wrote uncapped — a bulk read could put an unbounded list into the one table the
+budget counters read.
+
+### The packs referenced `quality.*` without depending on it
+
+`ai_operations_quality` and `ai_operations_manufacturing` both `ref` into the `quality`
+module and declare its models to the guard, and neither manifest listed it. It worked only
+because `alshayeb_demo_water` happened to pull `quality_mrp` in first; on any database
+without the demo module, install fails with a `ParseError`. Now declared.
+
+⚠ **This surfaces a contradiction inside Document D itself.** §3.2 makes `quality_mrp`
+mandatory for two packs, and check 14 requires every pack to install and pass on **Odoo
+Community**, which D calls the check "that keeps the commercial position true". Quality is
+Enterprise-only. Both cannot hold. Declaring the dependency makes the packs honest about
+what they need and makes the Community claim false for those two packs specifically; the
+kernel, the procurement pack and the inventory pack remain Community-installable. **This
+needs a ruling.**
+
+### The seventeen CI checks are now executable
+
+`tools/ci_checks.sh`. Every check D calls "a build failure, not a warning" existed only as
+prose, so the `sudo()` ban, the `record.read()` ban and the no-vendor-name rule were held
+by discipline alone.
+
+**Four of the seventeen fail on correct code as written**, each because it greps for a
+*word* rather than a *call*: check 1 matches every comment saying `sudo()` is banned;
+check 4's `odoo.addons.ai` matches every legitimate `odoo.addons.ai_operations` import;
+check 11 matches the blocklist entry that implements it; check 16's `-i _TOKEN` matches
+`max_daily_tokens`. The script runs the corrected form of each and keeps the original in
+the comment. Checks 3 and 14 need a database and are skipped by the script.
+
+Checks 7 and 8 are now real tests (`test_matrix_coverage.py`) rather than prose. Check 7
+failed on 25 ids: most were covered by differently-named tests, which is precisely what
+the naming rule exists to make unnecessary, and those are renamed. Seven ids had no test
+at all and now do — T-35, T-38, T-40, T-77, T-82, T-90, T-91.
+
+**T-90 and T-91 were the entire Resilience acceptance section.** §14 says the core ERP
+"must never depend on LLM availability … verified by an explicit test that disables the
+provider and runs a full business cycle", and no such test existed. There is one now.
+
+### Inline selections moved to `enums.py`
+
+CI check 10 genuinely failed on three: `handoff.priority`, `handoff.priority_default` and
+`mail_activity.ai_severity`. `Priority` and `Severity` now live in `enums.py`, which D §4
+makes the single source of truth.
+
+### Recorded, not fixed
+
+**Document C §14 row 3 says a tool exception should ABORT the loop; the runtime audits it
+and continues** with the neutral string. The reasoning at `execution.py:269-273` was earned
+by a real incident — an escaping exception destroys the user's message in CHAT and rolls
+back the audit row with it — but it reverses a frozen instruction and had no entry here.
+
+**`STATE_NOT_PERMITTED` is a 19th denial reason** outside §5.9's declared closed set,
+added when Document B §4.1's "draft only" was finally enforced. Now asserted by a test.
+
+**`AIContextBuilder` is not a model**; `build_system_prompt` and `build_tool_definitions`
+are methods on the runner, and `build_record_context` does not exist — the serialiser's
+`serialize_record` serves its role. **`check_tool` and `check_handoff` are not named
+methods** on the guard; both behaviours exist, delegated to the tool model and the handoff
+model respectively.
+
+**The tool packs are not uniform.** D §13 fixes one layout — `read_tools.py`,
+`draft_tools.py`, `schemas.py` — and there are three shapes across four packs, with
+schemas inline in two of them. D §1 exists to prevent exactly this, and unpicking it now
+would be a large mechanical refactor of working, tested code for no behavioural gain.
+
+**`ExecutionContext.audit_id` is dead** (always 0) since the audit log became append-only
+and `open_entry` began returning a correlation id. **`run()` dropped `entry_tool`.**
+**`ormcache` on profile configuration** is not implemented; it is a performance
+instruction and nothing is cached at all, which is the safe direction.

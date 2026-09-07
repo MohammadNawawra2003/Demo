@@ -28,7 +28,8 @@ from .exceptions import (
     AIProviderError,
 )
 from .exceptions import NEUTRAL_DENIAL
-from .provider import get_provider
+from .provider import freeze_provider_registry, get_provider
+from .registry import freeze_registry
 
 _logger = logging.getLogger(__name__)
 
@@ -98,9 +99,36 @@ class AIExecutionRunner(models.AbstractModel):
             audit.record_error(correlation_id, error)
             raise
 
+        # Document C §5.9 / D §11: what an agent CHANGED must be recoverable
+        # from the log. `record_write` had zero callers, so every draft creation
+        # completed with no WRITE row and no after-values -- and WRITE rows are
+        # exactly the ones classified SECURITY and kept indefinitely. Recorded
+        # centrally rather than asking four packs to remember.
+        if str(getattr(spec, 'category', '')) == 'DRAFT_WRITE':
+            self._record_tool_write(audit, correlation_id, spec, result)
+
         audit.record_result(correlation_id, profile=profile,
                             output_summary=self._summarise(result))
         return result
+
+    #: Output keys a DRAFT_WRITE tool uses to name what it wrote.
+    WRITE_ID_KEYS = ('purchase_order_id', 'order_id', 'alert_id', 'activity_id',
+                     'handoff_id', 'production_id', 'message_id')
+
+    def _record_tool_write(self, audit, correlation_id, spec, result):
+        """One WRITE row per draft a tool created or amended."""
+        if not isinstance(result, dict):
+            return
+        model = (list(spec.models) or [None])[0]
+        for key in self.WRITE_ID_KEYS:
+            res_id = result.get(key)
+            if not res_id:
+                continue
+            audit.record_write(
+                correlation_id, model=model, res_id=res_id,
+                after={k: v for k, v in result.items()
+                       if not isinstance(v, (list, dict))})
+            return
 
     @staticmethod
     def _reason_for(failure):
@@ -193,6 +221,18 @@ class AIExecutionRunner(models.AbstractModel):
         if execution_mode == ExecutionMode.INTERACTIVE.value and not profile.allow_interactive:
             raise AIAccessDenied(DenialReason.PROFILE_INACTIVE,
                                  detail='profile does not allow interactive runs')
+
+        # 1b. Close both registries before anything can register into them.
+        #
+        # Document C §6.2 and §6.3 require this and nothing did it: both freeze
+        # functions were defined and called nowhere in production code, so a
+        # tool or a provider adapter could be registered at RUNTIME -- which
+        # §6.3 calls "an arbitrary-exfiltration primitive with full
+        # authorisation behind it". T-05 and T-09 passed only because each test
+        # performed the freeze itself, which meant the two tests guarding the
+        # property proved nothing about the running system.
+        freeze_registry()
+        freeze_provider_registry()
 
         # 2. Identity. ABSENT or archived -> abort. Never sudo, never fall back.
         identity = security.resolve_identity(profile, execution_mode)

@@ -13,6 +13,7 @@ class AIOperationsModelPermission(models.Model):
     """
 
     _name = 'ai.operations.model.permission'
+    _inherit = ['ai.operations.policy.audited']
     _description = 'AI Operations Model Permission'
     _order = 'profile_id, id'
 

@@ -61,6 +61,7 @@ class TestRuntime(AIOperationsCommon):
 
     def _register(self, code, autonomy=AutonomyLevel.QUERY, output=ScopeOutput,
                   func=None):
+        registry_module.allow_registration_for_tests()
         self.addCleanup(registry_module._REGISTRY.pop, code, None)
         body = func or (lambda ctx, params: {'profile_code': ctx.profile.code})
 
@@ -260,7 +261,7 @@ class TestRuntime(AIOperationsCommon):
     # B3-b -- a denial written inside a rollback must still survive
     # ==================================================================
 
-    def test_a_failure_inside_the_savepoint_is_still_audited(self):
+    def test_t93_a_failure_inside_the_savepoint_is_still_audited(self):
         """Review finding B3-b, closed.
 
         Serialisation happens inside the savepoint that a failure rolls back, so

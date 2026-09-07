@@ -44,6 +44,14 @@ class AIAuditService(models.AbstractModel):
             'profile_code': profile.code if profile else False,
             'policy_version': profile.policy_version if profile else False,
             'provider_code': getattr(profile, 'provider_code', False) or False,
+            # Document C §5.9: an incident investigation must be able to state
+            # WHICH VENDOR AND WHICH MODEL saw the data. provider_code alone
+            # answers half of it, and T-100's parity assertion -- "the two rows
+            # differ only in provider_code and model_code" -- was unassertable
+            # without this.
+            'model_code': getattr(profile, 'model_code', False) or False,
+            'company_id': (profile.company_ids[:1].id
+                           if profile and profile.company_ids else False),
             'user_id': user.id if user else False,
             'service_user_id': service_user.id if service_user else False,
             'execution_mode': execution_mode,
@@ -51,6 +59,24 @@ class AIAuditService(models.AbstractModel):
             'session_id': session_id,
         })
         return correlation_id
+
+    #: Document C §5.9 caps the id list and then summarises. The cap was in the
+    #: field's help text and in nothing else, so a bulk read could write an
+    #: unbounded list into the one table the budget counters read -- a
+    #: denial-of-service against the security log itself.
+    MAX_RECORDED_IDS = 200
+
+    @api.model
+    def _cap_ids(self, records_accessed):
+        if not records_accessed:
+            return False
+        text = str(records_accessed)
+        parts = [part for part in text.replace(' ', '').split(',') if part]
+        if len(parts) <= self.MAX_RECORDED_IDS:
+            return text
+        kept = ','.join(parts[:self.MAX_RECORDED_IDS])
+        return '%s … (+%d more, %d total)' % (
+            kept, len(parts) - self.MAX_RECORDED_IDS, len(parts))
 
     @api.model
     def record_decision(self, correlation_id, decision, profile=None, reason=None,
@@ -64,7 +90,7 @@ class AIAuditService(models.AbstractModel):
             'profile_id': profile.id if profile else False,
             'profile_code': profile.code if profile else False,
             'models_accessed': models_accessed or False,
-            'records_accessed': records_accessed or False,
+            'records_accessed': self._cap_ids(records_accessed),
             'input_args': input_args or False,
             'action_code': action_code or False,
         }
@@ -84,10 +110,31 @@ class AIAuditService(models.AbstractModel):
         return self._append(AuditEvent.RESULT.value, correlation_id, 2, values)
 
     @api.model
+    def record_policy_change(self, profile=None, model_name=None, res_id=0,
+                             detail=None):
+        """Document C §15. A policy change is a SECURITY-class row.
+
+        Written with its own correlation id because it belongs to no tool call:
+        somebody changed a permission, and the log has to say so whether or not
+        an agent ever ran afterwards.
+        """
+        import uuid
+        return self._append(AuditEvent.POLICY_CHANGE.value, uuid.uuid4().hex, 0, {
+            'decision': Decision.ALLOWED.value,
+            'profile_id': profile.id if profile else False,
+            'profile_code': profile.code if profile else False,
+            'policy_version': profile.policy_version if profile else False,
+            'models_accessed': model_name or False,
+            'records_accessed': str(res_id or ''),
+            'denial_detail': detail or False,
+            'retention_class': 'SECURITY',
+        })
+
+    @api.model
     def record_write(self, correlation_id, model, res_id, before=None, after=None):
         return self._append(AuditEvent.WRITE.value, correlation_id, 3, {
             'models_accessed': model,
-            'records_accessed': str(res_id),
+            'records_accessed': self._cap_ids(str(res_id)),
             'values_before': before or False,
             'values_after': after or False,
         })

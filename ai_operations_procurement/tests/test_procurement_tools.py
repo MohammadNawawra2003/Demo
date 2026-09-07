@@ -144,12 +144,12 @@ class TestProcurementTools(TransactionCase):
             'required_date': '2026-%02d-%02d' % (
                 (abs(hash(key)) % 12) + 1, (abs(hash(key)) % 27) + 1)})
 
-    def test_a_draft_within_the_routine_bound_is_not_escalated(self):
+    def test_t36_a_draft_within_the_routine_bound_is_not_escalated(self):
         result = self._prepare(400_000, key='within')     # +9.3%
         self.assertFalse(result['approval_required'])
         self.assertLess(result['variance_pct'], 20.0)
 
-    def test_a_draft_above_the_routine_bound_is_created_and_escalated(self):
+    def test_t37_a_draft_above_the_routine_bound_is_created_and_escalated(self):
         """T-37's shape. A breach ESCALATES; it does not deny.
 
         A denial would leave nothing on a human's desk and make the agent's
@@ -161,7 +161,7 @@ class TestProcurementTools(TransactionCase):
         self.assertAlmostEqual(result['variance_pct'], 27.57, places=1)
         self.assertTrue(result['purchase_order_id'], "the draft must exist")
 
-    def test_the_hard_ceiling_denies_and_writes_nothing(self):
+    def test_t39_the_hard_ceiling_denies_and_writes_nothing(self):
         """T-39. The only bound that denies."""
         before = self.env['purchase.order'].search_count([])
         with self.assertRaises(AIAccessDenied) as caught:
@@ -225,12 +225,12 @@ class TestProcurementTools(TransactionCase):
         self.assertNotEqual(result['deterministic_shortage'],
                             result['recommended_quantity'])
 
-    def test_the_draft_is_a_draft(self):
+    def test_t30_the_draft_is_a_draft(self):
         result = self._prepare(400_000, key='isdraft')
         order = self.env['purchase.order'].browse(result['purchase_order_id'])
         self.assertEqual(order.state, 'draft')
 
-    def test_running_twice_with_one_key_produces_one_order(self):
+    def test_t92_running_twice_with_one_key_produces_one_order(self):
         """T-92 in miniature."""
         first = self._prepare(400_000, key='same-key')
         second = self._prepare(400_000, key='same-key')
@@ -254,7 +254,7 @@ class TestProcurementTools(TransactionCase):
             if permission.domain:
                 self.assertNotIn('allowed_company_ids', permission.domain)
 
-    def test_confirming_a_purchase_order_is_not_a_permitted_action(self):
+    def test_t31_confirming_a_purchase_order_is_not_a_permitted_action(self):
         """T-31: absence is the mechanism."""
         confirm = self.env['ai.operations.action.permission'].search([
             ('profile_id', '=', self.profile.id),
