@@ -28,10 +28,32 @@ class TestActivities(AIOperationsCommon):
             correlation_id='corr-activity', session_id='s', audit_id=0,
             policy_version='1.0.0', budget=RunBudget())
 
+    def _subject(self, key):
+        """A real partner per synthetic id.
+
+        These tests used the id directly -- ``res_id=200 + index`` -- on the
+        assumption that some partner would be there. ``mail.activity.create``
+        notifies the assignee, and rendering that notification computes
+        ``res_name``, which browses the record: a missing id raises MissingError
+        from inside Odoo's own template, so the suite passed or failed on
+        whatever ids the demo build happened to leave behind. Real records,
+        cached per key, make the dedup assertions mean what they say.
+        """
+        partner = self._subjects.get(key)
+        if not partner:
+            partner = self.env['res.partner'].create({
+                'name': 'Activity Subject %s' % key})
+            self._subjects[key] = partner
+        return partner
+
+    def setUp(self):
+        super().setUp()
+        self._subjects = {}
+
     def _create(self, reason='SHORTAGE', res_id=1, summary='330 ml short',
                 escalate=False, ctx=None):
         return self.service.create_or_update(
-            ctx or self._ctx(), 'res.partner', res_id, summary,
+            ctx or self._ctx(), 'res.partner', self._subject(res_id).id, summary,
             '<p>Deterministic shortage 486,000</p>', reason, escalate=escalate)
 
     # -- T-98: deduplication -------------------------------------------------
@@ -52,7 +74,8 @@ class TestActivities(AIOperationsCommon):
         activity = self._create(reason='EXPIRY', res_id=2)
         self.assertEqual(
             activity.ai_dedup_key,
-            '%s:res.partner:2:EXPIRY' % self.profile.code)
+            '%s:res.partner:%s:EXPIRY'
+            % (self.profile.code, self._subject(2).id))
 
     def test_a_different_reason_is_a_different_activity(self):
         first = self._create(reason='SHORTAGE', res_id=3)
@@ -134,8 +157,10 @@ class TestActivities(AIOperationsCommon):
         for index, agent in enumerate(agents):
             mine = self.Activity.search([('ai_profile_code', '=', agent.code)])
             self.assertEqual(len(mine), 1, agent.code)
-            self.assertEqual(mine.ai_dedup_key,
-                             '%s:res.partner:%d:DAILY' % (agent.code, 400 + index))
+            self.assertEqual(
+                mine.ai_dedup_key,
+                '%s:res.partner:%s:DAILY'
+                % (agent.code, self._subject(400 + index).id))
 
     def test_activities_are_marked_as_ai_generated(self):
         activity = self._create(res_id=500)

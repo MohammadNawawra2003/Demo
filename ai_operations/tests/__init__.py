@@ -18,4 +18,5 @@ from . import test_adversarial
 from . import test_arabic
 from . import test_chat_entry
 from . import test_matrix_coverage
+from . import test_pack_coverage
 from . import test_resilience
