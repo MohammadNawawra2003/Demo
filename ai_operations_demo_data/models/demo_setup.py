@@ -104,6 +104,8 @@ class AIOperationsDemoSetup(models.AbstractModel):
         self._grant_ai_group()
         channels = self._build_channels(profiles)
         self._seed_scenario_records(company)
+        self._seed_production_schedule(company)
+        self._focus_on_naqaa(company)
         _logger.info(
             "ai_operations_demo_data: %d profile(s) active, %d channel(s) bound",
             len(profiles), len(channels))
@@ -254,16 +256,58 @@ class AIOperationsDemoSetup(models.AbstractModel):
                 Assignment.create(dict(values, profile_id=profile.id, tool_id=tool.id))
 
     @api.model
+    def _demo_users(self):
+        """The employees the scenarios run as."""
+        logins = {login for _partner, logins in CHANNELS.values() for login in logins}
+        return [self._user(login) for login in sorted(logins)]
+
+    @api.model
     def _grant_ai_group(self):
         """The employees who will do the manual testing need to reach the
         platform at all. group_ai_user only -- it grants read on the policy the
-        guard enforces against them, and nothing else."""
+        guard enforces against them, and nothing else.
+
+        ``admin`` is on this list for the demo, and only for the demo. The
+        product's own separation of duties is deliberate: an administrator
+        configures the platform and is not an agent user, so the systray
+        launcher is absent for them and every agent is out of reach. That is
+        correct, and in a review it reads as a broken build -- the first person
+        to open this database opened it as admin and reported no access. A
+        reviewer is not a security boundary, so the demo module grants the
+        group here. The packs, which are what production installs, are
+        untouched.
+        """
         group = self.env.ref('ai_operations.group_ai_user')
-        logins = {login for _partner, logins in CHANNELS.values() for login in logins}
-        for login in logins:
-            user = self._user(login)
+        users = self._demo_users()
+        admin = self.env.ref('base.user_admin', raise_if_not_found=False)
+        if admin:
+            users.append(admin)
+        for user in users:
             if group not in user.group_ids:
                 user.write({'group_ids': [(4, group.id)]})
+
+    @api.model
+    def _focus_on_naqaa(self, company):
+        """Land the demo's users inside Naqaa, not beside it.
+
+        Naqaa is a second company in a database that already has one, and every
+        record this module seeds is scoped to it. A user whose active company is
+        still 'My Company' is shown an empty Manufacturing list, an empty
+        Purchase list and no agent data at all -- correctly, by the multi-company
+        rules, which is what makes it so misleading. It has already been
+        reported once as missing data when the data was merely invisible.
+
+        The Naqaa employees are built inside the company already, so in practice
+        this moves ``admin``. Access is added, never replaced: whoever installed
+        this keeps every company they had.
+        """
+        for user in self._demo_users() + [
+                u for u in [self.env.ref('base.user_admin',
+                                         raise_if_not_found=False)] if u]:
+            if company not in user.company_ids:
+                user.write({'company_ids': [(4, company.id)]})
+            if user.company_id != company:
+                user.company_id = company.id
 
     @api.model
     def _build_channels(self, profiles):

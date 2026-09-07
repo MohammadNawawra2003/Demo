@@ -19,24 +19,21 @@ scenarios instead of an afternoon of data entry.
 **Depends on:** `ai_operations`, `ai_operations_anthropic`, `ai_operations_procurement`,
 `ai_operations_manufacturing`, `alshayeb_demo_water`.
 
-## ⚠ A production defect this module compensates for — do not lose this
+## ⚠ A production defect this module used to compensate for — now fixed in the pack
 
-`ai_operations_manufacturing` ships the `manufacturing.raise_handoff` tool **and** the
-`MATERIAL_SHORTAGE` handoff type, but its policy pack grants **no model permission on
-`ai.operations.handoff`**. The guard therefore refuses the pack's own handoff tool:
+`ai_operations_manufacturing` shipped the `manufacturing.raise_handoff` tool **and** the
+`MATERIAL_SHORTAGE` handoff type, but its policy pack granted **no model permission on
+`ai.operations.handoff`**. The guard therefore refused the pack's own handoff tool:
 
 ```
 MODEL_NOT_PERMITTED: ai.operations.handoff is not in the allowlist
 ```
 
-**The handoff feature is unreachable in production as shipped.** This module adds the missing
-permission (`_compensate_pack_defects`) so the handoff scenario can be tested at all. It is
-deliberately here and not in the pack: changing a production policy pack is the approver's decision.
-
-**The fix, once approved:** two fields on one record in
-`ai_operations_manufacturing/data/policy_pack.xml` — `perm_read` and `perm_create` on
-`ai.operations.handoff` — after which `_compensate_pack_defects` becomes a no-op and should be
-deleted.
+The handoff feature was unreachable in production as shipped. This module compensated in Python
+until the approver ruled. **It no longer does:** the pack carries `perm_read` and `perm_create` on
+`ai.operations.handoff` in its own `data/policy_pack.xml`, `_compensate_pack_defects` is gone, and a
+pre-migration deletes the unowned row this module used to create so the two do not collide on
+`unique(profile_id, model_id)`. A test asserts the permission's owning module is the pack.
 
 **A second, smaller finding:** `core.describe_scope` (the kernel's own diagnostic tool) declares
 `res.company`, and **no policy pack grants a permission on it**, so that tool is denied for every
@@ -122,6 +119,52 @@ purchase orders and zero manufacturing orders, and two scenarios would have noth
 Both carry `origin = 'AI-DEMO'`, which is what makes them recognisable and idempotent. Both are
 drafts: nothing here posts stock or accounting.
 
+### Production schedule (18 manufacturing orders)
+
+Those two records are enough for the scenarios and nothing like enough for a review. The first
+person to open the demo found *Manufacturing → Operations → Manufacturing Orders* reading **"No
+manufacturing order found"**, because a fresh Naqaa has no transactions and the one seeded order was
+filtered out by the company switcher.
+
+So the plant also gets a fixed schedule — 18 orders, `origin = 'NAQAA-SCHED/001'` … `/018`, one
+origin each so every order is idempotent on its own:
+
+| State | Orders |
+|---|---|
+| Done | 5 |
+| In Progress | 3 |
+| Confirmed | 5 |
+| Draft | 5 |
+
+Dates straddle today, so `manufacturing.get_open_mos` — whose default horizon is 14 days — sees a
+realistic subset rather than all or none. Each order is driven through Odoo's **own buttons**
+(`action_confirm`, `action_assign`, `button_mark_done`); nothing writes `state` directly, because
+`mrp.production.state` is a stored compute over the moves and an order whose state contradicts its
+own stock moves falls apart the moment someone opens it. The Done and In Progress orders get exactly
+the components they consume, staged into the source location.
+
+**No order in the schedule makes FG-330, and that is load-bearing.** The AI scenario is built on
+FG-330 and its 330 ml bottle: `check_readiness` reports the bottle shortage and
+`get_shortage_context` computes the deterministic baseline DL-008 rules on, both from live
+`stock.quant` rows. An order here that consumed or reserved PK-BTL-330 would quietly change what the
+agents answer. The plant makes its five other formats; the 330 ml line is the one the demo talks
+about. Tests assert both halves — that all four states are reached, and that PK-BTL-330 still has
+zero stock.
+
+### Reviewer access
+
+Two things a reviewer hits that are correct behaviour and still read as a broken build:
+
+- **An administrator is not an agent user.** The separation is deliberate in the product — an admin
+  configures the platform, so the systray launcher is absent and every agent is out of reach. For the
+  demo only, this module grants `admin` the `group_ai_user` group. The packs, which are what
+  production installs, are untouched.
+- **Naqaa is the second company in the database.** A user still on "My Company" is shown an empty
+  Manufacturing list, an empty Purchase list and no agent data at all — correctly, by the
+  multi-company rules, which is exactly what makes it misleading. This module sets the demo users'
+  and `admin`'s default company to Naqaa. Access is **added, never replaced**: whoever installed it
+  keeps every company they had.
+
 ### Cron
 
 No cron is created. The four `ir.cron` records already ship with the packs, **inactive**.
@@ -142,9 +185,10 @@ A test asserts that a second `build_all()` changes no record counts.
 ## Uninstall
 
 Uninstalling removes this module's own records and **leaves the configuration behind**: profiles stay
-active, assignments stay, channels stay, and the two seeded drafts stay. That is deliberate — they
-are records on models this module does not own. To return a database to a pre-demo state, archive the
-two profiles and delete the records with `origin = 'AI-DEMO'`.
+active, assignments stay, channels stay, and the seeded records stay. That is deliberate — they are
+records on models this module does not own. To return a database to a pre-demo state, archive the two
+profiles and delete the records whose `origin` is `AI-DEMO` or starts with `NAQAA-SCHED/`. The Done
+orders have posted stock moves, so deleting those is a cancel-and-delete, not a plain unlink.
 
 ## Manual testing
 

@@ -70,6 +70,17 @@ class TestDemoConfiguration(TransactionCase):
         return self.env['discuss.channel'].search(
             [('name', 'like', name_fragment)], limit=1)
 
+    def _seeded(self, model):
+        """The scenario's own record, by the origin that marks it as one.
+
+        On the base class because the manufacturing path needs it too: the
+        plant now carries a whole production schedule, so "the FG-330 order"
+        no longer names a single record and the scenario order has to be
+        identified by its origin rather than by its product.
+        """
+        from ..models.demo_setup import SEED_ORIGIN
+        return self.env[model].search([('origin', '=', SEED_ORIGIN)], limit=1)
+
     # ------------------------------------------------------------------
     # Configuration
     # ------------------------------------------------------------------
@@ -282,10 +293,6 @@ class TestDemoScenarios(TestDemoConfiguration):
             self.assertNotIn(leak, posted, "%r leaked into the conversation" % leak)
 
     # -- Test 2: a prepared draft ----------------------------------------
-
-    def _seeded(self, model):
-        from ..models.demo_setup import SEED_ORIGIN
-        return self.env[model].search([('origin', '=', SEED_ORIGIN)], limit=1)
 
     def test_scenario_2_the_agent_prepares_a_draft_and_never_confirms_it(self):
         from ..models.demo_setup import SEED_COMPONENT, SEED_VENDOR
@@ -633,8 +640,21 @@ class TestKhalidManufacturingPath(TestDemoConfiguration):
         self.assertIn('shortage', bottles[0])
 
     def _resolve_production(self):
+        """The scenario's own order, by the key that makes it the scenario's.
+
+        This used to take the first FG-330 order ``get_open_mos`` happened to
+        return, which was the only one at the time. The plant now has a
+        schedule, so "the first order matching a product code" identifies
+        nothing in particular; the scenario order is the one carrying the
+        scenario's origin, and the tool call above still proves the agent can
+        reach an order from a business reference.
+        """
+        production = self._seeded('mrp.production')
+        self.assertTrue(production, "the demo manufacturing order is missing")
         orders = self._call('manufacturing.get_open_mos', {})['orders']
-        return next(o['id'] for o in orders if 'FG-330' in o['product_name'])
+        self.assertIn(production.id, [o['id'] for o in orders],
+                      "the scenario order is not among the open orders")
+        return production.id
 
     def _raise(self, key_suffix=''):
         production_id = self._resolve_production()
