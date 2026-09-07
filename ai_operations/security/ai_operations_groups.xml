@@ -64,10 +64,21 @@
         <field name="privilege_id" ref="privilege_ai_operations_technical"/>
         <field name="sequence">10</field>
         <field name="implied_ids" eval="[Command.link(ref('ai_operations.group_ai_auditor'))]"/>
-        <field name="user_ids" eval="[Command.link(ref('base.user_admin'))]"/>
+        <!--
+            NOT granted to base.user_admin, and that is the whole point.
+
+            §11 separates these two roles so that no single identity can both
+            expose a capability and grant an agent access to it. Shipping both
+            groups to `admin` made that separation nil on every installed
+            database: one person could enable a tool AND widen the scope it
+            runs under. Security Administrator keeps the day-one grant because
+            somebody has to open the app; enabling a tool is deliberately a
+            second act by a second identity.
+        -->
         <field name="comment">Enable tools, select among installed providers,
             review provider configuration. Deliberately cannot widen an agent's
-            data scope: no write on any permission record.</field>
+            data scope: no write on any permission record. Granted to nobody by
+            default: see §11 separation of duty.</field>
     </record>
 
 </odoo>

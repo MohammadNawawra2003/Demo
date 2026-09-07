@@ -352,6 +352,7 @@ class TestRuntime(AIOperationsCommon):
         # it earlier in the same run leaves it behind. Reuse rather than raise.
         if provider_module.has_provider('kt_null'):
             return provider_module.get_provider('kt_null')
+        provider_module.allow_provider_registration_for_tests()
 
         @ai_provider(code='kt_null', label='Null', models=(('null-1', 'Null One'),))
         class _Null:
@@ -366,25 +367,108 @@ class TestRuntime(AIOperationsCommon):
         return provider_module.get_provider('kt_null')
 
     def test_t100_the_adapter_cannot_change_a_security_decision(self):
-        """A provider may change how the LLM is called. It may never change
-        security behaviour. Implementable in Phase 1 with one vendor, because
-        the second adapter is a test double."""
-        self._install_null_adapter()
-        self._register('rt.parity', autonomy=AutonomyLevel.PREPARE)
-        self._assign('rt.parity')
-        self.profile.max_autonomy_level = '1'
+        """Document C §16.12. Three assertions, and the test must be able to
+        fail all three.
 
-        outcomes = []
-        for code in (False, 'kt_null'):
-            self.profile.provider_code = code
+        The previous version could not fail any of them. It set the profile to
+        autonomy 1 against a PREPARE tool, so **both arms denied at guard step
+        6** and the "identical output where ALLOWED" half was unreachable by
+        construction; it compared `False` against `kt_null`, so the real adapter
+        was never exercised; and it drove `execute_tool`, which never reads
+        `provider_code` at all -- so it mutated a field the code under test does
+        not consult and asserted the result was unchanged.
+        """
+        self._install_null_adapter()
+        self._install_second_null_adapter()
+        self._register('rt.parity', autonomy=AutonomyLevel.QUERY)
+        self._assign('rt.parity')
+        self.profile.max_autonomy_level = '2'          # the tool is ALLOWED now
+
+        results, reasons = [], []
+        for code in ('kt_null', 'kt_null2'):
+            # Both in one write: the profile constraint validates model_code
+            # against the selected adapter, so setting them separately passes
+            # through an invalid intermediate state. That constraint is T-73
+            # doing its job.
+            self.profile.with_context(skip_policy_audit=True).write({
+                'provider_code': code,
+                'model_code': 'null-1' if code == 'kt_null' else 'null-2',
+            })
             try:
-                self._call('rt.parity')
-                outcomes.append('ALLOWED')
+                results.append(self._call('rt.parity'))
+                reasons.append('ALLOWED')
             except AIAccessDenied as denial:
-                outcomes.append(denial.reason)
-        self.assertEqual(outcomes[0], outcomes[1],
+                results.append(None)
+                reasons.append(denial.reason)
+
+        # 1 — identical decision.
+        self.assertEqual(reasons[0], reasons[1],
                          "swapping the adapter changed a permission decision")
-        self.assertEqual(outcomes[0], DenialReason.AUTONOMY_INSUFFICIENT)
+        # 2 — and it was ALLOWED, so the next assertion is not vacuous.
+        self.assertEqual(reasons[0], 'ALLOWED',
+                         "both arms denied; the parity claim is untested")
+        # 3 — identical serialised output.
+        self.assertEqual(results[0], results[1],
+                         "swapping the adapter changed the serialised output")
+
+    def test_t100_the_audit_rows_differ_only_in_provider_and_model(self):
+        """§16.12's third assertion, which was never made.
+
+        `model_code` was plumbed into the audit row specifically for this and
+        then nothing asserted it.
+        """
+        self._install_null_adapter()
+        self._install_second_null_adapter()
+        self._register('rt.parity2', autonomy=AutonomyLevel.QUERY)
+        self._assign('rt.parity2')
+        self.profile.max_autonomy_level = '2'
+        Log = self.env['ai.operations.audit.log']
+
+        rows = []
+        for code, model in (('kt_null', 'null-1'), ('kt_null2', 'null-2')):
+            self.profile.with_context(skip_policy_audit=True).write({
+                'provider_code': code, 'model_code': model})
+            before = Log.search([])
+            self._call('rt.parity2')
+            self.env.flush_all()
+            opened = (Log.search([]) - before).filtered(
+                lambda r: r.event_type == 'OPEN')
+            self.assertTrue(opened, "no audit row was opened")
+            rows.append(opened[0])
+
+        self.assertEqual(rows[0].provider_code, 'kt_null')
+        self.assertEqual(rows[1].provider_code, 'kt_null2')
+        self.assertEqual(rows[0].model_code, 'null-1')
+        self.assertEqual(rows[1].model_code, 'null-2')
+
+        # Everything that is NOT the provider or the model must match.
+        compared = ('tool_code', 'profile_code', 'decision', 'execution_mode',
+                    'trigger', 'policy_version', 'denial_reason')
+        for field in compared:
+            self.assertEqual(
+                rows[0][field], rows[1][field],
+                "%s differs between adapters; a provider changed more than "
+                "how the LLM is called" % field)
+
+    def _install_second_null_adapter(self):
+        """A second double, so parity is compared between two real adapters
+        rather than between an adapter and no adapter at all."""
+        if provider_module.has_provider('kt_null2'):
+            return provider_module.get_provider('kt_null2')
+        provider_module.allow_provider_registration_for_tests()
+
+        @ai_provider(code='kt_null2', label='Null Two',
+                     models=(('null-2', 'Null Two'),))
+        class _Null2:
+            """A second scripted double: same contract, different code."""
+            def complete(self, *args, **kwargs):
+                return {'content': '', 'tool_calls': [], 'stop_reason': 'end_turn',
+                        'usage': {'input_tokens': 1, 'output_tokens': 1}}
+            def get_models(self):
+                return [('null-2', 'Null Two')]
+            def health_check(self):
+                return True, 'ok'
+        return provider_module.get_provider('kt_null2')
 
     # ==================================================================
     # The two-turn conversation -- regression for manual Test 1

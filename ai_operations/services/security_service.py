@@ -66,6 +66,7 @@ class AISecurityService(models.AbstractModel):
             execution_mode=execution_mode, trigger=trigger,
             session_id=session_id, correlation_id=correlation_id,
             service_user=profile.service_user_id if profile else None,
+            handoff_id=handoff_id,
         )
 
         try:
@@ -305,7 +306,8 @@ class AISecurityService(models.AbstractModel):
                         operation, model_name, permission.state_restriction),
                     model=model_name)
 
-    def check_action(self, ctx, model_name, action_code, records=None):
+    def check_action(self, ctx, model_name, action_code, records=None,
+                     amount=None, quantity=None):
         """Step 15. Business actions, separately from CRUD."""
         permission = self.env['ai.operations.action.permission'].search([
             ('profile_id', '=', ctx.profile.id),
@@ -324,6 +326,25 @@ class AISecurityService(models.AbstractModel):
                 detail='%s needs autonomy %s' % (action_code,
                                                  permission.autonomy_required),
                 model=model_name)
+        # §5.3's amount and quantity ceilings. They stored a number, audited
+        # changes to it, rendered it on the form -- and denied nothing. An
+        # operator configuring "this agent may draft up to SAR 50,000" was
+        # protected by exactly nothing, which is worse than having no field:
+        # §5.4 rejects a whole field-permission model on that same argument.
+        if permission.max_amount and amount and float(amount) > permission.max_amount:
+            raise AIAccessDenied(
+                DenialReason.ACTION_NOT_PERMITTED,
+                detail='%s exceeds the %s ceiling of %s'
+                       % (action_code, model_name, permission.max_amount),
+                model=model_name)
+        if permission.max_quantity and quantity \
+                and float(quantity) > permission.max_quantity:
+            raise AIAccessDenied(
+                DenialReason.ACTION_NOT_PERMITTED,
+                detail='%s exceeds the %s quantity ceiling of %s'
+                       % (action_code, model_name, permission.max_quantity),
+                model=model_name)
+
         if records is not None and permission.state_restriction:
             field_path, expected = validate_state_restriction(
                 permission.state_restriction)
@@ -490,7 +511,33 @@ class AISecurityService(models.AbstractModel):
         return required
 
     def _traverse(self, record, field_path):
+        """Walk a dotted field path, denying rather than exploding.
+
+        A missing field used to raise KeyError, which escapes the guard as an
+        unexpected error and is audited as ERROR rather than DENIED -- a
+        fail-OPEN path in the one place a state restriction is supposed to
+        close. `quality.alert` is exactly this case: it has no `state` field.
+        """
         value = record
-        for part in field_path.split('.'):
-            value = value[part]
+        for part in (field_path or '').split('.'):
+            if not part:
+                break
+            fields_map = getattr(value, '_fields', {})
+            if part not in fields_map and not hasattr(value, part):
+                raise AIAccessDenied(
+                    DenialReason.STATE_NOT_PERMITTED,
+                    detail='%r has no field %r; the state restriction cannot be '
+                           'evaluated and the guard fails closed'
+                           % (getattr(value, '_name', value), part))
+            field = fields_map.get(part)
+            # A restriction is written in English -- `stage_id.name=New` is
+            # Document C §5.2's own example -- and `name` is translatable. Read
+            # it in en_US or the whole restriction silently stops matching the
+            # moment a user's language changes, which for this client is Arabic
+            # by default. A state restriction that depends on the reader's
+            # locale is not a restriction.
+            if field is not None and getattr(field, 'translate', False):
+                value = value.with_context(lang='en_US')[part]
+            else:
+                value = value[part]
         return value

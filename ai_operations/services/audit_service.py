@@ -36,7 +36,8 @@ class AIAuditService(models.AbstractModel):
 
     @api.model
     def open_entry(self, tool_code, profile, user, execution_mode, trigger,
-                   session_id, correlation_id, service_user=None):
+                   session_id, correlation_id, service_user=None,
+                   handoff_id=None):
         """Open the call. Returns the correlation id, which keys every later row."""
         self._append(AuditEvent.OPEN.value, correlation_id, 0, {
             'tool_code': tool_code,
@@ -57,6 +58,7 @@ class AIAuditService(models.AbstractModel):
             'execution_mode': execution_mode,
             'trigger': trigger,
             'session_id': session_id,
+            'handoff_id': handoff_id or False,
         })
         return correlation_id
 
@@ -128,6 +130,16 @@ class AIAuditService(models.AbstractModel):
             'records_accessed': str(res_id or ''),
             'denial_detail': detail or False,
             'retention_class': 'SECURITY',
+        })
+
+    @api.model
+    def record_truncation(self, correlation_id, model=None, returned=0, total=0):
+        """A capped extraction is a fact the log has to carry. §5.2, §16.2."""
+        return self._append(AuditEvent.RESULT.value, correlation_id, 2, {
+            'decision': Decision.ALLOWED.value,
+            'models_accessed': model or False,
+            'output_summary': 'TRUNCATED: returned %s of %s records for %s'
+                              % (returned, total, model),
         })
 
     @api.model

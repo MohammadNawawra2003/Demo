@@ -153,3 +153,29 @@ class AIOperationsAuditLog(models.Model):
             trimmed['input_args'] = False
             trimmed['records_accessed'] = False
         return trimmed
+
+    @api.model
+    def archive_operational_rows(self, months=24):
+        """Document C §5.9's retention cron.
+
+        Deletes OPERATIONAL rows older than the window and **cannot touch a
+        SECURITY row** -- the domain excludes them explicitly rather than
+        relying on the computed field alone, because a retention job that can
+        reach a denial is a retention job that can erase the evidence.
+        """
+        import datetime
+        cutoff = fields.Datetime.now() - datetime.timedelta(days=months * 30)
+        rows = self.search([
+            ('retention_class', '=', RetentionClass.OPERATIONAL.value),
+            ('decision', '!=', Decision.DENIED.value),
+            ('create_date', '<', cutoff),
+        ])
+        count = len(rows)
+        if count:
+            # unlink() is blocked on this model by design, so the archive runs
+            # as a direct DELETE on exactly the ids the domain returned.
+            self.env.cr.execute(
+                "DELETE FROM ai_operations_audit_log WHERE id IN %s",
+                (tuple(rows.ids),))
+            self.invalidate_model()
+        return count

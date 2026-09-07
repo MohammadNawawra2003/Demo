@@ -77,10 +77,33 @@ class TestAppMenuVisibility(AIOperationsCommon):
 
     # -- the bootstrap grant, and its limits -------------------------------
 
-    def test_administrator_is_bootstrapped_into_both_admin_roles(self):
+    def test_administrator_gets_one_admin_role_not_both(self):
+        """Document C §11's separation of duty, as shipped.
+
+        `admin` used to be bootstrapped into BOTH administrator groups, which
+        made the separation nil on every installed database: one identity could
+        enable a capability AND widen the scope it runs under, which is the
+        single thing §11 exists to prevent. Security Administrator keeps the
+        day-one grant because somebody has to open the app. Enabling a tool is
+        deliberately a second act by a second identity.
+        """
         admin = self.env.ref('base.user_admin')
-        self.assertTrue(admin._has_group('ai_operations.group_ai_security_admin'))
-        self.assertTrue(admin._has_group('ai_operations.group_ai_technical_admin'))
+        self.assertTrue(
+            admin._has_group('ai_operations.group_ai_security_admin'),
+            "nobody can open the app on the day it is installed")
+        self.assertFalse(
+            admin._has_group('ai_operations.group_ai_technical_admin'),
+            "the administrator can both enable a tool and widen an agent's "
+            "scope; §11's separation of duty is nil")
+
+    def test_no_single_user_holds_both_admin_roles(self):
+        """The general form. A database may grow a second administrator."""
+        security = self.env.ref('ai_operations.group_ai_security_admin')
+        technical = self.env.ref('ai_operations.group_ai_technical_admin')
+        both = security.user_ids & technical.user_ids
+        self.assertFalse(
+            both, "these users hold both administrator roles: %s"
+                  % both.mapped('login'))
 
     def test_group_system_still_implies_no_ai_group(self):
         """Document C 11: settings access is not AI security access.

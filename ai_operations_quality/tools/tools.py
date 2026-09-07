@@ -405,8 +405,20 @@ def propose_hold(ctx, params):
     }
     if 'product_id' in Alert._fields and lot.product_id:
         values['product_id'] = lot.product_id.id
+    # Explicitly the first stage. The model permission restricts this agent to
+    # alerts in `stage_id.name=New`, so leaving the stage to a default would
+    # make the write depend on whatever the database happens to order first.
+    stage = ctx.env['quality.alert.stage'].search([], order='sequence, id', limit=1) \
+        if 'quality.alert.stage' in ctx.env else None
+    if stage and 'stage_id' in Alert._fields:
+        values['stage_id'] = stage.id
     alert = Alert.create(values)
+    # Both checks, deliberately. check_action evaluates the ACTION permission's
+    # state restriction; check_records evaluates the MODEL permission's. The
+    # second was never invoked for quality.alert, so the draft-only guarantee
+    # this docstring advertises was enforced by nothing at all.
     ctx.security.check_action(ctx, 'quality.alert', 'CREATE_DRAFT', records=alert)
+    ctx.check_records('quality.alert', alert.ids, operation='create')
     return {
         'alert_id': alert.id,
         'reference': alert.name,

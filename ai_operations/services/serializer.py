@@ -81,6 +81,14 @@ class AISerializer(models.AbstractModel):
     def serialize_records(self, ctx, records, spec, limit=None):
         """The same, for a recordset, capped by the agent's ``max_records``."""
         cap = limit or ctx.security.max_records(ctx.profile, records._name)
+        if len(records) > cap:
+            # §16.2 T-16 requires "Truncated **+ audited**". The cap was applied
+            # silently, so a bulk read looked identical to a complete one -- and
+            # on a recall trace a silently dropped lot is a customer nobody
+            # contacts.
+            ctx.env['ai.operations.audit'].record_truncation(
+                ctx.correlation_id, model=records._name,
+                returned=cap, total=len(records))
         return [self.serialize_record(ctx, record, spec) for record in records[:cap]]
 
     # ------------------------------------------------------------------

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <!--
+        Document C §5.9: "OPERATIONAL for everything else — archived after 24
+        months by a cron."
+
+        `retention_class` was computed, indexed and filtered on, and nothing
+        ever acted on it: a label with no retention behaviour behind it. This
+        is that cron. It touches only OPERATIONAL rows; a SECURITY row — every
+        denial, every write, every escalation, every policy change — is kept
+        indefinitely and this job cannot reach one.
+
+        Inactive on install, like every other cron here: switching on a job that
+        deletes audit history is a deliberate act.
+    -->
+    <record id="cron_archive_operational_audit" model="ir.cron">
+        <field name="name">AI Operations: archive operational audit rows</field>
+        <field name="model_id" ref="model_ai_operations_audit_log"/>
+        <field name="state">code</field>
+        <field name="code">model.archive_operational_rows()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="False"/>
+    </record>
+
+</odoo>

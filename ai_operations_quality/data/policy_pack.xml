@@ -96,7 +96,11 @@
         <field name="perm_read" eval="True"/>
         <field name="perm_create" eval="True"/>
         <field name="perm_write" eval="True"/>
-        <field name="state_restriction">state=draft</field>
+        <!-- Document C §5.2 is explicit: quality.alert has NO state field, it
+             uses stage_id pointing at quality.alert.stage. The shipped value
+             was `state=draft`, which named a field that does not exist on the
+             one model this agent may write. -->
+        <field name="state_restriction">stage_id.name=New</field>
     </record>
 
     <record id="perm_stock_picking_q" model="ai.operations.model.permission">
@@ -144,6 +148,7 @@
         <field name="allowed" eval="True"/>
         <field name="autonomy_required">2</field>
         <field name="risk_level">MEDIUM</field>
+        <field name="state_restriction">stage_id.name=New</field>
     </record>
 
     <record id="action_create_activity_q" model="ai.operations.action.permission">

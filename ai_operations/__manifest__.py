@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations',
-    'version': '19.0.1.17.0',
+    'version': '19.0.1.18.0',
     'category': 'Productivity/AI',
     'summary': 'Secure execution platform for departmental AI agents',
     'author': 'AlShayeb Partners',
@@ -17,6 +17,7 @@
         'security/ir_rule.xml',
         'data/ir_sequence.xml',
         'data/activity_types.xml',
+        'data/audit_retention.xml',
         'views/agent_profile_views.xml',
         'views/model_permission_views.xml',
         'views/action_permission_views.xml',

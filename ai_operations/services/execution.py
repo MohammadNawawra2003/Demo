@@ -107,8 +107,15 @@ class AIExecutionRunner(models.AbstractModel):
         if str(getattr(spec, 'category', '')) == 'DRAFT_WRITE':
             self._record_tool_write(audit, correlation_id, spec, result)
 
+        # §5.9's token_input/token_output were always 0: record_result accepted
+        # them and its only caller passed neither, so per-call attribution was
+        # unavailable to an incident review even though the usage dict is right
+        # there in the loop.
+        usage = getattr(ctx, 'usage', None) or {}
         audit.record_result(correlation_id, profile=profile,
-                            output_summary=self._summarise(result))
+                            output_summary=self._summarise(result),
+                            tokens_in=usage.get('input_tokens'),
+                            tokens_out=usage.get('output_tokens'))
         return result
 
     #: Output keys a DRAFT_WRITE tool uses to name what it wrote.
