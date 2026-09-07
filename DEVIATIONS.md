@@ -1344,3 +1344,123 @@ expiry window on existing products.
 Odoo's default is 2, which flattens them (0.042 → 0.04) and puts a 10% error into the
 component that dominates the BoM. The precision is widened before any cost is written,
 and the ormcache is cleared so it applies in the same run.
+
+---
+
+## 2026-09-07 — Document A §13, §14, §15: the history, and what it cost
+
+### The generator was never invoked
+
+`data_xml/build.xml` called `build_all` and nothing else. `alshayeb.demo.history.generate`
+existed from Session 7 and **no data file, hook or cron ever called it**, so every
+installed database had zero manufacturing orders, zero sales orders, zero invoices, zero
+quality checks and about twelve stock moves — and fourteen of §13's eighteen seeded
+conditions, including every security condition but X-05, were simply not there. The
+isolation proofs were passing against an empty database.
+
+`generate_default` is now a second `<function>` beside the builder, idempotent per record
+for the same reason the builder is.
+
+### The history runs at reduced scale
+
+`DEFAULT_SCALE = 0.25` samples every fourth day of the window. **Shape is preserved and
+volume is not**: both Ramadans, both Hajj seasons, the Hijri drift, the seasonal curve, the
+lot genealogy and every seeded condition are inside the sample; only the density falls.
+
+The reason is measured, not assumed. `stock_move` costs ~3.2 kB/row with indexes, so §14's
+180,000 moves is ~575 MB for that table alone and the full dataset lands at 600 MB–1.2 GB.
+**The Odoo.sh trial build is capped at 1 GB.** The owner ruled on 2026-09-07 to take shape
+over volume; the full dataset remains one argument away (`generate(scale=1.0)`).
+
+### Five object types had no code path at all
+
+`mrp.production`, `sale.order`, `account.move`, `quality.check` and the daily
+water-treatment MO were all sized by §14 and none of them were generated. They are now, in
+`models/history_transactions.py`.
+
+**Historical orders are closed, not left open.** An eighteen-month backlog of things the
+plant had supposedly already made is not a history, and it crowded every current order out
+of `manufacturing.get_open_mos`. Orders older than 30 days are driven to `done` through the
+real buttons, with the raw moves released and closed at zero: the components are not
+staged, so nothing is consumed out of a stock the plant never held — and, critically,
+historical production does not eat the §13 stock the demo is built on.
+
+**Manufacturing orders span 120 days, not the full eighteen months** (`MO_WINDOW_DAYS`).
+Closing an order posts its finished goods, and with automated valuation that is a quant, a
+valuation layer and an accounting entry each; generating and closing them across the whole
+window took the install past twenty minutes and produced nothing a reviewer could see that
+the bounded window does not. The deep history is carried by what it is actually made of —
+lots, purchase orders, sales orders and quality checks all span the full eighteen months.
+This is the largest single divergence from §14's record volumes and it is deliberate.
+
+**Finished goods had no cost at all.** Every FG was created with the default
+`standard_price` of zero, so §6's plant cost existed only as arithmetic in the document and
+X-01's contrast was zero against the transfer price. The BoM-derived plant cost (material
+plus labour and overhead) is now written onto the product in C1, which is both what §6
+defines and what makes the X-01 contrast real.
+
+⚠ Two orderings matter here and both bit. `skip_consumption` skips the consumption
+*warning*, not the lot requirement — a reserved move line on a tracked component still
+raises "You need to supply a Lot/Serial Number". And the raw moves must be cleared **after**
+`_set_qty_producing()`, never before: that call is what writes the consumed quantity onto
+them, so clearing first just hands it a clean slate to fill in again.
+
+### The finance skeleton is built explicitly, not from a chart template
+
+`account.chart.template.try_loading` is the obvious call and it does not work from a
+data-file `<function>`: Odoo warns "Incorrect usage of try_loading without a fully loaded
+registry", and the result is a company whose `chart_template` is stamped while **no journals
+are created at all** — which is exactly how invoicing failed with *"No journal could be
+found in company Naqaa Distribution Co. for any of those types: sale"*. Moving it to a
+post-init hook would fix the registry and break idempotency, because a hook fires on
+install only.
+
+So `_build_charts` creates five accounts and four journals per operating company and wires
+them onto the product category and the partners. It is not a Saudi chart of accounts; it is
+what §14's last three months of invoices and §13's X-04 need in order to exist.
+
+### §13 conditions that Odoo models differently from the document
+
+- **S-07** (UV lamp at 8,700 of 9,000 hours) is a `maintenance.equipment` record, so
+  `maintenance` is now a dependency. There was previously nowhere for the signal to live.
+- **S-08** is an *unapplied* `stock.quant.inventory_quantity`. Applying it would resolve the
+  discrepancy, and the discrepancy is the condition.
+- **X-06**, the adversarial prompt, is stored on the C1 partner's comment rather than on an
+  agent profile, because this module must not depend on `ai_operations` in either direction
+  (§16). The security suite reads the string from there.
+- `quality.check` carries **`lot_ids`** (many2many) in Odoo 19, not `lot_id`.
+
+### A production defect the realistic data exposed
+
+`manufacturing.get_open_mos` queried up to `max_records` (200 by default) while its output
+schema capped the list at `max_items=100`. The moment the plant carried more than a hundred
+open orders the serialiser **refused the tool's own output** and the agent could not list
+manufacturing orders at all. It stayed hidden while the demo database held nineteen.
+
+Fixed in the pack: the query limit is now `min(policy cap, OPEN_MOS_MAX)` with the constant
+shared by both, the horizon moved from a post-fetch Python filter into the domain, and the
+result ordered newest-first — because filtering after the fetch spent the limit on rows that
+were then discarded, so the newest order, the one a planner is actually asking about, fell
+off the end.
+
+### §13 S-01 now wins over the zero baseline
+
+Seeding the PK-BTL-330 shortage makes `get_shortage_context` return a non-zero
+deterministic figure, so the live demo walks the non-zero path. **DL-008 still holds and is
+still tested in the kernel** — a zero baseline still escalates — it simply stopped being the
+path the demo takes. Ruled by the owner 2026-09-07. The containment test was re-baselined
+rather than deleted: it now asserts the shortage is real and that the schedule has not
+quietly filled it in.
+
+### The window was nineteen months
+
+`seasonality.window()` computed `anchor.month - months`, which for an anchor of August 2026
+starts in February 2025 — nineteen months inclusive, not the eighteen §14 specifies. Masked
+by a `>= 540 days` assertion. Fixed with the `+ 1` an inclusive window needs.
+
+### Finished-lot names collided across SKUs
+
+FG-200 and FG-330 both run on L1, FG-1500 and FG-5000 both on L3, and the generator passed
+`sequence=1` for all of them — so two different SKUs produced on the same day received the
+**identical** lot name, which makes the genealogy ambiguous exactly where a recall needs it
+precise. `blueprint.LOT_SEQUENCE` now gives each SKU its own sequence within its line.

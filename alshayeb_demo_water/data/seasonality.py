@@ -84,7 +84,10 @@ def window(anchor, months=18):
     """
     anchor = _as_date(anchor)
     year = anchor.year
-    month = anchor.month - months
+    # +1 because the window is inclusive of both ends: an 18-month window
+    # ending in August 2026 starts in March 2025, not February. Without it the
+    # window is 19 months, which a `>= 540 days` assertion happily accepted.
+    month = anchor.month - months + 1
     while month <= 0:
         month += 12
         year -= 1

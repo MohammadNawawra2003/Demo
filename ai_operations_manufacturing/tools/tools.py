@@ -80,15 +80,24 @@ def check_readiness(ctx, params):
 )
 def get_open_mos(ctx, params):
     """Manufacturing orders that are not yet done, within a horizon."""
-    horizon = datetime.datetime.now() + datetime.timedelta(
-        days=params.get('days_ahead') or 14)
-    orders = ctx.model('mrp.production').search([
-        ('state', 'not in', ('done', 'cancel')),
-    ], limit=ctx.security.max_records(ctx.profile, 'mrp.production'))
+    days_ahead = params.get('days_ahead') or 14
+    horizon = datetime.datetime.now() + datetime.timedelta(days=days_ahead)
+    # The horizon belongs in the domain, not in a Python filter after the fact.
+    # Filtering afterwards meant the limit was spent on orders that were then
+    # discarded, so a plant with a long tail of old orders could return nothing
+    # useful -- and the newest order, the one a planner is asking about, fell
+    # off the end. Ordered newest first for the same reason.
+    #
+    # Never ask for more than the schema may emit either. The policy cap still
+    # applies and still narrows: it is the lower of the two that wins.
+    orders = ctx.model('mrp.production').search(
+        [('state', 'not in', ('done', 'cancel')),
+         '|', ('date_start', '=', False), ('date_start', '<=', horizon)],
+        order='date_start desc, id desc',
+        limit=min(ctx.security.max_records(ctx.profile, 'mrp.production'),
+                  schemas.OPEN_MOS_MAX))
     rows = []
     for order in orders:
-        if order.date_start and order.date_start > horizon:
-            continue
         rows.append({
             'id': order.id,
             'reference': order.name,

@@ -32,6 +32,7 @@ class AlshayebDemoBuilder(models.AbstractModel):
     def build_all(self):
         self._enable_arabic()
         companies = self._build_companies()
+        self._build_charts(companies)
         self._build_taxes(companies)
         category = self._build_product_category()
         self._build_warehouses(companies)
@@ -42,6 +43,7 @@ class AlshayebDemoBuilder(models.AbstractModel):
         self._build_partners(companies, products)
         self._build_quality_points(companies, products)
         self._build_people(companies)
+        self._build_intercompany(companies, products)
         _logger.info("alshayeb_demo_water: Naqaa company built")
         return True
 
@@ -133,6 +135,93 @@ class AlshayebDemoBuilder(models.AbstractModel):
                             bp.ARABIC_COMPANY_NAMES.get(name))
             companies[key] = company
         return companies
+
+    # -- §15 the finance skeleton ----------------------------------------
+
+    @api.model
+    def _build_charts(self, companies):
+        """§15: journals, and separate stock input/output/valuation accounts
+        per company.
+
+        Not ``account.chart.template.try_loading``. That is the obvious call and
+        it does not work here: Odoo itself warns "Incorrect usage of try_loading
+        without a fully loaded registry" when it is invoked from a data-file
+        ``<function>``, and the result is a company whose ``chart_template`` is
+        stamped while **no journals are created at all** -- which is exactly how
+        invoicing failed with "No journal could be found ... for any of those
+        types: sale". Moving it to a post-init hook would fix the registry and
+        break idempotency, because a hook fires on install only.
+
+        So the skeleton is built explicitly. It is the seven accounts and four
+        journals a demo actually needs, not a Saudi chart of accounts, and that
+        is enough for §14's last three months of invoices and for X-04 to have
+        posted entries to be denied.
+        """
+        Account = self.env['account.account']
+        Journal = self.env['account.journal']
+        built = {}
+        for key in ('c1', 'c2'):
+            company = companies[key]
+            accounts = {}
+            for code, name, account_type in bp.CHART_ACCOUNTS:
+                account = Account.with_company(company).with_context(
+                    active_test=False).search(
+                    [('code', '=', code), ('company_ids', 'in', company.id)], limit=1)
+                if not account:
+                    account = Account.with_company(company).create({
+                        'code': code, 'name': name, 'account_type': account_type,
+                    })
+                accounts[account_type] = account
+            for code, name, journal_type in bp.CHART_JOURNALS:
+                journal = Journal.with_company(company).search(
+                    [('code', '=', code), ('company_id', '=', company.id)], limit=1)
+                if journal:
+                    continue
+                values = {'name': name, 'code': code, 'type': journal_type,
+                          'company_id': company.id}
+                default = {'sale': 'income', 'purchase': 'expense'}.get(journal_type)
+                if default and accounts.get(default):
+                    values['default_account_id'] = accounts[default].id
+                Journal.with_company(company).create(values)
+            built[key] = accounts
+        self._wire_account_properties(companies, built)
+        return built
+
+    @api.model
+    def _wire_account_properties(self, companies, accounts):
+        """Point the product category and the partners at those accounts.
+
+        Company-dependent every one of them, so each write is made in the right
+        company -- the same defect that priced a draft RFQ at zero.
+        """
+        category = self.env['product.category'].search([('name', '=', 'Naqaa')], limit=1)
+        for key in ('c1', 'c2'):
+            company = companies[key]
+            book = accounts.get(key) or {}
+            if category:
+                scoped = category.with_company(company)
+                for field, account_type in (
+                        ('property_account_income_categ_id', 'income'),
+                        ('property_account_expense_categ_id', 'expense'),
+                        ('property_stock_valuation_account_id', 'asset_current'),
+                        ('property_stock_account_input_categ_id', 'asset_current'),
+                        ('property_stock_account_output_categ_id', 'asset_current')):
+                    account = book.get(account_type)
+                    if account and field in scoped._fields and not scoped[field]:
+                        try:
+                            scoped[field] = account.id
+                        except Exception:       # noqa: BLE001 - demo data
+                            _logger.debug("could not set %s", field)
+            receivable = book.get('asset_receivable')
+            payable = book.get('liability_payable')
+            partners = self.env['res.partner'].search(
+                ['|', ('customer_rank', '>', 0), ('supplier_rank', '>', 0)])
+            for partner in partners:
+                scoped = partner.with_company(company)
+                if receivable and not scoped.property_account_receivable_id:
+                    scoped.property_account_receivable_id = receivable.id
+                if payable and not scoped.property_account_payable_id:
+                    scoped.property_account_payable_id = payable.id
 
     # -- §2/§15 VAT ------------------------------------------------------
 
@@ -458,6 +547,12 @@ class AlshayebDemoBuilder(models.AbstractModel):
             if not bom:
                 continue
             plant_cost = self._material_cost(bom) + bp.LABOUR_OVERHEAD_PER_CARTON
+            # §6: the finished good's own cost. It was never written -- every FG
+            # was created with the default cost of zero -- so C1 "knew" its
+            # production cost only in the sense that the number was absent, and
+            # X-01's whole contrast was zero against the transfer price.
+            if product.with_company(c1).standard_price != plant_cost:
+                product.with_company(c1).standard_price = plant_cost
             price = round(plant_cost * (1.0 + markup), 2)
             priced[code] = price
             item = Item.search([('pricelist_id', '=', pricelist.id),

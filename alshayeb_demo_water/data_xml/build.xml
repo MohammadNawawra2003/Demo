@@ -10,4 +10,25 @@
         upgrade is a no-op that also repairs drift.
     -->
     <function model="alshayeb.demo.builder" name="build_all"/>
+
+    <!--
+        Document A §14: eighteen months of history, and §13's seeded conditions.
+
+        This call is the whole difference between a database that looks like a
+        company and one that looks like a fresh install. It was missing: the
+        generator existed from Session 7 and nothing ever invoked it, so every
+        installed database had zero manufacturing orders, zero sales orders,
+        zero invoices, zero quality checks, and fourteen of the eighteen
+        conditions in §13, including every security condition but one, simply
+        were not there.
+
+        Volume is reduced and shape is not: both Ramadans, both Hajj seasons,
+        the Hijri drift, the seasonal curve, the lot genealogy and every seeded
+        condition are present. The trial build is capped at 1 GB, and §14's
+        literal row counts do not fit inside it. See DEVIATIONS.md.
+
+        Idempotent per record, like the builder above, so an upgrade re-runs it
+        as a no-op that fills in whatever a previous version did not create.
+    -->
+    <function model="alshayeb.demo.history" name="generate_default"/>
 </odoo>

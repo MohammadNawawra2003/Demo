@@ -110,6 +110,23 @@ TRANSFER_MARKUP_BAND = (0.14, 0.26)
 #: §6 labour and overhead per carton, on top of BoM material cost.
 LABOUR_OVERHEAD_PER_CARTON = 0.70
 
+#: §15 the finance skeleton: the accounts a demo has to post through.
+#:   code, name, account_type
+CHART_ACCOUNTS = [
+    ('110000', 'Stock Valuation',   'asset_current'),
+    ('400000', 'Trade Receivable',  'asset_receivable'),
+    ('440000', 'Trade Payable',     'liability_payable'),
+    ('600000', 'Cost of Goods Sold', 'expense'),
+    ('700000', 'Product Sales',     'income'),
+]
+#:   code, name, type
+CHART_JOURNALS = [
+    ('NQSAL', 'Naqaa Sales',     'sale'),
+    ('NQPUR', 'Naqaa Purchases', 'purchase'),
+    ('NQMSC', 'Naqaa Misc',      'general'),
+    ('NQBNK', 'Naqaa Bank',      'bank'),
+]
+
 # -- §5.2 packaging, all purchased -----------------------------------------
 #   code, name, uom, unit cost SAR, lead days, lot tracked
 BOTTLES = [
@@ -145,6 +162,17 @@ FILMS = [
     ('PK-FILM-STR', 'Stretch wrap', 'kg', 5.80, 14, False),
 ]
 PALLETS = [('PK-PAL', 'Pallet', 'Units', 22.00, 10, False)]
+
+#: §8.2 lot names are ``NQ-{LINE}-{YYMMDD}-{SEQ}``, and two SKUs share a line:
+#: FG-200 and FG-330 both run on L1, FG-1500 and FG-5000 both on L3. Without a
+#: per-SKU sequence they produce the *identical* lot name on the same day, which
+#: makes the genealogy ambiguous exactly where a recall needs it to be precise.
+LOT_SEQUENCE = {
+    'FG-200': 1, 'FG-330': 2,
+    'FG-600': 1,
+    'FG-1500': 1, 'FG-5000': 2,
+    'FG-12000': 1,
+}
 
 #: §6. Shrink film per carton, in kg.
 FILM_PER_CARTON = {

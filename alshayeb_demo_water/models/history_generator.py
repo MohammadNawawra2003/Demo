@@ -33,6 +33,13 @@ _logger = logging.getLogger(__name__)
 #: the same quantities, dates, lots, prices and document sequences.
 SEED = 20260904
 
+#: The install-time scale. §14's literal row counts are ~600 MB-1.2 GB against a
+#: 1 GB build cap, so density falls and shape does not: sampling every Nth day
+#: keeps both Ramadans, both Hajj seasons and the whole seasonal curve inside
+#: the sample. Raise it for a performance measurement; the full dataset is one
+#: argument away. See DEVIATIONS.md.
+DEFAULT_SCALE = 0.25
+
 
 class AlshayebDemoHistory(models.AbstractModel):
     _name = 'alshayeb.demo.history'
@@ -68,10 +75,33 @@ class AlshayebDemoHistory(models.AbstractModel):
             company, products, anchor, months, scale, rng)
         summary['purchases'] = self._generate_purchases(
             company, products, anchor, months, scale, rng)
+        # §14's five missing object types. Order matters: the lots above are
+        # what the manufacturing orders below claim to have produced, and the
+        # quality checks are recorded against those same treated-water lots.
+        summary['treatment_orders'] = self._generate_treatment_orders(
+            company, products, anchor, months, scale, rng)
+        summary['manufacturing_orders'] = self._generate_manufacturing_orders(
+            company, products, anchor, months, scale, rng)
+        summary['sales'] = self._generate_sales(
+            company, products, anchor, months, scale, rng)
+        summary['quality_checks'] = self._generate_quality_checks(
+            company, products, anchor, months, scale, rng)
         if with_conditions:
             summary['conditions'] = self._seed_conditions(company, products, anchor)
+            summary['conditions'].update(
+                self._seed_remaining_conditions(company, products, anchor))
         _logger.info("alshayeb_demo_water: history generated %s", summary)
         return summary
+
+    @api.model
+    def generate_default(self):
+        """The install-time entry point. §14.
+
+        Anchor is today, so the demo is current whenever it is built, and the
+        scale is the one that fits the 1 GB build cap while keeping every
+        structural property the scenarios depend on.
+        """
+        return self.generate(scale=DEFAULT_SCALE)
 
     # -- the genealogy the recall depends on -----------------------------
 
@@ -128,7 +158,8 @@ class AlshayebDemoHistory(models.AbstractModel):
                 planned = season.daily_cartons(day, cartons)
                 if planned < 1:
                     continue
-                lot_name = season.finished_lot_name(line, day, 1)
+                lot_name = season.finished_lot_name(
+                    line, day, bp.LOT_SEQUENCE.get(code, 1))
                 if Lot.search([('name', '=', lot_name),
                                ('product_id', '=', product.id)], limit=1):
                     continue

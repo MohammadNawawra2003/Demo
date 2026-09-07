@@ -81,17 +81,43 @@ class TestProductionSchedule(TransactionCase):
                 order.product_id.default_code, RESERVED_FOR_SCENARIO,
                 "%s produces the scenario's own product" % order.origin)
 
-    def test_the_scenario_component_still_has_no_stock(self):
+    def test_the_scenario_shortage_is_real_and_still_short(self):
+        """Re-baselined 2026-09-07, on the owner's ruling.
+
+        This used to assert PK-BTL-330 had *zero* stock, because nothing in the
+        database had ever moved. Document A §13 S-01 plants a genuine shortage
+        against a 486,000 reorder point, and the owner ruled S-01 wins: the demo
+        now walks the non-zero path. DL-008 still holds and is still tested in
+        the kernel; it simply stopped being the path the live demo takes.
+
+        What must remain true is the thing the demo is built on: the scenario
+        order is still short of bottles. The production schedule may not quietly
+        fill that in.
+        """
         component = self.env['product.product'].search(
             [('default_code', '=', SEED_COMPONENT)], limit=1)
         self.assertTrue(component, "the demo component is missing")
+        orderpoint = self.env['stock.warehouse.orderpoint'].search(
+            [('product_id', '=', component.id)], limit=1)
+        self.assertTrue(orderpoint, "§13 S-01 planted no reorder point")
+
         quants = self.env['stock.quant'].search([
             ('product_id', '=', component.id),
             ('location_id.usage', '=', 'internal')])
-        self.assertFalse(
-            sum(quants.mapped('quantity')),
-            "the schedule put %s into stock; the shortage the demo is built "
-            "on has been filled in" % SEED_COMPONENT)
+        available = (sum(quants.mapped('quantity'))
+                     - sum(quants.mapped('reserved_quantity')))
+        self.assertLess(
+            available, orderpoint.product_min_qty,
+            "the shortage §13 S-01 plants has been filled in; the procurement "
+            "scenario has nothing left to recommend")
+
+        scenario = self.Production.search([('origin', '=', SEED_ORIGIN)], limit=1)
+        required = sum(
+            move.product_uom_qty for move in scenario.move_raw_ids
+            if move.product_id == component)
+        self.assertGreater(
+            required, available,
+            "the scenario order is no longer short of %s" % SEED_COMPONENT)
 
     def test_the_scenario_order_is_still_the_only_one_of_its_kind(self):
         scenario = self.Production.search([('origin', '=', SEED_ORIGIN)])

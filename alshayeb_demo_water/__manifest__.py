@@ -1,6 +1,6 @@
 {
     'name': 'Naqaa Water — Demo Company',
-    'version': '19.0.1.3.0',
+    'version': '19.0.1.4.0',
     'category': 'Productivity/AI',
     'summary': 'The archetype Saudi bottled-water company the AI platform is '
                'built, demonstrated and security-tested against',
@@ -21,6 +21,9 @@
         # both silently inert -- the builder guarded on the field existing and
         # skipped every one of them without a word.
         'product_expiry',
+        # §13 S-07 is a preventive-maintenance signal on the UV lamp, and a
+        # signal needs somewhere to live.
+        'maintenance',
         'quality_mrp', 'quality_mrp_workorder',
         'sale_management', 'account', 'l10n_sa', 'hr',
         'stock_security_warehouse',

@@ -36,6 +36,17 @@ class ReadinessOutput(Schema):
     short_component_count = Int()
 
 
+#: The most orders ``manufacturing.get_open_mos`` may emit.
+#:
+#: Named, because two numbers have to agree: the query limit and the schema cap.
+#: They did not. The query took ``max_records`` (200 by default) and the schema
+#: allowed 100, so the moment the plant carried more than a hundred open orders
+#: the serialiser refused the tool's own output and the agent could not list
+#: manufacturing orders at all. It stayed hidden while the demo database held
+#: nineteen.
+OPEN_MOS_MAX = 100
+
+
 class OpenMosInput(Schema):
     days_ahead = Int(min=1, max=365, required=False, default=14)
 
@@ -48,7 +59,7 @@ class OpenMosOutput(Schema):
         'quantity': Float(),
         'state': Str(),
         'planned_date': Str(),
-    }), max_items=100)
+    }), max_items=OPEN_MOS_MAX)
     count = Int()
 
 
