@@ -104,7 +104,15 @@ class AlshayebDemoBuilder(models.AbstractModel):
 
     def _build_companies(self):
         country = self.env['res.country'].search([('code', '=', bp.COUNTRY)], limit=1)
-        currency = self.env['res.currency'].search([('name', '=', bp.CURRENCY)], limit=1)
+        # active_test=False, or the unarchive below is unreachable: Odoo ships
+        # every currency but the one in use archived, so a default search for
+        # SAR returns an empty recordset on exactly the databases that need
+        # unarchiving. The branch could only ever fire for a currency that was
+        # already active -- the one case it is not needed -- and the company
+        # was then created with the database default, USD. Every figure in
+        # blueprint.py is authored in SAR, so this silently mislabelled them.
+        currency = self.env['res.currency'].with_context(active_test=False).search(
+            [('name', '=', bp.CURRENCY)], limit=1)
         if currency and not currency.active:
             currency.active = True
 
@@ -722,11 +730,20 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 if existing:
                     if existing.company_id != company:
                         existing.company_id = company.id
+                    if existing.currency_id != company.currency_id:
+                        existing.currency_id = company.currency_id.id
                     continue
                 Supplierinfo.create({
                     'company_id': company.id,
                     'partner_id': partner.id,
                     'product_tmpl_id': product.product_tmpl_id.id,
+                    # Explicit for the same reason as company_id above, and it
+                    # is the more visible of the two: currency_id defaults to
+                    # the installing user's company currency, so every offer
+                    # was written in USD while `price` is a SAR figure derived
+                    # from standard_price. This is the number the RFQ line
+                    # shows the customer -- PK-BTL-600 at 0.078.
+                    'currency_id': company.currency_id.id,
                     'price': round(product.standard_price * multiplier, 4),
                     'delay': lead,
                     'min_qty': 5_000_000 if supplier_code == 'SUP-NCI' else 0,

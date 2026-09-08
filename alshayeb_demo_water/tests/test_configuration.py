@@ -27,6 +27,56 @@ class TestNaqaaConfiguration(TransactionCase):
         return self.env['product.product'].with_context(active_test=False).search(
             [('default_code', '=', code)], limit=1)
 
+    # -- §2 identity ------------------------------------------------------
+
+    def test_every_company_is_in_the_blueprint_currency(self):
+        """§2. Every figure in blueprint.py is authored in SAR -- the trade
+        price per carton, the unit costs, FREIGHT_SAR_PER_PALLET. The company
+        currency is what decides whether they are *rendered* as SAR, so a
+        database in USD prints a SAR figure wearing a dollar sign and the
+        agent's Arabic answer disagrees with the purchase order it produced.
+
+        This failed silently for the life of the module: `_build_companies`
+        searched for SAR without `active_test=False`, and Odoo ships every
+        unused currency archived, so the search found nothing and the company
+        was created on the database default.
+        """
+        for company in (self.c1, self.c2):
+            self.assertTrue(company, "a Naqaa company is missing")
+            self.assertEqual(
+                company.currency_id.name, bp.CURRENCY,
+                "%s is in %s, not %s -- every blueprint figure is authored in "
+                "%s" % (company.name, company.currency_id.name,
+                        bp.CURRENCY, bp.CURRENCY))
+
+    def test_the_blueprint_currency_is_active(self):
+        """The unarchive branch in `_build_companies` exists precisely for the
+        archived case and used to be unreachable, so assert the outcome it is
+        responsible for rather than trusting the branch is there."""
+        currency = self.env['res.currency'].with_context(active_test=False).search(
+            [('name', '=', bp.CURRENCY)], limit=1)
+        self.assertTrue(currency, "%s does not exist at all" % bp.CURRENCY)
+        self.assertTrue(currency.active,
+                        "%s is archived, so nothing can be priced in it"
+                        % bp.CURRENCY)
+
+    def test_every_supplier_offer_is_in_the_blueprint_currency(self):
+        """The supplier price is the most customer-visible number in the whole
+        demo -- PK-BTL-600 at 0.078 is what the agent quotes and what the RFQ
+        line prints. `currency_id` defaults to the installing user's company
+        currency, so fixing the company alone still left every offer in USD:
+        a fresh build with the company fix in place reproduced exactly that.
+        """
+        offers = self.env['product.supplierinfo'].with_context(
+            active_test=False).search([('company_id', 'in', (self.c1 | self.c2).ids)])
+        self.assertTrue(offers, "no supplier offers exist at all")
+        wrong = offers.filtered(lambda o: o.currency_id.name != bp.CURRENCY)
+        self.assertFalse(
+            wrong,
+            "%s supplier offers are not in %s: %s" % (
+                len(wrong), bp.CURRENCY,
+                sorted({o.currency_id.name for o in wrong})))
+
     # -- §15 costing and valuation ---------------------------------------
 
     def test_costing_is_avco(self):
