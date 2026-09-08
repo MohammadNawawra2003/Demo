@@ -1,0 +1,203 @@
+"""Reset one demo run, so the next one starts where the first one did.
+
+NON-PRODUCTION. This module is never installed on a customer database.
+
+The owner's item I asks for the demo to be run twice: once while building it,
+then reset and run again from the runbook alone. Without a reset the second run
+is not the same demo. Two things leak:
+
+* ``procurement.prepare_draft_rfq`` is idempotent on
+  ``{profile}:{company}:{purpose}:{product}:{location}:{date}``. The key carries
+  the date but not the quantity, so asking again on the SAME DAY returns the
+  draft the first run created instead of creating one. That is correct
+  production behaviour and is deliberately not changed here -- the residue is
+  removed instead, and the same key then finds nothing.
+* The kernel replays a channel's own messages as conversation history, so the
+  second run's agent can see, and refer to, the first run's answers.
+
+**What this deletes is decided by explicit markers, never by a search over
+dates, products or vendors.** Every marker below is a field the product itself
+writes when an agent creates a record, or a record the demo fixture owns:
+
+===========================  ==================================================
+``purchase.order``           ``ai_idempotency_key`` begins with a demo profile
+                             code. A human-created RFQ -- P00001 -- has no key
+                             at all and is invisible to this reset.
+``mail.activity``            ``ai_profile_code`` is one of the demo profiles.
+``ai.operations.handoff``    ``from_profile_id`` or ``to_profile_id`` is one of
+                             the demo profiles.
+``quality.alert``            name begins with ``AI: proposed hold on``, the
+                             literal ``propose_hold`` builds and dedups on.
+``mail.message``             posted in a channel the demo fixture bound to an
+                             agent profile (``discuss.channel.ai_profile_id``).
+===========================  ==================================================
+
+**What it deliberately does NOT touch:** the deterministic base fixture. The
+``AI-DEMO-E2E`` sales orders, the manufacturing order MTO created from them, the
+component stock behind the 12,000-against-8,000 shortage, the ``AI-DEMO`` seeded
+records, the eighteen scheduled orders, and the whole Document A history all
+survive. They are the starting state, not residue. Because the manufacturing
+order keeps its reservation, ``e2e_scenario.build()`` after a reset is a no-op
+and the shortage is still exactly 4,000 bottles of ``PK-BTL-600``.
+
+No ``sudo()``. The reset runs with the privileges of whoever calls it.
+"""
+
+import logging
+
+from odoo import api, models
+from odoo.exceptions import AccessError, UserError
+
+from .demo_setup import ROUTING
+
+_logger = logging.getLogger(__name__)
+
+#: The literal title ``quality.propose_hold`` builds, and the only marker a
+#: ``quality.alert`` carries -- the model has no AI field, and adding one would
+#: mean changing a production pack.
+ALERT_PREFIX = 'AI: proposed hold on '
+
+#: The only state Odoo will delete a purchase order from. ``_unlink_if_cancelled``
+#: in ``purchase`` refuses anything else -- a *draft* included, which is easy to
+#: assume otherwise -- so every order is cancelled through its own button first,
+#: never by writing ``state``.
+DELETABLE_PO_STATE = 'cancel'
+
+
+class AIOperationsDemoReset(models.AbstractModel):
+    _name = 'ai.operations.demo.reset'
+    _description = 'AI Operations Demo Reset (NON-PRODUCTION)'
+
+    # ------------------------------------------------------------------
+
+    @api.model
+    def reset(self):
+        """Remove one demo run's residue. Idempotent: running it twice is the
+        same as running it once, and running it on a clean database is a no-op.
+
+        Returns a summary dict so the runbook has something to show and to
+        paste into the evidence log.
+        """
+        summary = {
+            'purchase_orders_deleted': 0,
+            'purchase_orders_cancelled_not_deleted': [],
+            'activities_deleted': 0,
+            'handoffs_deleted': 0,
+            'quality_alerts_deleted': 0,
+            'messages_deleted': 0,
+        }
+        # Every search below has to see all three demo companies. Multi-company
+        # record rules scope a search to the caller's active companies, so an
+        # administrator sitting in "My Company" -- which is where a fresh login
+        # lands, and the reason the demo looked empty in the first review --
+        # would match none of the Naqaa records and report a clean reset that
+        # removed nothing at all. Not sudo: this is exactly the set of companies
+        # the caller already has access to, never more.
+        self = self.with_context(
+            allowed_company_ids=self.env.user.company_ids.ids
+            or self.env.companies.ids)
+        codes = sorted(ROUTING)
+        self._reset_draft_rfqs(codes, summary)
+        self._reset_activities(codes, summary)
+        self._reset_handoffs(codes, summary)
+        self._reset_quality_alerts(summary)
+        self._reset_conversations(summary)
+        _logger.info("ai_operations_demo_data: demo reset -> %s", summary)
+        return summary
+
+    # -- purchase orders ---------------------------------------------------
+
+    @api.model
+    def _reset_draft_rfqs(self, codes, summary):
+        """Delete the orders an agent created, cancelling first if Odoo needs it.
+
+        Odoo deletes a purchase order only from ``cancel``. Not from ``draft``:
+        ``purchase._unlink_if_cancelled`` refuses every other state, so the draft
+        the agent prepared has to be cancelled too, not only the one the runbook
+        had a human confirm. Cancelling goes through ``button_cancel`` because it
+        also cancels the receipts a confirmed order created; writing ``state``
+        directly would leave those behind.
+        """
+        prefixes = tuple('%s:' % code for code in codes)
+        candidates = self.env['purchase.order'].search(
+            [('ai_idempotency_key', '!=', False)])
+        orders = candidates.filtered(
+            lambda o: o.ai_idempotency_key.startswith(prefixes))
+        for order in orders:
+            name = order.name
+            if order.state != DELETABLE_PO_STATE:
+                with self.env.cr.savepoint(flush=False):
+                    try:
+                        order.button_cancel()
+                    except (UserError, AccessError) as exc:
+                        summary['purchase_orders_cancelled_not_deleted'].append(
+                            '%s (cancel refused: %s)' % (name, exc))
+                        continue
+            if order.state != DELETABLE_PO_STATE:
+                summary['purchase_orders_cancelled_not_deleted'].append(
+                    '%s (still %s)' % (name, order.state))
+                continue
+            with self.env.cr.savepoint(flush=False):
+                try:
+                    order.unlink()
+                except (UserError, AccessError) as exc:
+                    summary['purchase_orders_cancelled_not_deleted'].append(
+                        '%s (cancelled, delete refused: %s)' % (name, exc))
+                    continue
+            summary['purchase_orders_deleted'] += 1
+
+    # -- activities, handoffs, alerts --------------------------------------
+
+    @api.model
+    def _reset_activities(self, codes, summary):
+        activities = self.env['mail.activity'].search(
+            [('ai_profile_code', 'in', codes)])
+        summary['activities_deleted'] = len(activities)
+        activities.unlink()
+
+    @api.model
+    def _reset_handoffs(self, codes, summary):
+        handoffs = self.env['ai.operations.handoff'].search([
+            '|', ('from_profile_id.code', 'in', codes),
+            ('to_profile_id.code', 'in', codes),
+        ])
+        summary['handoffs_deleted'] = len(handoffs)
+        handoffs.unlink()
+
+    @api.model
+    def _reset_quality_alerts(self, summary):
+        if 'quality.alert' not in self.env:
+            return
+        alerts = self.env['quality.alert'].search(
+            [('name', '=like', ALERT_PREFIX + '%')])
+        summary['quality_alerts_deleted'] = len(alerts)
+        alerts.unlink()
+
+    # -- conversations -----------------------------------------------------
+
+    @api.model
+    def _reset_conversations(self, summary):
+        """Empty the demo channels.
+
+        The kernel rebuilds conversation history from a channel's own messages,
+        bounded at twenty turns. Leaving the first run's conversation in place
+        would let the second run's agent answer from it -- which is the most
+        invisible way first-run state leaks into a second run, because the reply
+        still looks perfectly reasonable.
+
+        The channels themselves are kept: they are fixture records, and the
+        runbook's step numbers refer to them by name.
+        """
+        channels = self.env['discuss.channel'].search(
+            [('ai_profile_id', '!=', False)])
+        if not channels:
+            return
+        messages = self.env['mail.message'].search([
+            ('model', '=', 'discuss.channel'),
+            ('res_id', 'in', channels.ids),
+        ])
+        summary['messages_deleted'] = len(messages)
+        messages.unlink()
+        stuck = channels.filtered('ai_run_active')
+        if stuck:
+            stuck.write({'ai_run_active': False})

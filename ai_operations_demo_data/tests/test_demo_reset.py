@@ -1,0 +1,288 @@
+"""The reset that makes the second demo run the same demo as the first.
+
+Item I asks for the whole thing to be run twice, the second time from the
+runbook alone. Two things stop that from being the same demo, and this suite
+holds both closed.
+
+The first is the reason the reset exists at all. ``prepare_draft_rfq`` is
+idempotent on a key carrying the date but not the quantity, so asking again on
+the same day returns the first run's draft. That is correct production
+behaviour and is not changed; the residue is removed instead, and the same key
+then finds nothing. ``test_the_same_key_is_free_again_after_a_reset`` is the
+direct proof.
+
+The second is what a reset must never do. Deleting by anything looser than an
+explicit marker -- by date, by product, by vendor -- would take the human's own
+purchase order with it, and on a demo database the operator would not notice
+until the next customer meeting. So every assertion here comes in a pair: the
+agent's record goes, and the record beside it that no agent created stays.
+"""
+
+from odoo.tests import TransactionCase, tagged
+
+from ..models.demo_reset import ALERT_PREFIX
+from ..models.demo_setup import COMPANY
+from ..models.e2e_scenario import (
+    SHORTAGE_ORIGIN, SHORT_COMPONENT, SHORT_COMPONENT_ONHAND)
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestDemoReset(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = cls.env['res.company'].search(
+            [('name', '=', COMPANY)], limit=1)
+        cls.Reset = cls.env['ai.operations.demo.reset']
+        cls.Scenario = cls.env['ai.operations.e2e.scenario']
+        cls.Profile = cls.env['ai.operations.agent.profile'].with_context(
+            active_test=False)
+        cls.Purchase = cls.env['purchase.order']
+        cls.Activity = cls.env['mail.activity']
+        cls.Handoff = cls.env['ai.operations.handoff']
+
+        cls.supplier = cls.env['res.partner'].search(
+            [('supplier_rank', '>', 0)], limit=1)
+        cls.component = cls.env['product.product'].search(
+            [('default_code', '=', SHORT_COMPONENT)], limit=1)
+        # A profile no demo routing knows about, so its handoff is the "someone
+        # else's record" half of every pair below.
+        # Inactive, the way the packs ship theirs: an active profile is required
+        # to carry a company scope, and this one exists only to own a handoff.
+        cls.outsider = cls.Profile.with_context(skip_policy_audit=True).create({
+            'name': 'Unrelated Agent (reset test)',
+            'code': 'kt_reset_outsider',
+            'active': False,
+        })
+
+    # -- fixtures ---------------------------------------------------------
+
+    def _key(self, profile='procurement', date='2026-09-08'):
+        """The shape record_idempotency_key() builds."""
+        return '%s:%s:draft_rfq:%s:976:%s' % (
+            profile, self.company.id, SHORT_COMPONENT, date)
+
+    def _order(self, key=None, confirm=False):
+        order = self.Purchase.create({
+            'partner_id': self.supplier.id,
+            'company_id': self.company.id,
+            'ai_idempotency_key': key,
+            'order_line': [(0, 0, {
+                'product_id': self.component.id,
+                'product_qty': 4_000,
+                'price_unit': 0.078,
+            })],
+        })
+        if confirm:
+            order.button_confirm()
+        return order
+
+    def _activity(self, profile_code, record):
+        return self.Activity.create({
+            'res_model_id': self.env['ir.model']._get_id(record._name),
+            'res_id': record.id,
+            'activity_type_id': self.env['mail.activity.type'].search(
+                [], limit=1).id,
+            'summary': 'reset test',
+            'date_deadline': '2026-09-30',
+            'user_id': self.env.user.id,
+            'ai_profile_code': profile_code,
+        })
+
+    def _handoff_type(self, code, from_profile, to_profile):
+        """A type wired for exactly this pair, with an empty payload schema.
+
+        The shipped types constrain who may raise and who receives, and reject
+        any payload that is not exactly their declared fields. Reusing one would
+        make this suite depend on a pack's routing; what is under test is the
+        reset, not the pairing rules.
+        """
+        return self.env['ai.operations.handoff.type'].create({
+            'code': code,
+            'name': code,
+            'payload_schema': '{}',
+            'from_profile_ids': [(6, 0, from_profile.ids)],
+            'to_profile_id': to_profile.id,
+        })
+
+    def _handoff(self, from_profile, to_profile, code='KT_RESET'):
+        return self.Handoff.create({
+            'name': 'reset test',
+            'type_id': self._handoff_type(code, from_profile, to_profile).id,
+            'from_profile_id': from_profile.id,
+            'to_profile_id': to_profile.id,
+            'payload': {},
+        })
+
+    def _alert(self, name):
+        if 'quality.alert' not in self.env:
+            self.skipTest('quality is Enterprise-only and is not installed')
+        return self.env['quality.alert'].create({
+            'name': name,
+            'company_id': self.company.id,
+            'team_id': self.env['quality.alert.team'].search([], limit=1).id,
+        })
+
+    def _demo_profile(self, code='procurement'):
+        return self.Profile.search([('code', '=', code)], limit=1)
+
+    # -- what goes ---------------------------------------------------------
+
+    def test_reset_removes_the_agents_purchase_order(self):
+        order = self._order(key=self._key())
+        self.Reset.reset()
+        self.assertFalse(order.exists(), "the agent's draft RFQ survived the reset")
+
+    def test_reset_removes_the_agents_activity(self):
+        activity = self._activity('procurement', self._order(key=self._key()))
+        self.Reset.reset()
+        self.assertFalse(activity.exists(), "the agent's review activity survived")
+
+    def test_reset_removes_the_agents_handoff(self):
+        handoff = self._handoff(
+            self._demo_profile('manufacturing'), self._demo_profile('procurement'))
+        self.Reset.reset()
+        self.assertFalse(handoff.exists(), "the agent's handoff survived")
+
+    def test_reset_removes_the_proposed_hold(self):
+        alert = self._alert(ALERT_PREFIX + 'LOT-TEST (SPEC_EXCEEDED)')
+        self.Reset.reset()
+        self.assertFalse(alert.exists(), "the proposed hold survived")
+
+    def test_reset_empties_the_demo_conversations(self):
+        """History leaking into run two is invisible: the reply still reads well."""
+        channel = self.env['discuss.channel'].search(
+            [('ai_profile_id', '!=', False)], limit=1)
+        self.assertTrue(channel, "the demo bound no channels")
+        channel.message_post(body='first run', message_type='comment')
+        self.Reset.reset()
+        self.assertFalse(
+            self.env['mail.message'].search_count([
+                ('model', '=', 'discuss.channel'), ('res_id', '=', channel.id)]),
+            "the first run's conversation is still replayable as history")
+        self.assertTrue(channel.exists(), "the reset deleted a fixture channel")
+
+    # -- what stays --------------------------------------------------------
+
+    def test_a_purchase_order_no_agent_created_survives(self):
+        """P00001 is the real one. It carries no key and must be invisible here."""
+        human = self._order(key=False)
+        self.Reset.reset()
+        self.assertTrue(
+            human.exists(),
+            "the reset deleted a purchase order no agent created; matching on "
+            "anything looser than ai_idempotency_key takes the customer's own "
+            "orders with it")
+
+    def test_an_activity_no_agent_created_survives(self):
+        human = self._activity(False, self._order(key=False))
+        self.Reset.reset()
+        self.assertTrue(human.exists(), "the reset deleted a human's activity")
+
+    def test_a_handoff_outside_the_demo_profiles_survives(self):
+        outsider = self._handoff(self.outsider, self.outsider, code='KT_RESET_OUT')
+        self.Reset.reset()
+        self.assertTrue(
+            outsider.exists(),
+            "the reset deleted a handoff belonging to a profile the demo does "
+            "not route")
+
+    def test_a_quality_alert_no_agent_proposed_survives(self):
+        human = self._alert('Manual hold raised by the QA manager')
+        self.Reset.reset()
+        self.assertTrue(human.exists(), "the reset deleted a human's quality alert")
+
+    def test_the_base_fixture_survives(self):
+        """The scenario orders are the starting state, not residue."""
+        order = self.env['sale.order'].search(
+            [('origin', '=', SHORTAGE_ORIGIN)], limit=1)
+        production = self.env['mrp.production'].with_context(
+            active_test=False).search([('origin', '=', order.name)], limit=1)
+        self.Reset.reset()
+        self.assertTrue(order.exists(), "the reset deleted the scenario sales order")
+        self.assertTrue(production.exists(),
+                        "the reset deleted the scenario manufacturing order")
+
+    # -- and it can be run again -------------------------------------------
+
+    def test_reset_twice_is_the_same_as_once(self):
+        self._order(key=self._key())
+        self._handoff(self._demo_profile('manufacturing'),
+                      self._demo_profile('procurement'))
+        first = self.Reset.reset()
+        second = self.Reset.reset()
+        self.assertEqual(
+            second['purchase_orders_deleted'], 0, "the second reset found residue")
+        self.assertEqual(second['handoffs_deleted'], 0)
+        self.assertFalse(second['purchase_orders_cancelled_not_deleted'])
+        self.assertGreaterEqual(first['purchase_orders_deleted'], 1)
+
+    def test_reset_on_a_clean_database_is_a_no_op(self):
+        self.Reset.reset()
+        summary = self.Reset.reset()
+        for key in ('purchase_orders_deleted', 'activities_deleted',
+                    'handoffs_deleted', 'quality_alerts_deleted',
+                    'messages_deleted'):
+            self.assertEqual(
+                summary[key], 0,
+                "a reset with nothing to remove reported %s: %s" % (key, summary))
+        self.assertFalse(summary['purchase_orders_cancelled_not_deleted'])
+
+    def test_reset_cancels_a_confirmed_order_before_deleting_it(self):
+        """The runbook has a human press Confirm, so by reset time it is not a
+        draft, and Odoo refuses to delete a confirmed purchase order."""
+        order = self._order(key=self._key(), confirm=True)
+        self.assertEqual(order.state, 'purchase')
+        summary = self.Reset.reset()
+        self.assertFalse(
+            order.exists(),
+            "a confirmed order was not cancelled and removed: %s"
+            % summary['purchase_orders_cancelled_not_deleted'])
+
+    # -- the starting state is genuinely restored ---------------------------
+
+    def test_the_shortage_is_exactly_what_it_was_before_the_run(self):
+        """The number the whole runbook quotes: 12,000 required, 8,000 available."""
+        self._order(key=self._key())
+        self.Reset.reset()
+        self.Scenario.build()
+
+        order = self.env['sale.order'].search(
+            [('origin', '=', SHORTAGE_ORIGIN)], limit=1)
+        production = self.env['mrp.production'].with_context(
+            active_test=False).search([('origin', '=', order.name)], limit=1)
+        move = production.move_raw_ids.filtered(
+            lambda m: m.product_id.default_code == SHORT_COMPONENT)
+
+        self.assertEqual(move.product_uom_qty, 12_000, "the requirement moved")
+        self.assertEqual(move.quantity, float(SHORT_COMPONENT_ONHAND),
+                         "the available quantity moved")
+        self.assertEqual(
+            [m.product_id.default_code for m in production.move_raw_ids
+             if m.state != 'assigned'],
+            [SHORT_COMPONENT],
+            "after a reset and rebuild the demo is no longer short of exactly "
+            "one component")
+
+    def test_the_same_key_is_free_again_after_a_reset(self):
+        """The blocker itself.
+
+        Running the demo twice in one day builds the same idempotency key both
+        times. Before the reset existed, the second run returned the first run's
+        draft; a unique constraint on (company_id, ai_idempotency_key) means it
+        could not even be recreated. After a reset the key is free, so the second
+        run creates its own order and the customer sees the same demo.
+        """
+        key = self._key()
+        first = self._order(key=key)
+        self.env.flush_all()
+        self.Reset.reset()
+
+        second = self._order(key=key)
+        self.env.flush_all()
+
+        self.assertTrue(second.exists())
+        self.assertNotEqual(second.id, first.id,
+                            "the second run reused the first run's order")
+        self.assertEqual(second.ai_idempotency_key, key)

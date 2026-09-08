@@ -244,6 +244,48 @@ autonomy 2.
 
 ---
 
+## Between run 1 and run 2 — the demo reset
+
+Item I's second run must start where the first one did. One call, run as an administrator,
+in `ai_operations_demo_data` only:
+
+```python
+env['ai.operations.demo.reset'].reset()
+```
+
+It removes what an agent created during a run and nothing else, keyed on markers the product
+itself writes:
+
+| Model | Marker | A human's record |
+|---|---|---|
+| `purchase.order` | `ai_idempotency_key` starts with a demo profile code | carries no key — untouched |
+| `mail.activity` | `ai_profile_code` in the demo profiles | no code — untouched |
+| `ai.operations.handoff` | `from_profile_id` / `to_profile_id` in the demo profiles | another profile's — untouched |
+| `quality.alert` | name starts with `AI: proposed hold on` | untouched |
+| `mail.message` | posted in a channel bound via `discuss.channel.ai_profile_id` | channels kept, contents cleared |
+
+A confirmed purchase order is cancelled through `button_cancel` — which cancels the pickings it
+created — and only then deleted. `state` is never written directly, and there is no `sudo()`.
+
+**Not touched:** the `AI-DEMO-E2E` sales orders, the manufacturing order, the component stock
+behind the 12,000-against-8,000 shortage, the `AI-DEMO` seeds, the eighteen scheduled orders, and
+the Document A history. Those are the starting state. Because the manufacturing order keeps its
+reservation, rebuilding the fixture after a reset is a no-op and the shortage is still exactly
+4,000 bottles of `PK-BTL-600`.
+
+**Why it exists:** `prepare_draft_rfq`'s idempotency key carries the date but not the quantity, so
+a same-day second run returned the first run's draft. **That production behaviour is unchanged** —
+the residue is removed instead, and the key then finds nothing.
+
+| Check | Local | Staging |
+|---|---|---|
+| Reset removes the agent's RFQ, activity, handoff, proposed hold and conversation | ✅ | ⏳ PENDING |
+| A purchase order, activity, handoff and alert no agent created all survive | ✅ | ⏳ PENDING |
+| Reset twice = reset once; on a clean database it is a no-op | ✅ | ⏳ PENDING |
+| A confirmed order is cancelled, then deleted | ✅ | ⏳ PENDING |
+| After reset + rebuild: `PK-BTL-600` required 12,000, available 8,000, one shortage | ✅ | ⏳ PENDING |
+| The same idempotency key is free again, so run 2 creates its own order | ✅ | ⏳ PENDING |
+
 ## Evidence log
 
 | Agent | Allowed prompt | Forbidden prompt | Audit rows | Result |
