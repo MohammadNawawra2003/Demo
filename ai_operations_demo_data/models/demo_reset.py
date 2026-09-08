@@ -34,11 +34,19 @@ writes when an agent creates a record, or a record the demo fixture owns:
 
 **What it deliberately does NOT touch:** the deterministic base fixture. The
 ``AI-DEMO-E2E`` sales orders, the manufacturing order MTO created from them, the
-component stock behind the 12,000-against-8,000 shortage, the ``AI-DEMO`` seeded
-records, the eighteen scheduled orders, and the whole Document A history all
-survive. They are the starting state, not residue. Because the manufacturing
-order keeps its reservation, ``e2e_scenario.build()`` after a reset is a no-op
-and the shortage is still exactly 4,000 bottles of ``PK-BTL-600``.
+``AI-DEMO`` seeded records, the eighteen scheduled orders, and the whole
+Document A history all survive. They are the starting state, not residue.
+
+**Component stock is LEVELLED, not left alone.** That is the one thing a reset
+cannot do by deleting records. A demo that was actually performed *receives*
+goods: run #1 on staging bought 4,000 bottles and took them through a lot
+number, ten quality checks and a two-step warehouse, exactly as the runbook
+says to. Afterwards the order reserved all 12,000 it needed, the shortage was
+gone, and every later step of run #2 was about a problem that no longer
+existed -- while the reset reported a clean sweep, because the paperwork had
+indeed been cancelled. ``e2e_scenario.relevel()`` puts the components back to
+their target figures in both directions, so the order is short by precisely the
+documented 4,000 again.
 
 No ``sudo()``. The reset runs with the privileges of whoever calls it.
 """
@@ -87,6 +95,7 @@ class AIOperationsDemoReset(models.AbstractModel):
             'handoffs_cancelled': 0,
             'quality_alerts_deleted': 0,
             'messages_deleted': 0,
+            'relevelled': {},
             'steps_failed': [],
         }
         # Every search below has to see all three demo companies. Multi-company
@@ -110,6 +119,9 @@ class AIOperationsDemoReset(models.AbstractModel):
             ('handoffs', self._reset_handoffs, (codes, summary)),
             ('quality alerts', self._reset_quality_alerts, (summary,)),
             ('conversations', self._reset_conversations, (summary,)),
+            # Last, because it re-reserves the order and wants the paperwork
+            # already gone.
+            ('stock level', self._relevel_stock, (summary,)),
         )
         for label, step, args in steps:
             try:
@@ -209,6 +221,22 @@ class AIOperationsDemoReset(models.AbstractModel):
             [('name', '=like', ALERT_PREFIX + '%')])
         summary['quality_alerts_deleted'] = len(alerts)
         alerts.unlink()
+
+    # -- stock -------------------------------------------------------------
+
+    @api.model
+    def _relevel_stock(self, summary):
+        """Put the components back to the figures the scenario starts from.
+
+        Cancelling paperwork is not enough once a demo has actually been
+        performed. Run #1 on staging bought 4,000 bottles and received them
+        properly -- lot number, ten quality checks, a two-step warehouse -- so
+        afterwards the order reserved all 12,000 it needed and the shortage the
+        whole cascade is about had ceased to exist. Nothing in a reset that only
+        deletes records can undo a receipt, and the fixture's own top-up is a
+        floor that never removes a surplus.
+        """
+        summary['relevelled'] = self.env['ai.operations.e2e.scenario'].relevel()
 
     # -- conversations -----------------------------------------------------
 

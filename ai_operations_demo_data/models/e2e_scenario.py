@@ -235,6 +235,110 @@ class AIOperationsE2EScenario(models.AbstractModel):
             self._set_free_quantity(
                 product, location, free_target, held.get(product.id, 0.0))
 
+    # -- putting the starting position back -------------------------------
+
+    @api.model
+    def _scenario_production(self):
+        """The manufacturing order MTO created from the shortage sales order."""
+        order = self.env['sale.order'].search(
+            [('origin', '=', SHORTAGE_ORIGIN)], limit=1)
+        if not order:
+            return self.env['mrp.production']
+        return self.env['mrp.production'].with_context(
+            active_test=False).search([('origin', '=', order.name)], limit=1)
+
+    @api.model
+    def relevel(self):
+        """Put component stock back to the figures the scenario starts from.
+
+        ``build`` only ever tops UP, deliberately: it runs on every upgrade and
+        must never remove stock a running demo depends on. That is the right
+        rule for building and the wrong one for resetting, because a demo that
+        was actually PERFORMED receives goods. Run #1 on staging bought 4,000
+        bottles, took them through a lot number, ten quality checks and a
+        two-step warehouse, and put them on the shelf -- which is the whole
+        point of the receipt steps. Afterwards the order reserved all 12,000 it
+        needed, the shortage was gone, and every later step of run #2 was about
+        a problem that no longer existed. The reset could cancel the paperwork
+        and could not un-receive the goods.
+
+        So this levels rather than tops up, in both directions. It is also the
+        general case: any component a presenter over-receives during a live
+        demo has exactly this problem, not only the one the runbook names.
+
+        The order is unreserved first. Stock that is reserved cannot be reduced,
+        and its reservation is the scenario's own, so releasing it is not
+        destroying anything -- ``action_assign`` puts it back at the end and the
+        order returns to being short by precisely the documented 4,000.
+        """
+        company = self.env['res.company'].search([('name', '=', COMPANY)], limit=1)
+        if not company:
+            return False
+        location = self.env['stock.location'].search(
+            [('complete_name', '=', RAW_MATERIAL_LOCATION)], limit=1)
+        if not location:
+            return False
+
+        production = self._scenario_production()
+        if production and production.state not in ('done', 'cancel'):
+            production.do_unreserve()
+
+        targets = dict(COMPONENT_TOPUP)
+        targets[SHORT_COMPONENT] = SHORT_COMPONENT_ONHAND
+        levelled = {}
+        for code, target in targets.items():
+            product = self.env['product.product'].search(
+                [('default_code', '=', code)], limit=1)
+            if not product:
+                continue
+            moved = self._level_free_quantity(product, location, target)
+            if moved:
+                levelled[code] = moved
+
+        if production and production.state not in ('done', 'cancel'):
+            production.action_assign()
+        _logger.info("e2e scenario: relevelled %s", levelled or 'nothing')
+        return levelled
+
+    @api.model
+    def _level_free_quantity(self, product, location, free_target):
+        """Move free stock to exactly ``free_target``, up or down.
+
+        Surplus is taken from quants carrying a lot first. On a demo database
+        those are what the run itself received -- the fixture's own baseline is
+        untracked -- so the stock that goes is the stock the demo brought in,
+        and the original quant is left alone. A quant is never taken below what
+        is still reserved on it by somebody else.
+        """
+        Quant = self.env['stock.quant'].with_context(inventory_mode=True)
+        quants = Quant.search([
+            ('product_id', '=', product.id),
+            ('location_id', 'child_of', location.id),
+        ])
+        on_hand = sum(quants.mapped('quantity'))
+        reserved = sum(quants.mapped('reserved_quantity'))
+        free = on_hand - reserved
+        if free == free_target:
+            return 0.0
+        if free < free_target:
+            self._set_free_quantity(product, location, free_target)
+            return free_target - free
+
+        surplus = free - free_target
+        removed = 0.0
+        for quant in quants.sorted(key=lambda q: (not q.lot_id, q.id)):
+            if surplus <= 0:
+                break
+            removable = min(surplus, quant.quantity - quant.reserved_quantity)
+            if removable <= 0:
+                continue
+            quant.with_context(inventory_mode=True).write({
+                'inventory_quantity': quant.quantity - removable})
+            quant.with_context(inventory_mode=True).action_apply_inventory()
+            surplus -= removable
+            removed += removable
+        return -removed
+
     @api.model
     def _scenario_reservations(self):
         """What the scenario's own manufacturing order is already holding.

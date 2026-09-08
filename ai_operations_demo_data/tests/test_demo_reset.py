@@ -131,6 +131,18 @@ class TestDemoReset(TransactionCase):
             'team_id': self.env['quality.alert.team'].search([], limit=1).id,
         })
 
+    def _production(self):
+        order = self.env['sale.order'].search(
+            [('origin', '=', SHORTAGE_ORIGIN)], limit=1)
+        self.assertTrue(order, "the scenario sales order is missing")
+        return self.env['mrp.production'].with_context(
+            active_test=False).search([('origin', '=', order.name)], limit=1)
+
+    def _unreserved(self, production):
+        return [move.product_id.default_code
+                for move in production.move_raw_ids
+                if move.state != 'assigned']
+
     def _demo_profile(self, code='procurement'):
         return self.Profile.search([('code', '=', code)], limit=1)
 
@@ -310,3 +322,51 @@ class TestDemoReset(TransactionCase):
         self.assertNotEqual(second.id, first.id,
                             "the second run reused the first run's order")
         self.assertEqual(second.ai_idempotency_key, key)
+
+    # -- the reset must survive a demo that actually happened ---------------
+
+    def test_a_received_surplus_is_levelled_back_out(self):
+        """The failure that stopped run #2 on staging.
+
+        The runbook has the presenter buy the missing bottles and receive them.
+        That is the point of the receipt steps, and it means the reset cannot
+        just cancel paperwork: after one complete run the order reserves all
+        12,000 it needs and the shortage the whole cascade is about is gone.
+        The fixture's own top-up is a floor and will never remove a surplus.
+        """
+        production = self._production()
+        move = production.move_raw_ids.filtered(
+            lambda m: m.product_id.default_code == SHORT_COMPONENT)
+        location = self.env['stock.location'].search(
+            [('complete_name', '=', 'RM/Stock')], limit=1)
+
+        # Receive the 4,000 the demo would have bought.
+        quant = self.env['stock.quant'].with_context(inventory_mode=True).search(
+            [('product_id', '=', move.product_id.id),
+             ('location_id', 'child_of', location.id)], limit=1)
+        self.assertTrue(quant, "no stock quant to receive into")
+        quant.with_context(inventory_mode=True).write(
+            {'inventory_quantity': quant.quantity + 4_000})
+        quant.with_context(inventory_mode=True).action_apply_inventory()
+        production.action_assign()
+        production.invalidate_recordset()
+        self.assertFalse(
+            self._unreserved(production),
+            "the fixture did not reach the post-run state this test is about")
+
+        self.Reset.reset()
+
+        production.invalidate_recordset()
+        self.assertEqual(
+            self._unreserved(production), [SHORT_COMPONENT],
+            "after a reset the order must be short of the bottle again")
+        move.invalidate_recordset()
+        self.assertEqual(move.product_uom_qty, 12_000)
+        self.assertEqual(
+            move.quantity, float(SHORT_COMPONENT_ONHAND),
+            "the reset did not level the received surplus back out")
+
+    def test_relevelling_reports_what_it_moved(self):
+        summary = self.Reset.reset()
+        self.assertIn('relevelled', summary)
+        self.assertEqual(summary['steps_failed'], [])
