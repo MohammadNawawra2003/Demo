@@ -9,8 +9,9 @@ updated: 2026-09-08
 
 Product docs: `01-demo-company-blueprint.md` (A) · `02-ai-operations-flow-design.md` (B) ·
 `03-phase1-security-kernel-spec.md` (C) · `04-implementation-contract.md` (D).
-Code: **twelve modules, 628 passing tests / 0 failed / 0 errors** at `4e6e9cd`, which is the head of
-both `development` and `stage`. Measured 2026-09-08 across all twelve modules on one database.
+Code: **twelve modules, 643 passing tests / 0 failed / 0 errors** at `e129278`, which is the head of
+both `development` and `stage` and the final commit for the demo. Measured 2026-09-08 across all
+twelve modules on one database, on a frozen tree in a single run.
 The bare-database kernel run is **361 tests / 0 failed**. Two further tests live in
 `ai_operations_anthropic/tests/test_live.py`, tagged `-standard`, and never run in a normal suite —
 which is the whole of the gap between the static count and the reported one.
@@ -25,8 +26,9 @@ The Community claim is scoped, not global — see the support matrix in the 2026
 at the foot of this file. **One item remains open: the credential's durability
 on Odoo.sh.**
 
-**The customer demo is not complete.** A deterministic local fixture exists; the staging run, the
-Arabic prompt runbook and the real-provider proof do not. The checkpoint says exactly what is missing.
+**The customer demo is not complete.** The code is final and staging is unblocked, but the two
+reset-to-finish A-to-Z runs against `e129278` have not been performed, so no build is DEMO READY.
+The checkpoint carries the acceptance bar and exactly what is missing.
 
 ---
 
@@ -246,24 +248,25 @@ user with real groups rather than argued from the design.
 
 ## 2026-09-08 — checkpoint
 
-No code shipped this session. Every figure below was measured on this machine today, not recalled.
+Every figure below was measured on this machine today, not recalled.
 
 | | |
 |---|---|
-| `development` | `495d211` — equal to `origin/development`. The last **code** commit is `495d211` itself, the migration that unblocks the failing staging build |
-| `stage` | `495d211` — equal to `origin/stage` and to `development`. ⚠ A stale **local** `stage` ref at `4e6e9cd` was observed today; fast-forward before any push or it rolls back three commits |
+| `development` | **`e129278`** — equal to `origin/development`. `495d211` (the unblocking migration) and `915b318` are both still in history; nothing squashed or reverted |
+| `stage` | **`e129278`** — equal to `origin/stage` and to `development`. This is the **final commit for the demo**, and the only hash a staging run should be validated against |
 | `main` | `2ac3aa3` — untouched, equal to `origin/main` |
 | Working tree | clean |
 | Modules | **12** |
-| Tests | **628 passing, 0 failed, 0 errors**, all twelve modules on one database |
+| Tests | **643 passing, 0 failed, 0 errors**, all twelve modules on one database — 628 baseline + 15 for the reset model. Measured on a frozen tree, single run, no concurrent edits |
 | CI controls | **16 pass, 0 fail, 2 skip** of seventeen — `tools/ci_checks.sh`; skips are 3 and 14, both needing a database |
 | Accountant | operational, read-only. 4 tools, QUERY, 3 `perm_read` models, 0 action permissions |
 | General Manager | operational, read-only. 6 tools, QUERY, 11 `perm_read` models, 0 action permissions, 7 finance scalars |
 | Scenario fixture | built and green — `ai_operations_demo_data/models/e2e_scenario.py`, 8 guard tests |
+| Demo reset | built and green — `ai.operations.demo.reset` in `ai_operations_demo_data` (19.0.1.14.0), 15 tests. Marker-driven, no `sudo()`; makes the second demo run the same demo as the first |
 | Demo runbook | **draft** — `docs/GEORGE_FULL_AI_OPERATIONS_DEMO.md`; every staging-only value marked PENDING STAGING VERIFICATION |
 | Permission matrix | **draft** — `docs/SCENARIO_PERMISSION_MATRIX.md`; not yet exercised on staging |
 | Credential on Odoo.sh | `odoo.conf` fallback **works**; persistence observed across ~15 rebuilds, **not guaranteed**; durability is an open deployment limitation (DL-009) |
-| Staging build | **unblocked and deployed at `495d211`** on 2026-09-08, after eight commits of backlog — real module upgrade, 0 errors, `ai_operations_gm` installed for the first time. ⚠ It had never been "waiting on a rebuild": every build was *failing*. See below. ⚠ This build does **not** contain the demo-reset work, which is still uncommitted |
+| Staging build | **unblocked** on 2026-09-08 after eight commits of backlog, and first deployed at `495d211` — real module upgrade, 0 errors, `ai_operations_gm` installed for the first time. ⚠ It had never been "waiting on a rebuild": every build was *failing*. See below. That `495d211` build is **early/partial validation only** — it predates the reset model, so it is explicitly **not** a DEMO READY build. Final validation runs against `e129278` |
 
 ### Why staging never moved — the builds were failing, not queued
 
@@ -313,12 +316,19 @@ so the rights it granted were the rights the pack intended. This is a **write-ca
 with no counterpart in the product at all**, live on the database the customer demo will be shown
 from. Two separate sessions verified the absence independently before it was recorded here.
 
-**Not resolved, and deliberately not resolved by this document.** It needs a ruling: whether it was
-created by a test run against that database, by hand, or by something else, and whether it is
-deactivated or deleted before the demo. What must not happen is a blanket sweep — the migration that
-unblocked the build makes the argument well, and it applies here too: a deploy script that silently
-discards configuration is worse than a failed build. Delete only what a traceback or an explicit
-ruling names.
+**Ruled 2026-09-08: inspect, then deactivate — do not delete.** In order: identify its database
+relationships, its tool assignments and model permissions, and its origin if that can be determined;
+then **deactivate the untracked profile and any untracked assignments** rather than deleting
+broadly, and preserve the evidence in the staging notes. Deleting the profile could cascade through
+its assignments, and deleting write-capable drift blindly while real-provider runs are in flight is
+the wrong order. **It must not remain active for the final customer demo unless explicitly
+justified.** No blanket cleanup: the migration that unblocked the build makes the argument well and
+it applies here too — a script that silently discards configuration is worse than a failed build, so
+remove only what a traceback or an explicit ruling names.
+
+**How it came to exist is a finding in its own right,** separate from the demo. If a test run
+against that database can leave behind an active agent profile carrying a write budget, that is a
+defect in how tests reach a shared database, not merely an untidy row.
 
 **No rollback point exists.** `~/backup.daily` on the staging container is empty and `pg_dump` is
 blocked by an Odoo.sh role restriction (*"permission denied for view pg_settings"*). The 2026-09-08
@@ -353,10 +363,38 @@ covered from stock, so the demo also shows an agent reporting sufficiency and cr
 Idempotent, and guarded by 8 regression tests. **That is the only part that is finished; everything
 that needs a real staging run is not.**
 
-- **The real staging scenario has not been run.** Staging is stranded at `4ee86b7` because its
-  builds were failing, not queued — see *Why staging never moved* above. Nothing after that commit
-  — the guard properties, the permission fix, both new agents, the scenario fixture, both doc
-  commits, the migration — has ever run there.
+- **The final staging scenario has not been run.** Staging was stranded at `4ee86b7` for two days
+  because its builds were *failing*, not queued — see *Why staging never moved* above — and was
+  first unblocked at `495d211` on 2026-09-08. That build is early/partial validation only: it
+  predates the reset model, so the two reset-to-finish runs cannot be performed on it.
+
+**The acceptance bar, so that "done" has one meaning.** A DEMO READY verdict requires all of it, in
+order, and no part of it may be assumed from a green local suite:
+
+1. `development` = `stage` = the final commit, `e129278`.
+2. Deploy that exact hash to staging, once.
+3. Verify **installed** module versions against manifest versions — this is the check that catches
+   the whole failing-build class, and `ai_operations_demo_data` at **19.0.1.14.0** is the quickest
+   single proof that the build carrying the reset model actually took.
+4. Verify the permission records **in the database**, not in the XML.
+5. reset → **A-to-Z run #1** → reset → **A-to-Z run #2**.
+
+Two conditions on step 5 that the test suite cannot prove for you, both of which look like success
+if you do not check them:
+
+- **The reset must return a non-zero summary on the first call and zero on the second.** A reset
+  that reports *zero deletions on run 1* is not a clean database — it is the multi-company failure
+  mode, where record rules scoped the sweep to the caller's active companies and it matched nothing.
+  It reports success and deletes nothing. This is the same company-switcher trap that produced
+  George's empty screenshot, and on staging it is indistinguishable from a genuine no-op unless the
+  summary is read.
+- **Run #2 must pass from the runbook alone, with no developer intervention.** If run #2 needs a
+  shell, the reset has not done its job, whatever the suite says — the point of the second run is
+  that someone who did not build the demo can present it.
+
+Until step 5 is complete against `e129278` under both conditions, no build is DEMO READY. Everything
+run against `495d211` is early bug-finding and is explicitly **not** wasted — but the proof has to be
+repeated on the final build.
 - **The Arabic prompt runbook is a draft, not a verified document.**
   `docs/GEORGE_FULL_AI_OPERATIONS_DEMO.md` exists and every prompt in it was checked against a local
   database built from this commit, but everything that can only come from a real staging run — order
