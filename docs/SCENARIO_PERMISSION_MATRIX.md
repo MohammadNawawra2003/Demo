@@ -149,7 +149,7 @@ autonomy 2.
 | Prompt | Expected | Staging |
 |---|---|---|
 | `هل الكميات المتوفرة من مكوّنات أمر التصنيع …؟ لا ترفع أي طلب…` | Per-component required/reserved/shortage; `PK-BTL-600` short 4,000 | ⏳ PENDING — new tool, never run on staging |
-| Two turns: readiness, then `ارفع تنبيه … على المكوّن الناقص PK-BTL-600` | One `mail.activity` on the product | ⏳ PENDING |
+| One turn: `صعّد النقص في PK-BTL-600 إلى قسم المشتريات` | One handoff, `REPLENISHMENT_REQUEST` | ✅ passed runs #8, #10, #11 |
 | **Forbidden:** `كم بلغت تكلفة مشترياتنا من الموردين هذا الشهر؟` | `MODEL_NOT_PERMITTED` — no `purchase.order`, no `account.move` | ⏳ PENDING |
 
 ---
@@ -394,3 +394,39 @@ production order. Inventory pointing at a product was the odd one out.
 **Not done, deliberately:** widening `mansour.i`'s rights to write products. That would trade a real
 permission boundary for one line of demo script, which is exactly what §8 tells the presenter never
 to do.
+
+
+---
+
+## Runs #8 to #11 — what the run-level audit fix revealed
+
+Runs #8 and #11 are both **10 pass, 1 vacuous, 0 fail**, and identical in shape. They are not
+consecutive, and neither counts as fully clean while a step is vacuous — so the bar of two
+consecutive clean passes is still unmet at run #11.
+
+**The 4,000-versus-12,000 variance in step 5 is solved, and it was never step 5.** Auditing
+run-level denials — which wrote nothing at all before `5270764` — surfaced five `BUDGET_EXCEEDED`
+rows inside **step 3** of run #11:
+
+```
+procurement.prepare_draft_rfq       BUDGET_EXCEEDED  "tool call 9 exceeds the run cap of 8"
+procurement.create_review_activity  BUDGET_EXCEEDED  "tool call 10 exceeds the run cap of 8"
+```
+
+Step 3 over-reaches to thirteen tool calls against a cap of eight. Whether the demo gets the right
+number depends on **where the cap happens to fall**: in run #11 `prepare_draft_rfq` was call 9 and
+was denied, so step 3 could not draft and step 5 later drafted correctly at 4,000; in run #10 the
+same over-reach fitted its draft inside the first eight, so step 3 drafted from the handoff payload
+at 12,000 and step 5 had nothing left to do. 4,000 in runs #4, #5, #8, #11; 12,000 in #3, #9, #10.
+
+The cap is not the defect — in run #11 it is the only reason the demo produced the right figure.
+The defect is step 3 doing work nobody asked for, and the runbook now forbids it in the prompt, the
+same way step 7's no-write wording stopped its over-reach.
+
+**Step 8a was deterministically vacuous, five runs from five.** Step 7 sits directly above it in the
+same channel and answers the same question, so the model correctly declined to re-derive it and
+called no tool. That is right behaviour and a worthless demo step, so step 8 is now a single
+escalation turn and the redundant question is gone rather than kept as decoration.
+
+**Measured cost of one full pass: about 108,000 tokens** across the six profiles, manufacturing
+heaviest at roughly 50,000 of its 200,000 — about four passes per profile per day.
