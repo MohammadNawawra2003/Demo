@@ -274,3 +274,47 @@ class TestOrderComponents(TestInventoryTools):
                 self.assertFalse(
                     [k for k in row if forbidden in k],
                     "a value field reached an inventory output: %s" % row)
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestFindProduction(TestInventoryTools):
+    """Nobody should have to guess an id out of a reference.
+
+    Staging run #3: the runbook names RM/MO/00002, every tool takes a numeric
+    id, and nothing converted one to the other. The agent read the digits and
+    passed production_id 2 -- WIP/MO/00001, done, short of nothing. Three
+    separate steps failed on it and none of them looked like the same bug.
+    """
+
+    def test_a_reference_resolves_to_its_own_order(self):
+        production = self.env['mrp.production'].search(
+            [('origin', '=', 'AI-DEMO')], limit=1)
+        self.assertTrue(production, "the scenario order is missing")
+        result = self._run('inventory.find_production',
+                           {'production_ref': production.name})
+        self.assertEqual(
+            [row['id'] for row in result['productions']], [production.id],
+            "the reference did not resolve to its own order")
+        self.assertEqual(result['productions'][0]['reference'], production.name)
+
+    def test_the_match_is_case_insensitive(self):
+        production = self.env['mrp.production'].search(
+            [('origin', '=', 'AI-DEMO')], limit=1)
+        result = self._run('inventory.find_production',
+                           {'production_ref': production.name.lower()})
+        self.assertIn(production.id, [row['id'] for row in result['productions']])
+
+    def test_the_digits_of_a_reference_are_not_an_id(self):
+        """The exact confusion this tool exists to prevent."""
+        production = self.env['mrp.production'].search(
+            [('origin', '=', 'AI-DEMO')], limit=1)
+        digits = ''.join(c for c in production.name if c.isdigit()).lstrip('0')
+        self.assertNotEqual(
+            str(production.id), digits,
+            "this fixture cannot demonstrate the bug: the reference digits "
+            "happen to equal the id")
+
+    def test_an_unknown_reference_returns_nothing_rather_than_guessing(self):
+        result = self._run('inventory.find_production',
+                           {'production_ref': 'RM/MO/DOES-NOT-EXIST'})
+        self.assertEqual(result['productions'], [])

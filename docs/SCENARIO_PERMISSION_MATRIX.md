@@ -32,9 +32,9 @@ not in XML, so grepping the XML for them finds nothing.
 
 | Agent | Profile code | Service user | Demo user | Autonomy | `max_write_ops` | Tools | Writable models |
 |---|---|---|---|---|---|---|---|
-| Procurement | `procurement` | `ai.procurement` | `noura.p`, `fahad.p` | 2 | 2 | 11 | `purchase.order` (draft only), `purchase.order.line`, `mail.activity`, `mail.message`, `ai.operations.handoff` |
+| Procurement | `procurement` | `ai.procurement` | `noura.p`, `fahad.p` | 2 | 2 | 12 | `purchase.order` (draft only), `purchase.order.line`, `mail.activity`, `mail.message`, `ai.operations.handoff` |
 | Manufacturing | `manufacturing` | `ai.manufacturing` | `khalid.m` | 2 | 2 | 8 | `mail.activity`, `mail.message`, `ai.operations.handoff` |
-| Inventory | `inventory` | `ai.inventory` | `mansour.i` | 2 | 2 | 9 | `mail.activity`, `mail.message`, `ai.operations.handoff` |
+| Inventory | `inventory` | `ai.inventory` | `mansour.i` | 2 | 2 | 10 | `mail.activity`, `mail.message`, `ai.operations.handoff` |
 | Quality | `quality` | `ai.quality` | `rania.q`, `huda.q` | 2 | 2 | 8 | `quality.alert` (stage `New` only), `mail.activity`, `mail.message`, `ai.operations.handoff` |
 | General Manager | `gm` | `ai.gm` | `faisal.gm` | **0** | **0** | 6 | **none** |
 | Accounting | `accounting` | `ai.accounting` | `omar.f` | **0** | **0** | 4 | **none** |
@@ -56,9 +56,9 @@ Company scope is **Naqaa Water Manufacturing Co.** for five of six. **Inventory 
 | Company | Naqaa Water Manufacturing Co. |
 | Review / escalation | `noura.p` / `ahmed.q` |
 
-**Tools (11):** `accept_handoff`, `compare_suppliers`, `complete_handoff`, `create_review_activity`,
-`find_product`, `get_forecast_demand`, `get_open_pos`, `get_price_history`, `get_shortage_context`,
-`prepare_draft_rfq`, `update_draft_rfq`
+**Tools (12):** `accept_handoff`, `compare_suppliers`, `complete_handoff`, `create_review_activity`,
+`find_product`, `find_production`, `get_forecast_demand`, `get_open_pos`, `get_price_history`,
+`get_shortage_context`, `prepare_draft_rfq`, `update_draft_rfq`
 
 **Model permissions**
 
@@ -124,7 +124,8 @@ autonomy 2.
 | Company | **Naqaa Water Manufacturing Co. + Naqaa Distribution Co.** — the only two-company profile |
 | Review / escalation | `mansour.i` / `salem.i` |
 
-**Tools (9):** `check_order_components`, `create_review_activity`, `get_below_reorder`,
+**Tools (10):** `check_order_components`, `create_review_activity`, `find_production`,
+`get_below_reorder`,
 `get_expiring_lots`, `get_forecast`, `get_late_transfers`, `get_stock_discrepancies`,
 `get_stock_position`, `raise_handoff`
 
@@ -339,3 +340,27 @@ Three findings changed the product rather than the wording:
 | 5 | The agent read `shortage_basis = manufacturing_order` correctly, then escalated on "a conflict between the reported shortage and the deterministic shortage" and **never drafted the RFQ**. Returning the order figures beside the company-wide ones gave it two answers to one question. | The tool now returns **only** the order's numbers when `production_id` is given. This was caused by my own earlier fix. |
 | 7, 8 | No Inventory tool takes a `production_id`; all eight were product-scoped. Rewording could not reach it. | New `inventory.check_order_components`. The permission was already held. |
 | 11 | Same prompt, same config, **opposite outcome** — zero tool calls in run #2. | Owner ruling: prompt now names the tool. Model reticence is a known risk, not a guard or policy failure, and no configuration change can prevent it. |
+
+
+---
+
+## Run #3 (`5c29c4a`) — 8 passes, 1 wrong value, 2 failures, one shared cause
+
+Step 11 passed with the explicit tool-naming prompt. `check_order_components` worked. The handoff
+reached COMPLETED. Steps 5, 7 and 8b all failed, and **all three had the same root cause**, which was
+none of the three things that release changed.
+
+**There was no way to turn a reference into an id.** The runbook names `RM/MO/00002`; every tool
+takes a numeric `production_id`; nothing converted one to the other. The agent read the digits and
+passed `production_id: 2` — a real order, `WIP/MO/00001`, done and short of nothing. The audit
+payload said so plainly: `{"product_id": 9, "production_id": 2}`.
+
+| Step | What that produced | Why it is not a bug in the failing tool |
+|---|---|---|
+| 5 | `order_required` came back `0.0`, so the agent fell back to the 12,000 in the handoff payload and drafted `P00044` for 12,000 instead of 4,000 | The order-scoped fix worked exactly as designed. It was asked about a finished order that genuinely needs nothing. Variance 0 and `approval_required` False are correct for 12,000 against 12,000 — the control was fed a wrong baseline, it did not fail |
+| 7 | Six calls in one turn as the agent tried other ids; calls 5 and 6 denied `BUDGET_EXCEEDED` against `max_calls_per_run` 4, and the turn rendered as the frozen refusal | Same visible symptom as run #1, entirely different cause |
+| 8b | The agent refused to raise an alert it could not substantiate — *"the last check I ran (for WIP/MO/00001, id 2) showed zero short components"* | Correct behaviour on wrong input |
+
+**Fix:** `find_production` in both packs, sharing one implementation in
+`ai_operations/tools/production_mixin.py`, and `check_order_components`'s per-tool cap raised from 4
+to 6 so one wrong turn no longer costs the step.

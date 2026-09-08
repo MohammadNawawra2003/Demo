@@ -33,6 +33,18 @@ class FindProductOutput(Schema):
                             'uom': Str()}), max_items=10)
 
 
+class FindProductionInput(Schema):
+    #: Not 'query' / 'code' -- PROHIBITED_PARAM_NAMES refuses both.
+    production_ref = Str(max_length=64)
+
+
+class FindProductionOutput(Schema):
+    productions = List(Nested({
+        'id': Int(), 'reference': Str(), 'state': Str(),
+        'product_code': Str(), 'product_name': Str(), 'quantity': Float(),
+    }), max_items=10)
+
+
 class ShortageContextInput(Schema):
     product_id = Int(min=1)
     warehouse_id = Int(min=1, required=False)

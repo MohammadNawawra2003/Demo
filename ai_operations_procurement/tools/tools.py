@@ -15,7 +15,7 @@ from odoo.addons.ai_operations.services.handoff_service import (
     record_idempotency_key,
 )
 from odoo.addons.ai_operations.services.registry import ai_tool
-from odoo.addons.ai_operations.tools import activity_mixin
+from odoo.addons.ai_operations.tools import activity_mixin, production_mixin
 
 from . import schemas
 from odoo.addons.ai_operations.services.schema import (
@@ -58,6 +58,26 @@ def find_product(ctx, params):
             'uom': product.uom_id.name or '',
         } for product in products],
     }
+
+
+@ai_tool(
+    code='procurement.find_production',
+    category=ToolCategory.READ,
+    autonomy=AutonomyLevel.QUERY,
+    models=['mrp.production', 'product.product'],
+    input_schema=schemas.FindProductionInput,
+    output_schema=schemas.FindProductionOutput,
+    max_results=10,
+)
+def find_production(ctx, params):
+    """Resolve a manufacturing order reference to the id the other tools need.
+
+    Call this before any tool that takes a ``production_id``. A reference like
+    "RM/MO/00002" is not an id, and reading the digits out of it reaches a
+    different order entirely -- which is exactly what happened before this
+    existed.
+    """
+    return production_mixin.find_production(ctx, params)
 
 
 @ai_tool(

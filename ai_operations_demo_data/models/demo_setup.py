@@ -92,6 +92,7 @@ ROUTING = {
 ASSIGNMENTS = {
     'procurement': [
         ('procurement.find_product', 4),
+        ('procurement.find_production', 4),
         ('procurement.get_shortage_context', 4),
         ('procurement.get_forecast_demand', 4),
         ('procurement.compare_suppliers', 4),
@@ -104,7 +105,12 @@ ASSIGNMENTS = {
         ('procurement.complete_handoff', 4),
     ],
     'inventory': [
-        ('inventory.check_order_components', 4),
+        ('inventory.find_production', 4),
+        # Six, not four: on run #3 the agent burned four calls trying different
+        # ids and the fifth was denied, which rendered the whole turn as a
+        # refusal. find_production removes the guessing; the headroom means one
+        # wrong turn no longer costs the step.
+        ('inventory.check_order_components', 6),
         ('inventory.get_stock_position', 4),
         ('inventory.get_forecast', 4),
         ('inventory.get_below_reorder', 4),

@@ -16,7 +16,7 @@ from odoo.addons.ai_operations.services.handoff_service import (
 from odoo.addons.ai_operations.services.schema import (
     Bool, Date, Float, Int, List, Nested, Schema, Str,
 )
-from odoo.addons.ai_operations.tools import activity_mixin
+from odoo.addons.ai_operations.tools import activity_mixin, production_mixin
 
 
 class StockPositionInput(Schema):
@@ -33,6 +33,35 @@ class StockPositionOutput(Schema):
     }), max_items=100)
     total_on_hand = Float()
     total_reserved = Float()
+
+
+class FindProductionInput(Schema):
+    production_ref = Str(max_length=64)
+
+
+class FindProductionOutput(Schema):
+    productions = List(Nested({
+        'id': Int(), 'reference': Str(), 'state': Str(),
+        'product_code': Str(), 'product_name': Str(), 'quantity': Float(),
+    }), max_items=10)
+
+
+@ai_tool(
+    code='inventory.find_production',
+    category=ToolCategory.READ,
+    autonomy=AutonomyLevel.QUERY,
+    models=['mrp.production', 'product.product'],
+    input_schema=FindProductionInput,
+    output_schema=FindProductionOutput,
+    max_results=10,
+)
+def find_production(ctx, params):
+    """Resolve a manufacturing order reference to the id the other tools need.
+
+    Call this before ``check_order_components``. A reference like "RM/MO/00002"
+    is not an id; reading the digits out of it reaches a different order.
+    """
+    return production_mixin.find_production(ctx, params)
 
 
 class OrderComponentsInput(Schema):
