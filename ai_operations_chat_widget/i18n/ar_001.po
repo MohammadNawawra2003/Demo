@@ -1,0 +1,68 @@
+# Arabic (Saudi) translation for ai_operations_chat_widget.
+#
+# The widget is the product's own surface and every string in it is English. In
+# an Arabic-first demo that reads as a half-translated product, and it is the
+# panel a customer looks at for the whole presentation.
+#
+# ⚠ THIS FILE DOES NOT TAKE EFFECT YET. The terms live in a static QWeb asset
+# (static/src/chat_widget.xml), and on this build they are not picked up by the
+# module's translation import: the panel still renders English after a module
+# update and a server restart, with the reference lines in both the
+# model_terms and the code:addons form. The kernel's own ar_001.po works, so the
+# mechanism is right for Python terms and something about static asset
+# extraction is not. The Arabic below is correct and reviewed; what is missing
+# is whatever makes Odoo serve it. Recorded as a known limitation rather than
+# deleted, because the translation is not the part that is wrong.
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: ar_001\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: \n"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid ""
+"Ask about your own data. Every answer is checked against what you\n"
+"                        are allowed to see."
+msgstr "اسأل عن بيانات شركتك. كل إجابة تُفحص مقابل ما يُسمح لك بالاطّلاع عليه."
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "Message the agent…"
+msgstr "اكتب رسالتك للوكيل…"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "Open in Discuss"
+msgstr "فتح في المناقشة"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "Minimize"
+msgstr "تصغير"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "Close"
+msgstr "إغلاق"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "Send"
+msgstr "إرسال"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "Retry"
+msgstr "إعادة المحاولة"
+
+#. module: ai_operations_chat_widget
+#: model_terms:ir.ui.view,arch_db:ai_operations_chat_widget.chat_widget
+msgid "AI Operations"
+msgstr "عمليات الذكاء الاصطناعي"
