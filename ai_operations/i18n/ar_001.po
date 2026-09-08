@@ -123,3 +123,30 @@ msgstr "مستخدم التصعيد"
 #: model:ir.model.fields,field_description:ai_operations.field_ai_operations_agent_profile__max_daily_tokens
 msgid "Max Daily Tokens"
 msgstr "الحد الأقصى للرموز اليومية"
+
+#. module: ai_operations
+#: code:addons/ai_operations/models/discuss_channel.py:0
+msgid ""
+"That request needed more steps than I am allowed for one message. Please ask "
+"me for one thing at a time."
+msgstr ""
+"هذا الطلب احتاج خطوات أكثر مما هو مسموح لي في رسالة واحدة. من فضلك اسألني عن "
+"شيء واحد في كل مرة."
+
+#. module: ai_operations
+#: code:addons/ai_operations/models/discuss_channel.py:0
+msgid "I have nothing to add."
+msgstr "لا يوجد لديّ ما أضيفه."
+
+#. module: ai_operations
+#: code:addons/ai_operations/models/discuss_channel.py:0
+msgid "I am unavailable right now. Nothing has been changed."
+msgstr "لست متاحاً في الوقت الحالي. لم يتغيّر أي شيء."
+
+#. module: ai_operations
+#: code:addons/ai_operations/models/discuss_channel.py:0
+msgid ""
+"I am still working on the previous message. Please send this again once I "
+"have answered."
+msgstr ""
+"ما زلت أعمل على الرسالة السابقة. من فضلك أعد إرسال هذه الرسالة بعد أن أجيب."

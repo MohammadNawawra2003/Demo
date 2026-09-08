@@ -166,6 +166,12 @@ class DiscussChannel(models.Model):
             return (result.get('content')
                     or _("I have nothing to add."))
         if status == 'BUDGET_EXCEEDED':
-            return _("I have reached my limit for this conversation. "
-                     "Please start a new one.")
+            # "for this conversation" was wrong, and the wording invented a
+            # defect that does not exist: RunBudget is built per run() and held
+            # in memory, so the cap bounds ONE MESSAGE and the next message
+            # starts clean. Telling the user to start a new conversation sent a
+            # presenter hunting for a way to recover a channel that was never
+            # broken. The remedy is a narrower question, not a new channel.
+            return _("That request needed more steps than I am allowed for one "
+                     "message. Please ask me for one thing at a time.")
         return _("I am unavailable right now. Nothing has been changed.")

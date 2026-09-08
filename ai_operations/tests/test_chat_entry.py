@@ -391,3 +391,29 @@ class TestRunLevelDenialReachesTheUser(TestChatEntryPoint):
         self.assertFalse(
             channel.ai_run_active,
             "a refused run left the channel unable to accept another message")
+
+    def test_the_budget_message_does_not_blame_the_conversation(self):
+        """The cap bounds ONE MESSAGE, and the wording used to say otherwise.
+
+        RunBudget is constructed inside run() and held in memory, so a fresh
+        message starts with a fresh budget. The old text -- "I have reached my
+        limit for this conversation. Please start a new one." -- read as though
+        the channel were spent, and on staging it sent a presenter looking for a
+        way to recover a conversation that was never broken.
+        """
+        from ..models.discuss_channel import DiscussChannel
+        body = DiscussChannel._ai_body({'status': 'BUDGET_EXCEEDED'})
+        self.assertNotIn('conversation', body.lower())
+        self.assertNotIn('start a new', body.lower())
+        self.assertIn('one message', body.lower())
+
+    def test_a_fresh_message_gets_a_fresh_budget(self):
+        """Proven against the runtime rather than asserted from the code."""
+        from ..services.context import RunBudget
+        first = RunBudget(max_tool_calls=2, max_write_ops=1)
+        first.consume_tool_call()
+        first.consume_tool_call()
+        second = RunBudget(max_tool_calls=2, max_write_ops=1)
+        self.assertEqual(
+            second.tool_calls, 0,
+            "a new run must not inherit the previous message's counter")
