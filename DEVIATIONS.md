@@ -586,8 +586,15 @@ The key lives in `[options]` of `/home/odoo/.config/odoo/odoo.conf`, whose own h
 loaded by Odoo.sh workers"*. Odoo keeps unknown keys (`config.py:906-918`) and `config.options` is a
 `ChainMap` including them (`config.py:164-170`), so `config.get('ai_anthropic_token')` resolves in
 the web worker. **No ORM, no database, no git, no logged value** — CI check 11 stays green and this
-is C §5.10's own second permitted location. ⚠ The file is baked into the container image, so a **new
-build resets it** and the key must be re-entered.
+is C §5.10's own second permitted location.
+
+⚠ **Durability is observed, not guaranteed.** An earlier version of this note said a new build
+resets the file. That was corrected on 2026-09-06 by observation: the key was written at 08:55 UTC
+and was still present at 12:50 UTC on build `7a4f37d`, across roughly fifteen pushes and rebuilds,
+so it **does persist across rebuilds of a staging branch**. Odoo.sh publishes no durability contract
+for the file, and persistence across a container replacement or a branch reset is untested, so this
+is **observed, not guaranteed** — credential durability stays an open deployment limitation. The
+check and the re-entry procedure are in `docs/reviews/final-technical-audit-2026-09-06.md` §5.
 
 ---
 

@@ -158,7 +158,7 @@ shell history, never on a command line):
 ```
 ssh <build>@<project>-<branch>-<build>.dev.odoo.com
 read -rs -p "Anthropic key: " K && printf '\nai_anthropic_token = %s\n' "$K" >> /home/odoo/.config/odoo/odoo.conf && unset K && echo OK
-odoosh-restart          # process restart; a NEW BUILD would need the key re-entered
+odoosh-restart          # process restart; re-check after a build with the grep below
 ```
 
 **Verify without printing it:**

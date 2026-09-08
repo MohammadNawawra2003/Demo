@@ -16,6 +16,7 @@ original stays.
 | DL-005 | 2026-09-06 | B-i to B-iv — the four questions §9.3 leaves open | Implemented |
 | DL-006 | 2026-09-06 | The B3 write-path rule and the STOP-gate rule, stated once | Standing rules |
 | DL-007 | 2026-09-06 | `ai_operations_bridge` stays unbuilt in Phase 1 | Declined deliberately |
+| DL-009 | 2026-09-08 | The `odoo.conf` fallback works on Odoo.sh; durability observed, not guaranteed | ⚠ Supersedes part of DL-001; limitation stays open |
 
 ---
 
@@ -67,6 +68,11 @@ solved. The remaining routes, none of which can be chosen here:
 
 For testing, a key exported inside an SSH shell on the staging container is visible to a manual
 `odoo-bin` process and to nothing else. That is a testing workaround, not a deployment.
+
+> **⚠ Superseded in part by DL-009 (2026-09-08).** The paragraph above says no agent can reach the
+> vendor from an HTTP or cron worker on Odoo.sh. That was written before the `odoo.conf` path was
+> confirmed to work. It does work. The original text stays because this log is append-only; read
+> DL-009 for what is actually true.
 
 ---
 
@@ -226,3 +232,44 @@ bound escalates, the ceiling denies*, because a denial leaves nothing on anyone'
 
 **Rejected alternative:** denying on a zero baseline. It would contradict C §5.3's own reasoning and
 would leave the human with nothing to review.
+
+---
+
+## DL-009 — the `odoo.conf` fallback works on Odoo.sh; durability is observed, not guaranteed
+
+**Supersedes:** the "what this does NOT solve" paragraph of DL-001. Everything else in DL-001 —
+the constraint winning over Option B, `_credential()`'s two sources, the ban on
+`ir.config_parameter` and `sudo()`, and the test that enforces it — is unchanged and still holds.
+
+**What DL-001 got wrong.** It concluded that Odoo.sh offers no durable `odoo.conf`, and therefore
+that *"no agent can reach the vendor from an HTTP or cron worker on Odoo.sh"*. The first half was an
+inference from the absence of a settings UI; the second was drawn from it. Both were tested
+afterwards and the conclusion does not hold.
+
+**What is true.** The key lives in `[options]` of `/home/odoo/.config/odoo/odoo.conf`, a file whose
+own header states it *"is loaded by Odoo.sh workers"*. Odoo keeps unknown configuration keys
+(`config.py:906-918`) and `config.options` is a `ChainMap` that includes them
+(`config.py:164-170`), so `config.get('ai_anthropic_token')` resolves in the worker. A live call
+from `stage` returned HTTP 200. **The adapter reaches the vendor on Odoo.sh through C §5.10's own
+second permitted location** — no ORM, no database, no git, and only the option *name* is ever
+logged, so CI check 11 stays green.
+
+**Durability: observed across rebuilds, not guaranteed.** The key was written at 08:55 UTC and was
+still present at 12:50 UTC on build `7a4f37d`, across roughly fifteen pushes and rebuilds of the
+staging branch. So it **persists across rebuilds of a staging branch**. Odoo.sh publishes no
+durability contract for the file, and persistence across a container replacement or a branch reset
+has not been tested. **This is deliberately not recorded as a guarantee.**
+
+**Ruling: the limitation stays open, and its shape changes.** It is no longer *"the credential has
+no home on Odoo.sh"* — it has one, and it works. It is now *"no supported durability guarantee has
+been established"*. **Credential durability remains an open deployment limitation.** The operational
+answer is the runbook in `docs/reviews/final-technical-audit-2026-09-06.md` §5: a one-line grep that
+says whether the key survived a build, and a re-entry procedure that never echoes the value. The
+three permanent routes DL-001 lists are unchanged and none is chosen.
+
+**Deliberately not claimed:** that Odoo.sh has a secret store. It does not. Project Settings was
+inspected in full on 2026-09-05 — no Environment Variables, Variables or Secrets section — and
+`/opt/odoo.sh/odoosh/bin/` contains no secrets tooling.
+
+**Still recommended for production:** a platform with real secrets management. Staging is
+contract-compliant on this mechanism; production should not depend on an observation.

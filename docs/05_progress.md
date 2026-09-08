@@ -217,7 +217,7 @@ user with real groups rather than argued from the design.
   GM, `alshayeb_demo_water` and `ai_operations_demo_data` are Enterprise. **The full Naqaa demo
   therefore requires Enterprise.**
 - ~~**The credential still has no home on Odoo.sh** (C §5.10). Unchanged since 2026-09-06.~~
-  **Narrowed 2026-09-08: it is reachable, it is not durable.** `_credential()` is unchanged and
+  **Narrowed 2026-09-08: it is reachable; durability is unproven, not disproven.** `_credential()` is unchanged and
   reads the environment variable `ODOO_AI_ANTHROPIC_TOKEN`, then the `odoo.conf` key
   `ai_anthropic_token`, and nothing else — no `ir.config_parameter`, no `sudo()`, guarded by a test
   that scans every non-test Python file in every `ai_operations*` module (DL-001). **On Odoo.sh the
@@ -230,12 +230,17 @@ user with real groups rather than argued from the design.
   on 2026-09-05: no Environment Variables, Variables or Secrets section exists, and the platform
   environment carries only `ODOO_STAGE`, `ODOO_VERSION` and `PGPASSWORD`.
 
-  **What is still open is durability.** `odoo.conf` is baked into the container image, so every
-  build resets it and the key must be re-entered by hand. The three permanent routes DL-001 lists —
-  move off Odoo.sh, accept database storage and withdraw the "never in ORM" constraint, or add a
-  network secrets service — are all unchanged and none is chosen. ⚠ `docs/decision-log.md` DL-001
-  still describes the credential as unreachable from a worker; that is the older reading, written
-  before the `odoo.conf` path was confirmed.
+  **What is still open is durability — as an unproven guarantee, not an observed failure.** The
+  `odoo.conf` fallback works on Odoo.sh. **Persistence across multiple rebuilds has been observed**
+  — the key was written at 08:55 UTC and was still present at 12:50 UTC on build `7a4f37d`, across
+  roughly fifteen pushes and rebuilds of the staging branch — **but no supported durability
+  guarantee has been established.** Odoo.sh documents no contract for the file, so persistence
+  across a container replacement or a branch reset is untested and must not be relied on.
+  **Credential durability therefore remains an open deployment limitation**, and the runbook in
+  `docs/reviews/final-technical-audit-2026-09-06.md` §5 gives the check and the re-entry procedure
+  for the case where it does not survive. The three permanent routes DL-001 lists — move off
+  Odoo.sh, accept database storage and withdraw the "never in ORM" constraint, or add a network
+  secrets service — are all unchanged and none is chosen.
 
 ---
 
@@ -245,8 +250,8 @@ No code shipped this session. Every figure below was measured on this machine to
 
 | | |
 |---|---|
-| `development` | this commit — documentation only. The last **code** commit is `4e6e9cd` |
-| `stage` | equal to `development`, same commit |
+| `development` | `495d211` — equal to `origin/development`. The last **code** commit is `495d211` itself, the migration that unblocks the failing staging build |
+| `stage` | `495d211` — equal to `origin/stage` and to `development`. ⚠ A stale **local** `stage` ref at `4e6e9cd` was observed today; fast-forward before any push or it rolls back three commits |
 | `main` | `2ac3aa3` — untouched, equal to `origin/main` |
 | Working tree | clean |
 | Modules | **12** |
@@ -255,7 +260,76 @@ No code shipped this session. Every figure below was measured on this machine to
 | Accountant | operational, read-only. 4 tools, QUERY, 3 `perm_read` models, 0 action permissions |
 | General Manager | operational, read-only. 6 tools, QUERY, 11 `perm_read` models, 0 action permissions, 7 finance scalars |
 | Scenario fixture | built and green — `ai_operations_demo_data/models/e2e_scenario.py`, 8 guard tests |
-| Staging build | last observed at `4ee86b7`, **seven commits behind `origin/stage`** — five of them code, including the permission fix, both new agents and the scenario fixture. None has ever been built there |
+| Demo runbook | **draft** — `docs/GEORGE_FULL_AI_OPERATIONS_DEMO.md`; every staging-only value marked PENDING STAGING VERIFICATION |
+| Permission matrix | **draft** — `docs/SCENARIO_PERMISSION_MATRIX.md`; not yet exercised on staging |
+| Credential on Odoo.sh | `odoo.conf` fallback **works**; persistence observed across ~15 rebuilds, **not guaranteed**; durability is an open deployment limitation (DL-009) |
+| Staging build | **unblocked and deployed at `495d211`** on 2026-09-08, after eight commits of backlog — real module upgrade, 0 errors, `ai_operations_gm` installed for the first time. ⚠ It had never been "waiting on a rebuild": every build was *failing*. See below. ⚠ This build does **not** contain the demo-reset work, which is still uncommitted |
+
+### Why staging never moved — the builds were failing, not queued
+
+The working assumption for two days was that Odoo.sh had simply not rebuilt. It had. **Every build
+of the branch was aborting**, and the platform kept serving the previous one, which is why the
+symptom looked like a stuck queue.
+
+The record is `ai_operations_procurement/migrations/19.0.1.6.0/pre-adopt-activity-permission.py`,
+which carries the failure verbatim:
+
+```
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint
+"ai_operations_model_permission_model_permission_uniq"
+DETAIL:  Key (profile_id, model_id)=(319, 166) already exists.
+ParseError: while parsing ai_operations_procurement/data/policy_pack.xml:189
+```
+
+**Cause: a manual hotfix from the previous day colliding with the permanent fix for the same bug.**
+During George's 2026-09-07 session someone created the `mail.activity` permission row by hand in the
+UI at 14:11, to get past the refusal while the session was live. A row made that way carries **no
+external id**. When `22f3ee2` then shipped that same permission properly inside the pack, the
+packaged record collided with the untracked one, and the `ParseError` aborts the whole registry
+load — so the failure was never confined to one record.
+
+`495d211` is the fix: it deletes only the *unowned* duplicate — a row with no `ir.model.data` behind
+it — so the pack's own record can be created and maintained normally. The rights are identical
+either way; what changes is that the row is owned by the module rather than by whoever typed it.
+**`495d211` is approved and must remain in history — it is not to be squashed, reverted or rebased
+away.** `ai_operations_manufacturing` carries the same class of fix at `migrations/19.0.1.2.0`, from
+the other direction, and both should be expected to fire on the next build.
+
+The version gap is real, so the migration will run: `ai_operations_procurement` is **19.0.1.5.0** at
+build `4ee86b7` and **19.0.1.6.0** at `origin/stage`.
+
+### Untracked drift on the staging database — a second, worse instance
+
+The 14:11 permission row was not the only record on staging that no shipped configuration created.
+
+⚠ **A `TEST_AGENT` agent profile is ACTIVE on the staging database with `max_write_ops = 3`.** The
+packs ship exactly six profile codes — `accounting`, `gm`, `inventory`, `manufacturing`,
+`procurement`, `quality` — and `TEST_AGENT` is in none of them. A search of the entire working tree
+returns nothing: it appears in no policy pack, no demo module, no test, no fixture and no migration.
+**Nothing in this repository could have created it.**
+
+It is materially worse than the 14:11 row. That one was a *duplicate of a legitimate permission*,
+so the rights it granted were the rights the pack intended. This is a **write-capable agent profile
+with no counterpart in the product at all**, live on the database the customer demo will be shown
+from. Two separate sessions verified the absence independently before it was recorded here.
+
+**Not resolved, and deliberately not resolved by this document.** It needs a ruling: whether it was
+created by a test run against that database, by hand, or by something else, and whether it is
+deactivated or deleted before the demo. What must not happen is a blanket sweep — the migration that
+unblocked the build makes the argument well, and it applies here too: a deploy script that silently
+discards configuration is worse than a failed build. Delete only what a traceback or an explicit
+ruling names.
+
+**No rollback point exists.** `~/backup.daily` on the staging container is empty and `pg_dump` is
+blocked by an Odoo.sh role restriction (*"permission denied for view pg_settings"*). The 2026-09-08
+upgrade was performed without a backup, on the judgement that the database is synthetic and
+regenerable. That judgement is defensible, but it means any further write to that database is
+expensive to undo, and a real dump is a UI action nobody has taken.
+
+⚠ **Nobody has swept the staging database for other hand-created rows from that session.** Audit row
+594 was a `POLICY_CHANGE` and the 14:11 row is documented, but if a build fails on a *different*
+`UniqueViolation`, this is the class of cause to look at first. Untracked drift of this kind is
+invisible to a green local suite, because it exists only on that one database.
 
 **Support matrix.** Read from the twelve `depends` lists, with `quality_mrp` and
 `quality_mrp_workorder` confirmed present only under `enterprise/`:
@@ -271,20 +345,25 @@ Enterprise-tier**, and so are the manufacturing, quality and GM packs.
 
 ### Not done — the demo is not ready to show
 
-What exists is a **deterministic local fixture** and nothing beyond it:
+What exists is a **deterministic local fixture** and two draft documents around it:
 `ai_operations_demo_data/models/e2e_scenario.py` builds one scenario SKU with exactly one component
 short by design — 8,000 bottles against a 12,000 requirement, on the one component with two real
 vendors so the supplier comparison has a decision to show — plus a contrast order that is fully
 covered from stock, so the demo also shows an agent reporting sufficiency and creating no work.
-Idempotent, and guarded by 8 regression tests. **That is the only finished part.**
+Idempotent, and guarded by 8 regression tests. **That is the only part that is finished; everything
+that needs a real staging run is not.**
 
-- **The real staging scenario has not been run.** Staging is four commits behind, so nothing after
-  `4ee86b7` — the permission fix, both new agents, the fixture — has ever been built there.
-- **The Arabic prompt runbook is not written.** `ai_operations_demo_data/README.md` names four
-  scenarios and defers the exact messages to "the handover notes"; no such file exists anywhere in
-  the repo. Nobody could present this cold.
-- **The forbidden-prompt proof is not done** — there is no written list of what must be refused and
-  no recorded run of it.
+- **The real staging scenario has not been run.** Staging is stranded at `4ee86b7` because its
+  builds were failing, not queued — see *Why staging never moved* above. Nothing after that commit
+  — the guard properties, the permission fix, both new agents, the scenario fixture, both doc
+  commits, the migration — has ever run there.
+- **The Arabic prompt runbook is a draft, not a verified document.**
+  `docs/GEORGE_FULL_AI_OPERATIONS_DEMO.md` exists and every prompt in it was checked against a local
+  database built from this commit, but everything that can only come from a real staging run — order
+  and MO references, every AI reply, every audit row, both full-run results — is marked
+  **PENDING STAGING VERIFICATION** and left blank.
+- **The forbidden-prompt proof is written but not run.** `docs/SCENARIO_PERMISSION_MATRIX.md` sets
+  out what each agent must refuse; no recorded staging run has yet exercised it.
 - **The two reset-to-finish staging runs are not done.**
 - **The real-provider two-run proof is pending.** The only live-provider tests are the two in
   `ai_operations_anthropic/tests/test_live.py`, tagged `-standard`, which no normal suite runs.
