@@ -9,9 +9,9 @@ updated: 2026-09-08
 
 Product docs: `01-demo-company-blueprint.md` (A) · `02-ai-operations-flow-design.md` (B) ·
 `03-phase1-security-kernel-spec.md` (C) · `04-implementation-contract.md` (D).
-Code: **twelve modules, 643 passing tests / 0 failed / 0 errors** at `e129278`, which is the head of
-both `development` and `stage` and the final commit for the demo. Measured 2026-09-08 across all
-twelve modules on one database, on a frozen tree in a single run.
+Code: **twelve modules, 643 passing tests / 0 failed / 0 errors** at `e6aa8ce`, which is the head of
+both `development` and `stage`. Measured 2026-09-08 across all twelve modules on one database, on a
+frozen tree in a single run.
 The bare-database kernel run is **361 tests / 0 failed**. Two further tests live in
 `ai_operations_anthropic/tests/test_live.py`, tagged `-standard`, and never run in a normal suite —
 which is the whole of the gap between the static count and the reported one.
@@ -27,7 +27,8 @@ at the foot of this file. **One item remains open: the credential's durability
 on Odoo.sh.**
 
 **The customer demo is not complete.** The code is final and staging is unblocked, but the two
-reset-to-finish A-to-Z runs against `e129278` have not been performed, so no build is DEMO READY.
+reset-to-finish A-to-Z runs against the candidate commit have not been performed, so no build is
+DEMO READY.
 The checkpoint carries the acceptance bar and exactly what is missing.
 
 ---
@@ -252,8 +253,8 @@ Every figure below was measured on this machine today, not recalled.
 
 | | |
 |---|---|
-| `development` | **`e129278`** — equal to `origin/development`. `495d211` (the unblocking migration) and `915b318` are both still in history; nothing squashed or reverted |
-| `stage` | **`e129278`** — equal to `origin/stage` and to `development`. This is the **final commit for the demo**, and the only hash a staging run should be validated against |
+| `development` | **`e6aa8ce`** — equal to `origin/development`. `495d211` (the unblocking migration), `915b318` and `e129278` are all still in history; nothing squashed or reverted |
+| `stage` | **`e6aa8ce`** — equal to `origin/stage` and to `development`. The current candidate, and the only hash a staging run should be validated against. It moved off `e129278` because staging hit a real bug in the reset — see *Two traps the staging runs found* |
 | `main` | `2ac3aa3` — untouched, equal to `origin/main` |
 | Working tree | clean |
 | Modules | **12** |
@@ -262,11 +263,11 @@ Every figure below was measured on this machine today, not recalled.
 | Accountant | operational, read-only. 4 tools, QUERY, 3 `perm_read` models, 0 action permissions |
 | General Manager | operational, read-only. 6 tools, QUERY, 11 `perm_read` models, 0 action permissions, 7 finance scalars |
 | Scenario fixture | built and green — `ai_operations_demo_data/models/e2e_scenario.py`, 8 guard tests |
-| Demo reset | built and green — `ai.operations.demo.reset` in `ai_operations_demo_data` (19.0.1.14.0), 15 tests. Marker-driven, no `sudo()`; makes the second demo run the same demo as the first |
+| Demo reset | built and green — `ai.operations.demo.reset` in `ai_operations_demo_data` (**19.0.1.15.0**), 15 tests now run as a real user rather than uid 1. Marker-driven, no `sudo()`, each step in its own savepoint; makes the second demo run the same demo as the first |
 | Demo runbook | **draft** — `docs/GEORGE_FULL_AI_OPERATIONS_DEMO.md`; every staging-only value marked PENDING STAGING VERIFICATION |
 | Permission matrix | **draft** — `docs/SCENARIO_PERMISSION_MATRIX.md`; not yet exercised on staging |
 | Credential on Odoo.sh | `odoo.conf` fallback **works**; persistence observed across ~15 rebuilds, **not guaranteed**; durability is an open deployment limitation (DL-009) |
-| Staging build | **unblocked** on 2026-09-08 after eight commits of backlog, and first deployed at `495d211` — real module upgrade, 0 errors, `ai_operations_gm` installed for the first time. ⚠ It had never been "waiting on a rebuild": every build was *failing*. See below. That `495d211` build is **early/partial validation only** — it predates the reset model, so it is explicitly **not** a DEMO READY build. Final validation runs against `e129278` |
+| Staging build | **unblocked** on 2026-09-08 after eight commits of backlog, and first deployed at `495d211` — real module upgrade, 0 errors, `ai_operations_gm` installed for the first time. ⚠ It had never been "waiting on a rebuild": every build was *failing*. See below. That `495d211` build is **early/partial validation only** — it predates the reset model, so it is explicitly **not** a DEMO READY build. Final validation runs against the current candidate, `e6aa8ce` |
 
 ### Why staging never moved — the builds were failing, not queued
 
@@ -300,6 +301,63 @@ the other direction, and both should be expected to fire on the next build.
 
 The version gap is real, so the migration will run: `ai_operations_procurement` is **19.0.1.5.0** at
 build `4ee86b7` and **19.0.1.6.0** at `origin/stage`.
+
+### Two traps the staging runs found, both of which made a green suite lie
+
+Neither was caught by 643 passing tests. Both are worth carrying beyond this project.
+
+**1. Odoo runs tests as uid 1, and uid 1 bypasses `ir.model.access` entirely.** The reset died on
+staging with an `AccessError`: `ir.model.access` granted `unlink` on `ai.operations.handoff` to *no
+group at all*. **Fifteen tests had passed while the thing they asserted was impossible for a real
+administrator to perform.** The suite now runs the reset as `base.user_admin`.
+
+> **The general rule, and it is not specific to this reset: a test that asserts something is
+> *permitted* proves nothing while it runs as uid 1.** Only a test running as a real user with real
+> groups tests an ACL. Tests asserting something is *forbidden* are not affected — uid 1 would pass
+> those too, but they are not the ones that silently lie.
+
+This is the same class as the `sudo()` ban and the B3 write-path rule in `decision-log.md` DL-006:
+name the identity that performs the write, or the design is wrong rather than the ACL.
+
+**2. A refusal the customer sees is not always the kernel refusing.** The frozen neutral string
+appears only when a tool is actually **called** and the guard denies it. For **six of the seven**
+forbidden prompts, the agent holds no tool for that model at all, so nothing ever reaches the guard
+— the model simply declines politely.
+
+**Nothing leaks, and the isolation is real.** Holding no tool for a model *is* a boundary — but it is
+an **earlier** boundary than the guard, not a stronger one, and the difference matters. They are two
+layers of the same intersection: holding no tool removes the capability before anything runs; the
+guard is what catches a model that tries anyway — a hallucinated tool name, a renamed tool, a future
+pack that adds one. `EFFECTIVE` is an intersection precisely so that neither layer has to be trusted
+alone, and calling the tool-absence "stronger" invites the reading that the guard is redundant. It is
+not.
+
+**Both things are true at once: the isolation is real, and the demonstration is weak.** What the
+customer sees in those six cases is the model's *prose*, and **the model's politeness is not a
+security control at all** — the control is that no tool exists to call. The demonstration is weak
+because the audience cannot distinguish *"the system prevented this"* from *"the assistant chose not
+to"*, and that distinction is exactly what is being sold. The runbook's section 8 has been corrected
+so the distinction is stated rather than blurred, and so the one prompt that does reach the guard is
+the one used to demonstrate it.
+
+### The ACL sweep the handoff bug prompted
+
+If `ai.operations.handoff` granted `unlink` to no group at all, the obvious question is whether any
+other kernel model has the same hole. Swept, and `_abstract` was verified on each candidate rather
+than assumed — audit, execution, security, activity, serializer, provider, the policy models and
+`demo.reset` itself are AbstractModels and need no ACL.
+
+Three **stored** kernel models grant `unlink` to no group:
+
+| Model | Verdict |
+|---|---|
+| `ai.operations.audit.log` | **Deliberate.** Append-only, and this is the B3 rule working as designed |
+| `ai.operations.handoff` | **The bug.** Fixed — this is what broke the reset on staging |
+| `ai.operations.budget` | **Newly named, unruled.** Same posture, never flagged before |
+
+**`ai.operations.budget` is not a demo blocker** — the reset does not touch it and nothing needs to
+delete one. But whether *"nobody may delete a budget"* is intended or accidental is a Document C
+question that has never been asked. It now has a name, which is the point of recording it.
 
 ### Untracked drift on the staging database — a second, worse instance
 
@@ -371,11 +429,11 @@ that needs a real staging run is not.**
 **The acceptance bar, so that "done" has one meaning.** A DEMO READY verdict requires all of it, in
 order, and no part of it may be assumed from a green local suite:
 
-1. `development` = `stage` = the final commit, `e129278`.
+1. `development` = `stage` = the candidate commit, currently `e6aa8ce`.
 2. Deploy that exact hash to staging, once.
 3. Verify **installed** module versions against manifest versions — this is the check that catches
-   the whole failing-build class, and `ai_operations_demo_data` at **19.0.1.14.0** is the quickest
-   single proof that the build carrying the reset model actually took.
+   the whole failing-build class, and `ai_operations_demo_data` at **19.0.1.15.0** is the quickest
+   single proof that the build carrying the working reset actually took.
 4. Verify the permission records **in the database**, not in the XML.
 5. reset → **A-to-Z run #1** → reset → **A-to-Z run #2**.
 
@@ -388,11 +446,23 @@ if you do not check them:
   It reports success and deletes nothing. This is the same company-switcher trap that produced
   George's empty screenshot, and on staging it is indistinguishable from a genuine no-op unless the
   summary is read.
+- **`summary['steps_failed']` must be empty on both calls.** Each reset step now runs in its own
+  savepoint, so a step that cannot run no longer aborts the whole reset. That is the right
+  behaviour, but it means a *partial* reset can report success on every other step.
+  `steps_failed` is the only place that shows, so a non-empty list is a failed reset even when the
+  deletion counts look healthy.
 - **Run #2 must pass from the runbook alone, with no developer intervention.** If run #2 needs a
   shell, the reset has not done its job, whatever the suite says — the point of the second run is
   that someone who did not build the demo can present it.
 
-Until step 5 is complete against `e129278` under both conditions, no build is DEMO READY. Everything
+⚠ **One watch item, not a gate.** Every profile carries `max_daily_tokens = 200,000`, and the reset
+deliberately does **not** clear `tokens_today` — spent tokens are not residue in the sense the reset
+is about, and 200k is generous for two runs. But **if run #2 ever fails with `BUDGET_EXCEEDED`
+rather than a refusal, that is the first place to look.** Locally `tokens_today` is 0 on all six
+profiles; the staging figure has not been read.
+
+Until step 5 is complete against the candidate commit under every condition above, no build is
+DEMO READY. Everything
 run against `495d211` is early bug-finding and is explicitly **not** wasted — but the proof has to be
 repeated on the final build.
 - **The Arabic prompt runbook is a draft, not a verified document.**
