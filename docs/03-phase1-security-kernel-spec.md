@@ -4,7 +4,7 @@
 **Target:** Odoo.sh, Odoo 19 Enterprise
 **Inputs:** Document A v1.2 (Demo Company Blueprint) · Document B v1.3 (Flow Design)
 **Purpose:** The build specification. This is the document handed to a Claude Code session with STOP gates.
-**Status:** DRAFT — pre-freeze review corrections applied 2026-09-04. Ready for freeze.
+**Status:** DRAFT — pre-freeze review corrections applied 2026-09-04. Ready for freeze. Amended post-freeze by owner decision 2026-09-07; body reconciled with that amendment 2026-09-08.
 **Version:** 0.4
 **Date:** 2026-09-04
 **Changes in 0.4:** activity routing configured per profile and fail-closed with a new `ASSIGNEE_UNRESOLVED` denial reason (§5.1, §5.9, §16); warehouse-scoped user security stays outside the kernel (§12).
@@ -25,6 +25,12 @@
 > What did not move: `sudo()` stays banned, the guard stays fail-closed, the neutral
 > denial stays neutral, `EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` is unchanged,
 > and both new agents are pinned at `AutonomyLevel.QUERY` with no action permission.
+>
+> **Where the body of this document was corrected to match, 2026-09-08.** The banner alone left
+> three places contradicting it: **§1** still listed Finance and GM as out of scope, **§10** still
+> listed four service users when six are built, and **§4/§9.3/§18/§19/§21** still claimed the
+> entire platform runs on Odoo Community, which the `quality_mrp` dependency made false. All three
+> are fixed in place with the frozen text kept as history.
 **Changes in 0.3:** the provider layer is generic — `provider_code` / `model_code` resolved through a frozen provider registry, Anthropic as the Phase 1 implementation rather than a kernel assumption (§5.1, §6.4, §9, §11, §16, §20).
 **Changes in 0.2:** one runtime for chat and cron (§4, §9); approval permission fields and guard step 16 deleted (§5.3, §5.6, §5.7, §7); kernel purged of non-`base`/`mail` relations (§5.1, §5.3); API key moved out of the database (§5.10); autonomy composition corrected (§7); `state_restriction` now names its field (§5.2); handoff idempotency scoped to the receiver (§5.8); audit retention keyed on the event and sizing corrected (§5.9); daily cost ceiling added (§5.1, §7); Odoo 19 domain and constraint idioms corrected (§5.2); development sequence resequenced (§17).
 
@@ -38,7 +44,24 @@ Phase 1 delivers the security kernel plus enough tooling to prove the guard and 
 
 > **Provider architecture and provider choice are separate questions.** The kernel defines a provider interface and a registry; it names no vendor. Phase 1 ships exactly one adapter, `ai_operations_anthropic`, so the only selectable provider in Phase 1 is Anthropic and the only selectable models are Claude models. That is a shipping decision, not an architectural one. Installing `ai_operations_openai` later must be a deployment step, never a redesign.
 
-**Out of scope:** approvals *model* (native Odoo buttons + activities suffice — see below), provider data classification (v2), field permission *model* (see §5.4), Sales/Finance/HR/GM agents, autonomy levels 3 and 4, POS/HOD/van sales.
+**Out of scope, as frozen 2026-09-04:** approvals *model* (native Odoo buttons + activities suffice — see below), provider data classification (v2), field permission *model* (see §5.4), Sales/Finance/HR/GM agents, autonomy levels 3 and 4, POS/HOD/van sales.
+
+> **Effective scope, after the owner amendment of 2026-09-07.** The line above is the scope George
+> froze, and it is kept verbatim so the freeze record stays readable. It is no longer the current
+> scope. His amendment adds exactly two agents — `ai_operations_accounting` and `ai_operations_gm`,
+> both **read-only** — and nothing else, so the effective scope is:
+>
+> | | Frozen 2026-09-04 | Effective now |
+> |---|---|---|
+> | Finance / Accountant | out | **in, read-only** — four aggregate read tools, no write path |
+> | General Manager | out | **in, read-only** — six aggregate read tools |
+> | Sales | out | **out** |
+> | HR | out | **out** — no HR model is reachable by any tool |
+> | Autonomy 3 and 4 | out | **out** |
+> | Approvals model, field permission model, provider data classification, POS/HOD/van sales | out | **out** |
+>
+> Read the frozen line as history and this table as current. The two new agents are pinned at
+> `AutonomyLevel.QUERY` with no action permission, so "in scope" here never means "can write".
 
 > **Approvals, precisely.** There is no approval state machine, no approval permission fields and no guard step that halts pending a signature. `approval_required` exists as a **plain boolean stamped on a draft record** when a recommendation exceeds the routine variance bound (Document B §6.3); its only effects are that the flag is visible on the record and the review activity is assigned to a manager instead of an officer. Approval is a human pressing the native Confirm button. Version 0.1 declared approvals out of scope and then specified them across four models and one guard step; that half-built machinery is removed in 0.2, because a partially implemented approval gate is a bypass waiting to be found.
 
@@ -126,11 +149,39 @@ alshayeb_demo_water/                # Naqaa demo data, standalone
 
 **Hard rule:** `ai_operations` imports nothing from the Enterprise `ai` app and depends on nothing but `base` and `mail`. Its full test suite must pass on a database with only those installed. CI enforces this with a bare-database test run.
 
+> **Community and Enterprise tiers — corrected 2026-09-08.** Version 0.4 claimed the entire
+> platform installs and runs on Odoo Community. That is false, and was already false when the
+> Quality and Manufacturing packs declared the `quality.*` models they had always used. The honest
+> position, taken from the shipped manifests:
+>
+> | Tier | Modules | Why |
+> |---|---|---|
+> | **Community** | `ai_operations`, `ai_operations_anthropic`, `ai_operations_chat_widget`, `ai_operations_procurement`, `ai_operations_inventory`, `ai_operations_accounting`, `stock_security_warehouse` | `base`, `mail`, `web`, `purchase`, `stock`, `account` are all Community. The chat surface is a `discuss.channel`, which lives in `mail` |
+> | **Enterprise** | `ai_operations_manufacturing`, `ai_operations_quality`, `ai_operations_gm`, `alshayeb_demo_water`, `ai_operations_demo_data` | all require `quality_mrp`; the demo module also requires `quality_mrp_workorder`. `quality`, `quality_control`, `quality_mrp` and `quality_mrp_workorder` ship only in Enterprise |
+>
+> So: **the security kernel, the runtime, the chat surface, the provider adapter and the
+> procurement, inventory and accounting packs run on Community. The full Naqaa demo requires
+> Enterprise**, because Document A's quality control points attach to manufacturing and work
+> orders. The claim the platform is actually sold on — that it runs *without* the Enterprise `ai`
+> app — is untouched and still enforced by CI checks 4 and 13.
+>
+> Recorded in `DEVIATIONS.md` § "The packs referenced `quality.*` without depending on it" and
+> § "The Community claim, again". Document D §15 check 14 is scoped to the Community tier to match.
+
 **The kernel owns the runtime.** Per Document B §16 decision 3, `ai_operations` drives the **provider** conversation and tool loop for both execution modes. Chat and cron are two triggers into one runner. The consequences for this structure:
 
 - `services/execution.py` is the loop driver for **both** modes, not the autonomous half of a pair.
-- The chat surface is a `discuss.channel`, and `discuss.channel` lives in `mail`. **The entire platform, conversation included, installs and runs on Odoo Community.** This is a commercial position, not an accident.
+- The chat surface is a `discuss.channel`, and `discuss.channel` lives in `mail`, so **the kernel and the whole conversational half run on Odoo Community**. That is a commercial position, not an accident — but it holds for a *tier*, not for every module. See the tiering below.
 - `ai_operations_bridge` is **optional**. It creates an `ai.agent` record pointing at one of our profiles so the agent is discoverable from the Enterprise AI app's UI. It never dispatches a tool, never assembles a prompt and never touches the guard. Installing it changes discoverability and nothing else.
+
+> **The bridge was never built — noted 2026-09-08.** Every mention of `ai_operations_bridge` in
+> this document — the tree above, the `agent_id` field in §5.1, §9.3 and the ACL note in §11 — is
+> the plan as frozen, and is kept as history. It was never written: once the runtime moved into
+> `ai_operations`, discoverability was all it had left to offer. Read every "optional module" and
+> "optional field" as **absent**. The consequence is a stronger claim, not a weaker one: **nothing
+> in the product imports from the Enterprise `ai` app**, enforced repo-wide by CI check 4, and
+> check 13 ("passes with the bridge absent") is satisfied by construction. Document D §3.2 carries
+> the full record.
 
 ```
 ai_operations/services/
@@ -425,7 +476,13 @@ One model. Execution audit and policy decisions are **not** split.
 | `error` | Text |
 
 **Denial reasons** (closed set, used by the test matrix):
-`UNKNOWN_TOOL`, `TOOL_DISABLED`, `TOOL_NOT_ASSIGNED`, `PROFILE_INACTIVE`, `AUTONOMY_INSUFFICIENT`, `NO_SERVICE_USER`, `MODEL_NOT_PERMITTED`, `OPERATION_NOT_PERMITTED`, `RECORD_OUT_OF_DOMAIN`, `COMPANY_OUT_OF_SCOPE`, `ACTION_NOT_PERMITTED`, `USER_ACL_DENIED`, `SCHEMA_INVALID`, `HANDOFF_SCHEMA_VIOLATION`, `BOUND_EXCEEDED`, `BLOCKLIST_HIT`, `BUDGET_EXCEEDED`, `ASSIGNEE_UNRESOLVED`.
+`UNKNOWN_TOOL`, `TOOL_DISABLED`, `TOOL_NOT_ASSIGNED`, `PROFILE_INACTIVE`, `AUTONOMY_INSUFFICIENT`, `NO_SERVICE_USER`, `MODEL_NOT_PERMITTED`, `OPERATION_NOT_PERMITTED`, `RECORD_OUT_OF_DOMAIN`, `COMPANY_OUT_OF_SCOPE`, `ACTION_NOT_PERMITTED`, `USER_ACL_DENIED`, `SCHEMA_INVALID`, `HANDOFF_SCHEMA_VIOLATION`, `BOUND_EXCEEDED`, `BLOCKLIST_HIT`, `BUDGET_EXCEEDED`, `ASSIGNEE_UNRESOLVED`, **`STATE_NOT_PERMITTED`**.
+
+> **`STATE_NOT_PERMITTED` was added at 19.0.1.18.0, post-freeze.** The eighteen above are the
+> frozen set. §5.2's `state_restriction` on a *model* permission — Document B §4.1's "draft
+> only" — was declared from the day it was written and enforced by nothing until then, so the
+> refusal had no reason to raise and the set had no need of a nineteenth member. It does now.
+> Document D §4.2 carries the matching enum.
 
 **Why one model.** Two models means two places to look during an incident and two schemas to keep aligned. `decision` plus an index carries the distinction at a fraction of the cost. Splitting is a v2 decision to be made on measured volume, not anticipated volume.
 
@@ -666,10 +723,12 @@ ai.operations.execution.run(profile, trigger, session_id, message|entry_tool)
         → provider.complete()      [AIProvider → registry → configured adapter]
         → for each tool_use block:
               → ai.operations.tool.execute(tool_code, params, ctx_request)
-                    → AISecurityService.authorize()      §7 steps 1-19
+                    → AISecurityService.authorize()      §7 steps 1-12 and 19
                     → registered tool function            (savepoint)
+                          ↳ ctx.check_records / check_action / check_variance
+                                                          §7 steps 13-18
                     → serializer(output_schema) + blocklist assertion
-                    → audit
+                    → audit                               §7 steps 20-24
         → append tool_result blocks, continue
   → post mail.message to the record worked on
   → close the audit run row
@@ -691,7 +750,7 @@ Phase 1 resolves that last hop to `ai_operations_anthropic` because it is the on
 
 ### 9.3 Chat surface
 
-A `discuss.channel` between the employee and the profile's partner. `discuss.channel` lives in `mail`, so the chat surface adds no dependency to the kernel and **the platform's conversational half runs on Odoo Community**.
+A `discuss.channel` between the employee and the profile's partner. `discuss.channel` lives in `mail`, so the chat surface adds no dependency to the kernel and **the platform's conversational half runs on Odoo Community** — as does the kernel itself and the rest of the Community tier in §4. The quality-dependent packs and the demo database do not; see the tiering table there.
 
 `ai_operations_bridge` is optional and adds one thing: an `ai.agent` record pointing at the profile, so the agent also appears in the Enterprise AI app's entry points. It dispatches nothing.
 
@@ -711,6 +770,18 @@ Never: raw recordsets, records outside agent scope, unfiltered sources, another 
 | `AI / Inventory` | `ai.inventory` | Stock User, Product read | C1, C2 |
 | `AI / Manufacturing` | `ai.manufacturing` | MRP User, Stock read, Quality read | C1 |
 | `AI / Quality` | `ai.quality` | Quality User, MRP read, Stock read | C1 |
+| `AI / General Manager` | `ai.gm` | Sales, Purchase, Stock, MRP and Quality user + `account.group_account_readonly` | C1 |
+| `AI / Accounting` | `ai.accounting` | `account.group_account_readonly` — nothing above it | C1 |
+
+> **The last two rows arrived with the owner amendment of 2026-09-07** and are built in
+> `alshayeb_demo_water/data/blueprint.py`. Both are read-only identities:
+> `account.group_account_readonly` carries no posting, payment or reconciliation right anywhere in
+> it, so even a profile permission widened by mistake would still have nowhere to write.
+>
+> **§11's isolation rows are about the four OPERATIONAL identities above them.** Procurement,
+> Inventory, Manufacturing and Quality hold no Accounting group at all and gain nothing here —
+> that is what makes "a Procurement agent refused net profit" true, and it is asserted per-agent
+> by name rather than by a sweep over every profile.
 
 **Lifecycle rules:**
 - `share = False`, no portal access
@@ -1074,7 +1145,7 @@ Phase 1 is complete when **every** item holds:
 **One runtime**
 - [ ] Chat and cron execute the same loop, the same guard and the same serialiser
 - [ ] T-99 shows identical decisions and output for the same call in both modes
-- [ ] The platform installs and its full suite passes on Odoo **Community**
+- [ ] The Community tier — kernel, adapter, chat widget, procurement, inventory, accounting, `stock_security_warehouse` — installs and passes its full suite on Odoo **Community** (§4 tiering). The quality-dependent packs and the demo database are Enterprise-tier by design
 
 **Resilience**
 - [ ] Provider outage breaks no Odoo workflow
@@ -1102,7 +1173,7 @@ Phase 1 is complete when **every** item holds:
 | One audit model vs two | **One + `decision`** | Two schemas to align, two places to look | Neutral | Low | Low |
 | Schema library | **Custom, ~150 lines** | Zero dependency on Odoo.sh | Neutral | Low | **Low** |
 | Execution path | **One runtime, both modes, direct Messages API** | The native app has no Anthropic provider, swallows denials into the model's context, and supplies no session identity | High positive — one security path rather than two claimed equal | Medium | Low |
-| Chat surface | **`discuss.channel`, ours** | `discuss.channel` is in `mail`, so the whole platform runs on Community | Positive | Low | Low |
+| Chat surface | **`discuss.channel`, ours** | `discuss.channel` is in `mail`, so the kernel and the chat surface run on Community; the `quality_mrp`-dependent packs do not (§4) | Positive | Low | Low |
 | Activity routing | **Two configured users per profile, fail closed** | Routing is operational, not a permission; a group has no deterministic single assignee | Positive — no silent fallback to an administrator | Low | Low |
 | Warehouse-level user security | **Outside the kernel, in `stock_security_warehouse`** | It is Odoo authorisation, not AI. Reaches the guard through the user's own record rules | Positive — keeps `USER ∩ AGENT` honest and the kernel narrow | Low | Low |
 | Provider binding | **Generic interface + frozen registry; Anthropic is the Phase 1 adapter** | Separates provider architecture from provider choice; a second vendor becomes an install, not a redesign | Positive — the frozen registry closes an egress hole the abstraction would otherwise open | Low | **Low** — the point |
@@ -1138,7 +1209,7 @@ Phase 1 is complete when **every** item holds:
 - [ ] Guard evaluation order §7 walked step by step, including the two bounds at steps 16–17
 - [ ] Decorator contract §6.1 agreed
 - [ ] Output schema approach §8 agreed, including the no-field-permission-model decision
-- [ ] One-runtime architecture §9 agreed, including the Community claim
+- [ ] One-runtime architecture §9 agreed, including the Community **tiering** in §4 — which modules run on Community and which require Enterprise
 - [ ] Activity routing §5.1 agreed — two configured users, fail closed, no administrator fallback
 - [ ] Sub-company scoping §12 agreed as user-side, with `ai_operations` acquiring no warehouse state
 - [ ] Provider interface and frozen registry §6.3 agreed, including the parity rule and its residency caveat

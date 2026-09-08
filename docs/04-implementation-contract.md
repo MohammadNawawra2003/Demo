@@ -97,16 +97,40 @@ Document C says what the models are and why. This says what the code looks like 
 
 ### 3.2 Remaining modules
 
-| Module | Depends |
-|---|---|
-| `ai_operations_anthropic` | `ai_operations` — **a provider adapter, not *the* provider.** Phase 1 ships this one; the kernel names no vendor |
-| `ai_operations_bridge` | `ai_operations`, `ai` — **optional**; the only module importing from the AI app; routes no tool call |
-| `ai_operations_procurement` | `ai_operations`, `purchase`, `stock` |
-| `ai_operations_inventory` | `ai_operations`, `stock` |
-| `ai_operations_manufacturing` | `ai_operations`, `mrp`, `stock`, **`quality_mrp`** |
-| `ai_operations_quality` | `ai_operations`, **`quality_mrp`**, `stock`, `mrp` |
-| **`stock_security_warehouse`** | `stock` — **and nothing else.** A standalone reusable authorisation addon: `allowed_warehouse_ids` on `res.users`, one scoped group, record rules on `stock.quant`, `stock.move`, `stock.move.line`, `stock.picking`, `stock.location`. It knows nothing about AI, and `ai_operations` knows nothing about it |
-| `alshayeb_demo_water` | `purchase`, `stock`, `mrp`, **`quality_mrp`**, **`quality_mrp_workorder`**, `sale_management`, `account`, `l10n_sa`, `l10n_sa_edi`, `hr`, **`stock_security_warehouse`** — **not `ai_operations`** |
+Dependencies below are the real `__manifest__.py` lists as at `19.0.1.18.0`, not the
+intended ones. **Tier** is measured by where each dependency's own module lives —
+`odoo/addons/` or `enterprise/` — not assumed; see §15 check 14.
+
+| Module | Depends | Tier |
+|---|---|---|
+| `ai_operations_anthropic` | `ai_operations` — **a provider adapter, not *the* provider.** Phase 1 ships this one; the kernel names no vendor | Community |
+| `ai_operations_chat_widget` | `ai_operations`, `web` — a floating backend chat launcher. Assets only; it routes no tool call and holds no permission logic | Community |
+| `ai_operations_procurement` | `ai_operations`, `purchase`, `stock` | Community |
+| `ai_operations_inventory` | `ai_operations`, `stock`, `ai_operations_procurement` | Community |
+| `ai_operations_accounting` | `ai_operations`, `account` — **post-freeze, read-only.** Four aggregate read tools; no write capability | Community |
+| `ai_operations_manufacturing` | `ai_operations`, `ai_operations_procurement`, `mrp`, `stock`, **`quality_mrp`** | **Enterprise** |
+| `ai_operations_quality` | `ai_operations`, `stock`, `mrp`, `ai_operations_inventory`, `ai_operations_manufacturing`, **`quality_mrp`** | **Enterprise** |
+| `ai_operations_gm` | `ai_operations`, `sale`, `purchase`, `stock`, `mrp`, `account`, **`quality_mrp`** — **post-freeze, read-only.** Six aggregate read tools plus seven company-level financial scalars | **Enterprise** |
+| **`stock_security_warehouse`** | `stock` — **and nothing else.** A standalone reusable authorisation addon: `allowed_warehouse_ids` on `res.users`, one scoped group, record rules on `stock.quant`, `stock.move`, `stock.move.line`, `stock.picking`, `stock.location`. It knows nothing about AI, and `ai_operations` knows nothing about it | Community |
+| `alshayeb_demo_water` | `purchase`, `stock`, `mrp`, `product_expiry`, `maintenance`, **`quality_mrp`**, **`quality_mrp_workorder`**, `sale_management`, `account`, `l10n_sa`, `hr`, **`stock_security_warehouse`** — **not `ai_operations`** | **Enterprise** |
+| `ai_operations_demo_data` | the eight `ai_operations*` packs above plus `alshayeb_demo_water` — **NON-PRODUCTION.** Adds AI Operations *configuration* only: activated profiles, tool assignments, chat channels, demo identities. Nothing depends on it, and removing it leaves the platform working exactly as before | **Enterprise** |
+
+> **The two read-only packs are post-freeze.** `ai_operations_gm` and
+> `ai_operations_accounting` arrived with the 2026-09-07 owner amendment at the top of this
+> document. Both are pinned at `max_autonomy_level` 0 (`QUERY`), grant `perm_read` and
+> nothing else, and declare not one `ai.operations.action.permission` record. They inherit
+> `quality_mrp` — GM directly, Accounting not at all — which is what puts GM in the
+> Enterprise tier and leaves Accounting in Community.
+
+> **`ai_operations_bridge` was never built.** Version 0.3 of this document listed it as an
+> optional module depending on `ai`, the only one permitted to import from the Enterprise AI
+> app. Document B §16 decision 3 had already moved the runtime into `ai_operations` itself,
+> which left the bridge with nothing to do but discoverability, and no session ever built it.
+> The commercial claim it was supposed to protect is now proven more strongly by its absence:
+> CI check 4 greps the whole repo for an import of `odoo.addons.ai` and finds none, so
+> **no module in this product depends on the Enterprise AI app at all.** CI check 13 is
+> therefore trivially satisfied. Do not resurrect the bridge without a reason that is not
+> discoverability.
 
 > **`stock_security_warehouse` is not part of this product.** It ships alongside because the demo needs warehouse-scoped users and because nearly every client does. It carries no dependency on `ai_operations` in either direction, and it must be independently installable and sellable. Warehouse restriction reaches the guard the ordinary way — through the execution user's record rules at §7 steps 10 and 13. **Do not add `allowed_warehouse_ids` to any `ai_operations` model.** See Document C §12.
 >
@@ -114,7 +138,7 @@ Document C says what the models are and why. This says what the code looks like 
 
 > **`quality_mrp`, not `quality_control`.** Version 0.1 depended on `quality_control`, which provides quality checks on transfers and standalone alerts. Every quality control point in Document A §8.3 that matters to Phase 1 — QCP-03 bromate per treatment batch, QCP-06 fill volume, QCP-07 cap torque, QCP-08 finished lot micro — attaches to a manufacturing order or a work order, and so does the entire S-09 recall chain. Those come from `quality_mrp` (which depends on `quality_control`, which depends on `quality`) and `quality_mrp_workorder`.
 
-> **The bridge is optional and nothing depends on it.** Per Document B §16 decision 3 and Document C §9, `ai_operations` owns the runtime for both chat and cron. The bridge exists so the agent is discoverable from the Enterprise AI app's UI. Uninstalling it changes discoverability and nothing else — no behaviour, no security, no test outcome. `ai_operations` and every tool pack must install and pass their suites with the bridge absent, and CI runs them that way.
+> **`ai_operations` owns the runtime.** Per Document B §16 decision 3 and Document C §9, chat and cron run through one loop inside the kernel. That is what made the bridge above redundant before it was ever written, and what keeps the whole product free of any dependency on the Enterprise AI app.
 
 ---
 
@@ -222,6 +246,10 @@ class DenialReason(str, Enum):
     BLOCKLIST_HIT             = 'BLOCKLIST_HIT'
     BUDGET_EXCEEDED           = 'BUDGET_EXCEEDED'
     ASSIGNEE_UNRESOLVED       = 'ASSIGNEE_UNRESOLVED'
+    #: The model permission's own state_restriction refused a write. Added at
+    #: 19.0.1.18.0: Document B §4.1's "draft only" was declared from the start
+    #: and was not enforced until then, so the reason had nowhere to be raised.
+    STATE_NOT_PERMITTED       = 'STATE_NOT_PERMITTED'
 ```
 
 **Helper for Odoo selections:**
@@ -330,7 +358,16 @@ class ExecutionContext:
     execution_mode: ExecutionMode
     trigger: TriggerType
     company_ids: tuple            # effective intersection, ordered
-    autonomy: AutonomyLevel       # effective, already min()-resolved
+    autonomy: AutonomyLevel       # the PROFILE'S CEILING, not an effective value.
+                                  # The guard resolves autonomy as ceiling-vs-floors:
+                                  #   max(tool.autonomy, action.autonomy_required)
+                                  #       <= profile.max_autonomy_level
+                                  # There is no min() anywhere in it. Version 0.4 of
+                                  # this document said "already min()-resolved", which
+                                  # is the reasoning Documents B and C explicitly
+                                  # rejected: taking a minimum would let a low-autonomy
+                                  # tool DROP the requirement of a high-autonomy action
+                                  # it performs, which is a privilege escalation.
     tool_code: str
     correlation_id: str
     session_id: str
@@ -338,7 +375,15 @@ class ExecutionContext:
     policy_version: str
     idempotency_key: str = None
     handoff_id: int = None
-    _budget: Any = field(default=None, repr=False)
+    budget: Any = field(default=None, repr=False)
+
+    # The guard stamps two more members on with object.__setattr__ after
+    # construction, because the dataclass is frozen: `validated_params` (the
+    # coerced input dict) and `models_declared` (the tool spec's models, for
+    # the audit row). `security` is a property returning the guard service.
+    #
+    # `audit_id` is vestigial. The audit service keys every row on
+    # `correlation_id` (§11), so the guard stamps 0 here and nothing reads it.
 
     def model(self, name):
         """
@@ -352,11 +397,16 @@ class ExecutionContext:
         """AND of the agent domain and any state restriction."""
         ...
 
+    def check_records(self, model_name, record_ids, operation='read'):
+        """Guard steps 10, 13 and 14, for ids the tool has resolved."""
+        ...
+
     def consume_write(self):
         """Decrement write budget. Raises AIBudgetExceeded."""
         ...
 
-    def check_variance(self, deterministic, proposed, category_ref=None):
+    def check_variance(self, deterministic, proposed, model_name=None,
+                       action_code=None, category_ref=None):
         """
         Resolve the bounds for this action and category and classify the
         proposal. Returns (variance_pct, approval_required).
@@ -567,31 +617,53 @@ class AISecurityService(models.AbstractModel):
     _description = 'AI Operations Security Service'
 
     # ---- entry point ------------------------------------------------
-    def authorize(self, tool_code, params, profile=None,
+    def authorize(self, tool_code, params, profile,
                   execution_mode=ExecutionMode.INTERACTIVE,
                   trigger=TriggerType.CHAT,
-                  session_id=None, correlation_id=None,
-                  handoff_id=None) -> ExecutionContext:
+                  session_id=None, correlation_id=None, handoff_id=None,
+                  budget=None, idempotency_key=None) -> ExecutionContext:
         """
-        Runs Document C §7 steps 1-18 in order.
+        Runs Document C §7 steps 1-12 and step 19, in order.
         Returns a frozen ExecutionContext, or raises AIAccessDenied
         AFTER writing the denial to the audit log.
+
+        Steps 13-18 -- records in domain, company in scope, action permitted,
+        the two variance bounds, idempotency -- cannot run here: they need the
+        record ids, and only the tool knows those. The tool reaches them
+        through ExecutionContext (§6), which is why that object exists.
+        Steps 20-24 -- savepoint, serialise, blocklist, audit, release --
+        belong to the runner (§11).
         """
 
     # ---- individual checks, each independently testable --------------
-    def check_tool(self, profile, tool_code): ...
     def check_profile(self, profile): ...
-    def check_autonomy(self, profile, tool_spec, action=None): ...
+    def check_autonomy(self, profile, spec, action_floor=0): ...
     def resolve_identity(self, profile, execution_mode): ...
     def resolve_companies(self, profile, user): ...
+    def check_schema(self, spec, params): ...
     def check_model(self, profile, model_name, operation): ...
-    def check_records(self, ctx, model_name, record_ids, operation): ...
-    def check_action(self, ctx, model_name, action_code, values=None): ...
-    def check_bound(self, ctx, model_name, category_ref,
-                    deterministic, proposed): ...
+    def check_records(self, ctx, model_name, record_ids, operation='read'): ...
+    def check_action(self, ctx, model_name, action_code, records=None): ...
+    def check_bound(self, ctx, deterministic, proposed, model_name=None,
+                    action_code=None, category_ref=None): ...
     def check_token_ceiling(self, profile): ...
-    def check_handoff(self, from_profile, to_profile, type_code, payload): ...
+    def agent_domain(self, profile, model_name, ctx=None): ...
+    def max_records(self, profile, model_name): ...
 ```
+
+**Two checks live off the service, deliberately.** Version 0.4 listed `check_tool` and
+`check_handoff` here and neither was ever built on this object:
+
+- **Steps 1, 2 and 4** are on `ai.operations.tool`, because they are questions about a
+  *record*, not about a profile's configuration: `registry_spec(code)` raises
+  `UNKNOWN_TOOL`, `record_for(code)` raises `TOOL_DISABLED`, and
+  `record.assignment_for(profile)` raises `TOOL_NOT_ASSIGNED`. Putting them on the guard
+  would have meant the guard re-querying a record the tool model already holds.
+- **Handoff payload validation** is in `AIHandoffService.raise_handoff` (§11), which is the
+  only caller and the only place a `HANDOFF_SCHEMA_VIOLATION` can be raised.
+
+The rule below still holds without exception: these are *permission* decisions and they
+exist in exactly one place each. What moved is where that place is, not how many there are.
 
 **Rules:**
 - Each `check_*` returns `None` or raises `AIAccessDenied`. Never returns a boolean, because a boolean invites `if not check(): pass`.
@@ -637,19 +709,36 @@ class AISerializer(models.AbstractModel):
 class AIAuditService(models.AbstractModel):
     _name = 'ai.operations.audit'
 
-    def open_entry(self, tool_code, profile, user, execution_mode,
-                   trigger, session_id, correlation_id) -> int:
-        """Create the audit row BEFORE the guard runs. Returns id."""
+    def open_entry(self, tool_code, profile, user, execution_mode, trigger,
+                   session_id, correlation_id, service_user=None,
+                   handoff_id=None):
+        """Create the audit row BEFORE the guard runs."""
 
-    def record_decision(self, audit_id, decision, reason=None, detail=None): ...
-    def record_result(self, audit_id, output_summary, duration_ms,
-                      tokens_in=None, tokens_out=None): ...
-    def record_write(self, audit_id, model, res_id, before, after): ...
-    def record_variance(self, audit_id, variance_pct, approval_required): ...
-    def record_error(self, audit_id, error): ...
+    def record_decision(self, correlation_id, decision, profile=None,
+                        reason=None, detail=None, tool_code=None,
+                        models_accessed=None, input_args=None): ...
+    def record_result(self, correlation_id, profile=None,
+                      output_summary=None, ...): ...
+    def record_write(self, correlation_id, model, res_id,
+                     before=None, after=None): ...
+    def record_variance(self, correlation_id, variance_pct,
+                        approval_required): ...
+    def record_idempotent_hit(self, correlation_id, detail=None): ...
+    def record_truncation(self, correlation_id, model=None,
+                          returned=0, total=0): ...
+    def record_policy_change(self, profile=None, model_name=None, ...): ...
+    def record_error(self, correlation_id, error): ...
+    def call_events(self, correlation_id): ...
 ```
 
 The audit row opens **before** the guard runs. A denial can therefore never escape unlogged, which is the property T-80 depends on.
+
+**Every method is keyed on `correlation_id`, not an audit row id.** Version 0.4 had
+`open_entry` return an int that each `record_*` then took back. One id per call is not
+enough: a single tool call appends several events, a run appends across several calls, and
+a handoff spans two profiles — all of which have to reconcile afterwards. The correlation
+id is the only key that survives all three, so it is the key everywhere. The consequence
+for §6 is noted there: `ExecutionContext.audit_id` is stamped 0 and nothing reads it.
 
 ```python
 class AIHandoffService(models.AbstractModel):
@@ -666,20 +755,26 @@ class AIHandoffService(models.AbstractModel):
     def reject(self, ctx, handoff_id, reason): ...
 ```
 
-```python
-class AIContextBuilder(models.AbstractModel):
-    _name = 'ai.operations.context.builder'
-
-    def build_system_prompt(self, profile) -> str: ...
-    def build_tool_definitions(self, profile) -> list:
-        """Anthropic tool-use format, from registry + assignments."""
-    def build_record_context(self, ctx, record, schema) -> dict:
-        """Through an output schema. Never a raw record."""
-```
+**There is no separate context-builder service.** Version 0.4 specified an
+`AIContextBuilder` on `ai.operations.context.builder`. It was never built as its own
+model, and should not be: the only caller of a prompt builder is the runner, and a
+one-caller abstraction is an indirection, not a boundary. The two methods that were
+wanted are on the runner below. The third, `build_record_context`, was never needed —
+"through an output schema, never a raw record" is exactly what `AISerializer` (§10)
+already does, and having two objects answer it would have been the second place for a
+blocklist to be forgotten.
 
 ```python
 class AIExecutionRunner(models.AbstractModel):
     _name = 'ai.operations.execution'
+
+    def build_system_prompt(self, profile) -> str: ...
+    def build_tool_definitions(self, profile) -> list:
+        """Anthropic tool-use format, from registry + assignments."""
+
+    def execute_tool(self, profile, tool_code, params, execution_mode, ...):
+        """One guarded call: authorize, execute in a savepoint, serialise,
+        audit. Steps 20-24. The runner's loop calls this; so does a test."""
 
     def run(self, profile_code, trigger, session_id,
             entry_prompt=None, entry_tool=None, correlation_id=None):
@@ -696,7 +791,7 @@ class AIExecutionRunner(models.AbstractModel):
         3. env = self.env(user=identity,
                           context={'allowed_company_ids': company_ids})
         4. Check the daily token ceiling before the first provider call.
-        5. Build prompt and tool definitions (ContextBuilder, registry
+        5. Build prompt and tool definitions (the two methods above, registry
            intersected with this profile's assignments).
         6. Loop capped at profile.max_tool_calls:
              provider.complete() -> tool_use -> tool.execute()
@@ -881,11 +976,46 @@ class PurchaseOrder(models.Model):
     <field name="perm_read" eval="True"/>
     <field name="perm_create" eval="True"/>
     <field name="perm_write" eval="True"/>
-    <field name="state_restriction">draft</field>
+    <field name="state_restriction">state=draft</field>
     <field name="domain">[('company_id','in',allowed_company_ids)]</field>
   </record>
 </odoo>
 ```
+
+**A state restriction names its field.** Version 0.4 of this sample wrote a bare `draft`,
+and `services/validators.py` raises `ValidationError` on it — so a pack that copied this
+block verbatim would not install. A bare value cannot work, because the models this is
+applied to do not agree on a field name: `purchase.order` uses `state`, `quality.check`
+uses `quality_state`, and `quality.alert` has no state field at all and uses `stage_id`.
+The real packs write `state=draft` and `stage_id.name=New`.
+
+> **`noupdate="1"` has a deployment consequence, and it is the one that bit us.**
+>
+> Records inside a `noupdate` block are written when the module is **updated** — not on a
+> restart, not on a git push, and not because a manifest version changed. A version bump is
+> a *request* for an update; the update happens only when the build actually runs `-u`.
+>
+> This cuts both ways and only one way is obvious. Existing records are never overwritten,
+> which is the point and stays: it is what lets a customer tune a permission without a
+> deploy reverting it. The half that is easy to miss is that **new** records in the same
+> block are equally invisible until the upgrade runs. A pack whose XML is on the branch but
+> whose rows are not in the database presents as an agent holding a tool it may not use —
+> which is exactly the shape of George's two refusals on 2026-09-07. The branch was right
+> and the database was old.
+>
+> **Do not remove `noupdate` to solve this.** That trades a deployment discipline problem
+> for a data-loss one. Run the upgrade, and confirm it by the rows, not by the commit hash.
+>
+> Two regressions hold the halves that can be held in code. `test_pack_coverage.py` sweeps
+> every profile-tool assignment and fails when a tool names a model its profile was not
+> granted, so a dead assignment cannot ship. `test_tool_materialisation.py` asserts the
+> database state the install produced rather than the registry, which was the actual defect
+> behind "No tools registered yet" — the registry was correct the whole time.
+>
+> **Known gap:** nothing asserts that a *stale* database picks up newly added policy-pack
+> XML ids when it is upgraded. `test_tool_materialisation.py` is the nearest cover and it
+> tests tool rows, not policy-pack records. Until that exists, the upgrade is verified by
+> looking.
 
 ---
 
@@ -930,7 +1060,7 @@ Each is a build failure, not a warning.
 | 1 | `grep -rn "sudo()" ai_operations*/` → any hit fails |
 | 2 | `grep -rn "\.read(" ai_operations*/tools/` → any hit fails |
 | 3 | Kernel installs and passes its suite on a **bare database** |
-| 4 | No import of `odoo.addons.ai` outside `ai_operations_bridge` |
+| 4 | No import of `odoo.addons.ai` **anywhere**. §3.2's `ai_operations_bridge` was never built, so the exemption it carried has no holder and the check is absolute |
 | 5 | Every `@ai_tool` declares `models`, `input_schema`, `output_schema`, docstring |
 | 6 | No `@ai_tool` input schema field in `PROHIBITED_PARAM_NAMES` |
 | 7 | Every Document C §16 matrix id has a matching test method |
@@ -939,13 +1069,24 @@ Each is a build failure, not a warning.
 | 10 | No selection list declared inline outside `enums.py` |
 | 11 | `grep -rn "ir.config_parameter" ai_operations*/` outside a test → fails. The API key never touches the ORM |
 | 12 | `grep -rn "expression.AND\|expression.OR\|_sql_constraints" ai_operations*/` → fails. Odoo 19 idioms only |
-| 13 | Kernel and every tool pack install and pass with `ai_operations_bridge` **absent** |
-| 14 | Kernel and every tool pack install and pass on an **Odoo Community** database |
+| 13 | Kernel and every tool pack install and pass with `ai_operations_bridge` **absent** — trivially satisfied, since it was never built and nothing declares it |
+| 14 | The **Community tier** installs and passes on an **Odoo Community** database: `ai_operations`, `ai_operations_anthropic`, `ai_operations_chat_widget`, `ai_operations_procurement`, `ai_operations_inventory`, `ai_operations_accounting`, `stock_security_warehouse`. `ai_operations_manufacturing`, `ai_operations_quality`, `ai_operations_gm`, `alshayeb_demo_water` and `ai_operations_demo_data` are Enterprise-tier by §3.2's `quality_mrp` dependency and are excluded from this check |
 | 15 | No `Many2one` in `ai_operations/models/` targets a model outside `base` or `mail` |
 | 16 | `grep -rniE "anthropic\|claude\|openai\|gemini\|api\.anthropic\|_TOKEN" ai_operations/` → fails. The kernel names no vendor, no endpoint and no credential variable |
 | 17 | Every `@ai_provider` declares a non-empty constant `models` and implements `complete` / `get_models` / `health_check` |
 
-Checks 1, 2, 4, 11, 15 and 16 are the ones that keep the architecture honest twelve months from now, when someone under deadline pressure reaches for the shortcut. Check 14 is the one that keeps the commercial position true: the moment the platform stops installing on Community, "runs without Odoo Enterprise AI" has quietly become marketing rather than fact.
+Checks 1, 2, 4, 11, 15 and 16 are the ones that keep the architecture honest twelve months from now, when someone under deadline pressure reaches for the shortcut. Check 14 is the one that keeps the commercial position true: the moment the *kernel tier* stops installing on Community, "runs without Odoo Enterprise AI" has quietly become marketing rather than fact.
+
+> **Check 14, scoped honestly — 2026-09-08.** Version 0.4 required every tool pack to install on
+> Community while §3.2 made `quality_mrp` mandatory for two of them. `quality_mrp` is Enterprise;
+> both could not hold, and `DEVIATIONS.md` recorded the contradiction as needing a ruling. The
+> ruling: **the dependency stays and the check narrows.** The claim worth defending is that the
+> platform runs without the Enterprise **AI app** — enforced by checks 4 and 13, both of which
+> still cover every module. Whether a *quality* pack needs the *quality* app was never the
+> commercial question. Document C §4 carries the matching tier table.
+>
+> Checks 3 and 14 both need a database, so `tools/ci_checks.sh` reports them SKIP; they are run
+> by hand against a Community-only addons path and the result recorded in `DEVIATIONS.md`.
 
 ---
 

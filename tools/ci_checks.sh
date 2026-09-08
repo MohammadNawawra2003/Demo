@@ -17,10 +17,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIPPED=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); shift; [ $# -gt 0 ] && printf '        %s\n' "$*"; }
-skip() { printf '  \033[33mSKIP\033[0m  %s  (needs a database)\n' "$1"; }
+skip() { printf '  \033[33mSKIP\033[0m  %s  (needs a database)\n' "$1"; SKIPPED=$((SKIPPED+1)); }
 
 # A check passes when the pattern finds NOTHING.
 #
@@ -100,5 +100,16 @@ absent "16b kernel names no credential variable" '_TOKEN' ai_operations/models a
 ok "17 every @ai_provider declares constant models and three methods"
 
 echo
-printf 'passed %d, failed %d\n' "$PASS" "$FAIL"
+# Document D §15 defines SEVENTEEN numbered controls; a clean run prints sixteen
+# PASS and two SKIP, and both counts are correct. Check 16 runs as two greps
+# (16a vendor names, 16b credential variable) because the single -i _TOKEN
+# pattern matched max_daily_tokens, and checks 3 and 14 need a database. So:
+# 17 controls -> 15 greppable here -> 16 result lines -> "passed 16".
+printf 'passed %d, failed %d, skipped %d  —  17 controls documented in Document D §15\n' \
+  "$PASS" "$FAIL" "$SKIPPED"
+printf '  17 controls -> %d skipped here (3, 14: need a database) -> 15 runnable -> %d result lines (16 runs as 16a + 16b)\n' \
+  "$SKIPPED" "$PASS"
+printf '  NOTE: 5, 6, 7, 8, 9, 13 and 17 are asserted by the test suite and by the\n'
+printf '        registration guards in registry.py / provider.py, NOT by this script.\n'
+printf '        A green run here is not a green suite. Run the suite too.\n'
 [ "$FAIL" -eq 0 ] || exit 1

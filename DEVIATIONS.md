@@ -1626,8 +1626,24 @@ mandatory for two packs, and check 14 requires every pack to install and pass on
 Community**, which D calls the check "that keeps the commercial position true". Quality is
 Enterprise-only. Both cannot hold. Declaring the dependency makes the packs honest about
 what they need and makes the Community claim false for those two packs specifically; the
-kernel, the procurement pack and the inventory pack remain Community-installable. **This
-needs a ruling.**
+kernel, the procurement pack and the inventory pack remain Community-installable. ~~**This
+needs a ruling.**~~
+
+> **RULED 2026-09-08 — the dependency stays, check 14 narrows.** The claim worth defending
+> is that the product runs without the Enterprise **AI app**, which CI checks 4 and 13 still
+> enforce across every module. Whether a *quality* pack needs the *quality* app was never the
+> commercial question. Document C §4 and Document D §3.2 / §15 now carry the tier table:
+> **Community** — `ai_operations`, `ai_operations_anthropic`, `ai_operations_chat_widget`,
+> `ai_operations_procurement`, `ai_operations_inventory`, `ai_operations_accounting`,
+> `stock_security_warehouse`. **Enterprise** — `ai_operations_manufacturing`,
+> `ai_operations_quality`, `ai_operations_gm`, `alshayeb_demo_water`,
+> `ai_operations_demo_data`. **The full Naqaa demo therefore requires Enterprise.**
+>
+> ⚠ **The 380-test Community run recorded above under "Community gate for the packs, not only
+> the kernel" is superseded evidence.** It passed only because the manifests had not yet
+> declared `quality_mrp` — the same omission this very section reports. Do not cite it as
+> proof that the manufacturing or quality packs install on Community. Check 14 must be re-run
+> against the Community tier as scoped above; until it is, it stands asserted, not measured.
 
 ### The seventeen CI checks are now executable
 
@@ -1785,3 +1801,7 @@ issues, which makes it Enterprise-tier like the manufacturing and quality packs.
 the set already recorded above; Document C §4's "the entire platform installs and runs on
 Odoo Community" remains false for those packs, and the kernel, the chat surface and the
 procurement, inventory and accounting packs remain Community-installable.
+
+**Ruled with the section above on 2026-09-08.** Document C §4's sentence has been corrected
+in place rather than deleted, and Document C §9.3, §18, §19 and §21 with it; the frozen
+wording is kept alongside each correction as history.

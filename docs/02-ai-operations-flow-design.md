@@ -620,10 +620,19 @@ Version 1.0 split the paths: cron direct to the Messages API, chat on native `ai
 
 - **One security path, not two claimed to be equivalent.** The strongest version of "chat and cron are identical" is that they *are* identical: same loop, same assembler, same guard, same audit. Divergence is not a defect to police, it is impossible.
 - **Claude everywhere.** One vendor, one adapter, one disclosure.
-- **Community deployability, in full.** The chat surface is a `discuss.channel`, and `discuss.channel` lives in `mail` — which `ai_operations` already depends on. The entire platform, conversation included, installs on Community with no Enterprise AI app. That is unusual for an Odoo AI product and it is a deliberate commercial position, not an accident of the design.
+- **Community deployability of the kernel and the conversation.** The chat surface is a `discuss.channel`, and `discuss.channel` lives in `mail` — which `ai_operations` already depends on. The security kernel, the runtime, the conversation, the provider adapter and the procurement, inventory and accounting packs install on Community **with no Enterprise AI app at all**. That is unusual for an Odoo AI product and it is a deliberate commercial position, not an accident of the design. *Corrected 2026-09-08:* it is a tier, not the whole product — the manufacturing, quality and GM packs and the Naqaa demo database require `quality_mrp`, which is Enterprise. The claim being made is independence from the Enterprise **AI app**, and that one holds for every module. Document C §4 carries the tier table.
 - **Four defects deleted rather than worked around.** The dispatch shape, the swallowed denial, the schema drift and the missing session id all disappear with the path that caused them.
 
 **What is lost, and the mitigation.** Users do not get the native "Ask AI" entry points unless `ai_operations_bridge` is installed. The bridge remains in the module list as an **optional** convenience: it registers an `ai.agent` record pointing at our profile so the agent is discoverable from the Enterprise AI UI, and nothing more. It never routes a tool call. Installing it or not changes discoverability, never behaviour or security.
+
+> **The bridge was never built — noted 2026-09-08.** The paragraph above, and the module-list row
+> further up, are the plan as written; they are kept as history. Once this decision moved the
+> runtime into `ai_operations`, the bridge had nothing left to do but discoverability, and no build
+> session ever wrote it. Nothing was lost that mattered, and the commercial claim it was meant to
+> protect is now stronger for its absence: **no module in the product imports from the Enterprise
+> `ai` app at all**, which CI check 4 greps for across the whole repository. Wherever this document
+> or Document C says "optional module", read "never built". Do not resurrect it for discoverability
+> alone. Document D §3.2 carries the full record.
 
 **Mandatory conditions, unchanged in substance:**
 - one agent profile record per agent
