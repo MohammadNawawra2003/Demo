@@ -364,3 +364,33 @@ payload said so plainly: `{"product_id": 9, "production_id": 2}`.
 **Fix:** `find_production` in both packs, sharing one implementation in
 `ai_operations/tools/production_mixin.py`, and `check_order_components`'s per-tool cap raised from 4
 to 6 so one wrong turn no longer costs the step.
+
+
+---
+
+## Run #4 (`fd8f4d6`) — 10 of 11
+
+`find_production` worked in both packs and the guessing stopped: no `BUDGET_EXCEEDED` anywhere, and
+the per-tool cap of six was never approached. **Step 5 is finally correct** — `P00045`, draft,
+Jeddah Plastic Industries, `PK-BTL-600` ×4,000 at 0.078, `approval_required` False. Four thousand,
+not twelve. **Step 7 passes cleanly** for the first time. Steps 1, 2, 3, 4, 8a, 9, 10 and 11 all pass.
+
+The single failure, step 8b, was an Odoo permission rule rather than the guard:
+
+**`mail.activity` can only be created by someone with write access — or `_mail_post_access` — on the
+record it attaches to.** Nothing in `product`, `stock` or `mrp` overrides the default of `write`. A
+warehouse user reads products and never writes them, so `inventory.create_review_activity` could
+never attach an activity to a product for its own persona. It was unusable as shipped, in every run,
+whatever the question; run #4 was simply the first step that asked.
+
+Every other pack targets a record its persona writes — procurement a purchase order, manufacturing a
+production order. Inventory pointing at a product was the odd one out.
+
+| Change | Why |
+|---|---|
+| `inventory.create_review_activity` now targets **`stock.picking`** | Mail-threaded and writable by the persona, and it matches the pack's own `get_late_transfers`. `stock.move` was tried first and is **not** mail-threaded — activity creation reaches `message_notify` and raises `AttributeError`, which no permission check would have caught. A test now asserts every declared target is threaded. |
+| Step 8b escalates through **`raise_handoff`** instead | "We are short" belongs to the department that can buy. `REPLENISHMENT_REQUEST` is the right instrument and was already proven working in run #1. |
+
+**Not done, deliberately:** widening `mansour.i`'s rights to write products. That would trade a real
+permission boundary for one line of demo script, which is exactly what §8 tells the presenter never
+to do.

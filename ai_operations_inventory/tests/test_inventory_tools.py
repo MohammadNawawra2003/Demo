@@ -318,3 +318,68 @@ class TestFindProduction(TestInventoryTools):
         result = self._run('inventory.find_production',
                            {'production_ref': 'RM/MO/DOES-NOT-EXIST'})
         self.assertEqual(result['productions'], [])
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestInventoryActivityTarget(TestInventoryTools):
+    """An activity has to land on a record its author may write.
+
+    Odoo checks WRITE access on the record a mail.activity is attached to. A
+    warehouse user reads products and never writes them, so attaching an
+    inventory activity to a product raised USER_ACL_DENIED for the very persona
+    the tool was written for -- every time, whatever the question. Staging run
+    #4 was the first step that actually asked for it.
+
+    The fix is not to widen the persona's rights. Granting a warehouse user
+    write on product.product to get an activity onto it would trade a real
+    permission boundary for a demo line, which is the thing the runbook tells
+    the presenter never to do.
+    """
+
+    def _transfer(self):
+        picking = self.env['stock.picking'].search([], limit=1)
+        if not picking:
+            picking = self.env['stock.picking'].create({
+                'picking_type_id': self.warehouse.in_type_id.id,
+                'location_id': self.env['stock.location'].search(
+                    [('usage', '=', 'supplier')], limit=1).id,
+                'location_dest_id': self.warehouse.lot_stock_id.id,
+            })
+        return picking
+
+    def test_the_tool_declares_a_writable_target(self):
+        spec = get_tool('inventory.create_review_activity')
+        self.assertIn('stock.picking', spec.models)
+        self.assertNotIn(
+            'product.product', spec.models,
+            "a product is not writable by this persona, so Odoo can never "
+            "attach an activity to one")
+
+    def test_an_activity_attaches_to_a_transfer(self):
+        picking = self._transfer()
+        result = self._run('inventory.create_review_activity', {
+            'res_id': picking.id,
+            'summary': 'component short',
+            'note': 'raised by the reset test',
+            'reason_code': 'SHORTAGE',
+            'severity': 'ATTENTION',
+        })
+        self.assertTrue(result['activity_id'], "no activity was created")
+        activity = self.env['mail.activity'].browse(result['activity_id'])
+        self.assertEqual(activity.res_model, 'stock.picking')
+        self.assertEqual(activity.res_id, picking.id)
+
+    def test_the_target_model_is_mail_threaded(self):
+        """A target Odoo cannot post on crashes rather than refusing.
+
+        stock.move looked like the obvious record for a component shortage and
+        is not mail-threaded at all: activity creation reaches message_notify
+        and raises AttributeError, which no permission check would have caught.
+        """
+        spec = get_tool('inventory.create_review_activity')
+        for model in spec.models:
+            if model == 'mail.activity':
+                continue
+            self.assertTrue(
+                hasattr(self.env[model], 'message_notify'),
+                "%s is not mail-threaded; an activity on it crashes" % model)

@@ -446,13 +446,35 @@ def get_stock_discrepancies(ctx, params):
     code='inventory.create_review_activity',
     category=ToolCategory.DRAFT_WRITE,
     autonomy=AutonomyLevel.PREPARE,
-    models=['mail.activity', 'product.product'],
+    models=['mail.activity', 'stock.picking'],
     input_schema=activity_mixin.ReviewActivityInput,
     output_schema=activity_mixin.ReviewActivityOutput,
 )
 def create_review_activity(ctx, params):
-    """Put an inventory exception on a named human's desk. §12."""
-    return activity_mixin.create_review_activity(ctx, params, 'product.product')
+    """Put an inventory exception on a named human's desk. §12.
+
+    ``res_id`` is a **transfer**, not a product, and that is a correction rather
+    than a preference.
+
+    Odoo creates an activity only with write access -- or ``_mail_post_access``
+    -- on the record it is attached to, and nothing in product, stock or mrp
+    overrides the default of ``write``. A warehouse user reads products and
+    never writes them, so this tool could not attach an activity to a product
+    for the very persona it was written for: ``USER_ACL_DENIED`` on
+    ``product.product``, every time, whatever the question. It was unusable as
+    shipped, and a step finally asked for it on staging run #4.
+
+    A transfer is the right record anyway, and the pack already says so: the
+    sibling ``get_late_transfers`` exists precisely to surface transfers that
+    need a human. Every other pack targets a record its own persona writes --
+    procurement a purchase order, manufacturing a production order -- and
+    inventory pointing at a product was the odd one out.
+
+    A shortage is NOT raised through this tool. "We are short" is escalated to
+    the department that can buy, which is ``raise_handoff`` and a
+    ``REPLENISHMENT_REQUEST``.
+    """
+    return activity_mixin.create_review_activity(ctx, params, 'stock.picking')
 
 
 @ai_tool(
