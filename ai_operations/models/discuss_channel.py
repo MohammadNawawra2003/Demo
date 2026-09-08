@@ -20,7 +20,7 @@ from odoo.exceptions import UserError
 from odoo.tools import html2plaintext
 
 from ..services.enums import TriggerType
-from ..services.exceptions import NEUTRAL_DENIAL
+from ..services.exceptions import AIAccessDenied, NEUTRAL_DENIAL
 
 _logger = logging.getLogger(__name__)
 
@@ -73,6 +73,22 @@ class DiscussChannel(models.Model):
                 entry_prompt=html2plaintext(message.body or ''),
                 history=self._ai_history(message),
             )
+        except AIAccessDenied as denial:
+            # A denial raised BEFORE the tool loop -- an inactive profile at
+            # step 3, the daily token ceiling at step 5, autonomy at step 6 --
+            # never reaches the per-call handler inside run(), so without this
+            # it propagates out of message_post and the user gets a server error
+            # dialog instead of an answer. Document C §9 says a denial reaches
+            # the user as the fixed neutral string and the reason goes only to
+            # the audit row; that held inside the loop and did not hold around
+            # it. Observed on staging when manufacturing crossed its token
+            # ceiling mid-run.
+            #
+            # str() is the neutral text by construction (see AIAccessDenied), so
+            # this cannot leak a reason even if a future denial carries a new
+            # one. The audit row was already written before the raise.
+            self._ai_say(str(denial))
+            return
         finally:
             # A provider outage must not wedge the channel forever.
             self.ai_run_active = False

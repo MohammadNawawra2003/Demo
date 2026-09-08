@@ -13,6 +13,7 @@ isolation.
 """
 
 from odoo import _, api, models
+from odoo.exceptions import AccessError
 from odoo.tools import html2plaintext
 
 
@@ -51,6 +52,17 @@ class AIOperationsAgentProfile(models.Model):
         second one.
         """
         self.ensure_one()
+        # Consult the record rule rather than assume a later layer will refuse.
+        # This method's own docstring said a forged profile id "fails on the
+        # record rule", and it did not: ensure_one() reads nothing the rule
+        # governs, so an out-of-company profile got this far and was refused
+        # only when the guard reached its company check deep inside run() and
+        # the exception happened to escape. Once that exception was correctly
+        # turned into a posted refusal, the widget stopped refusing at all.
+        # A search applies the rule; browsing does not.
+        if not self.search_count([('id', '=', self.id)]):
+            raise AccessError(
+                _("This agent is not available to you."))
         action = self.action_open_chat()
         return self.env['discuss.channel'].browse(action['params']['channel_id'])
 

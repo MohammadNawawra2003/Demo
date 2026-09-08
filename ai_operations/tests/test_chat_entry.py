@@ -21,6 +21,7 @@ from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import tagged
 
+from ..services.exceptions import NEUTRAL_DENIAL
 from .common import AIOperationsCommon
 
 
@@ -317,3 +318,76 @@ class TestChatEntryPoint(AIOperationsCommon):
                         "a non-text key survived into history")
         self.assertTrue(all(turn['role'] in ('user', 'assistant') for turn in cleaned),
                         "a tool turn survived into history")
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestRunLevelDenialReachesTheUser(TestChatEntryPoint):
+    """A denial raised BEFORE the tool loop must still be an answer.
+
+    Every tool-level denial renders as the frozen neutral string, and that path
+    is well covered. But the guard also refuses before the loop ever starts --
+    an inactive profile at step 3, the daily token ceiling at step 5, autonomy
+    at step 6 -- and ``_ai_dispatch`` wrapped ``run()`` in try/finally with no
+    except. So those propagated out of ``message_post`` and the user got a
+    server error dialog instead of a refusal.
+
+    Seen on staging run #6: manufacturing crossed its token ceiling mid-run and
+    the exception escaped into the caller. Document C §9 says a denial reaches
+    the user as the fixed neutral string with the reason confined to the audit
+    row; that held inside the loop and did not hold around it.
+    """
+
+    def _deny_the_run(self, reason_detail='forced for test'):
+        """Make run() refuse the way step 5 does, before any tool is chosen."""
+        from ..services.enums import DenialReason
+        from ..services.exceptions import AIAccessDenied
+
+        def refuse(*args, **kwargs):
+            raise AIAccessDenied(DenialReason.BUDGET_EXCEEDED,
+                                 detail=reason_detail)
+
+        self.patch(type(self.env['ai.operations.execution']), 'run', refuse)
+
+    def test_the_user_gets_an_answer_rather_than_a_traceback(self):
+        channel = self._channel_of(self._open())
+        self._deny_the_run()
+
+        # The bug: this raised instead of posting.
+        channel.with_user(self.employee).message_post(
+            body='anything', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        answers = self.env['mail.message'].search(
+            [('model', '=', 'discuss.channel'), ('res_id', '=', channel.id),
+             ('author_id', '=', self.agent_partner.id)])
+        self.assertTrue(answers, "the agent said nothing at all")
+        self.assertIn(NEUTRAL_DENIAL, answers[0].body)
+
+    def test_the_reason_never_reaches_the_channel(self):
+        channel = self._channel_of(self._open())
+        self._deny_the_run(reason_detail='daily token ceiling reached (204620 of 200000)')
+
+        channel.with_user(self.employee).message_post(
+            body='anything', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        bodies = ' '.join(self.env['mail.message'].search(
+            [('model', '=', 'discuss.channel'),
+             ('res_id', '=', channel.id)]).mapped('body'))
+        for leak in ('204620', '200000', 'ceiling', 'BUDGET_EXCEEDED'):
+            self.assertNotIn(
+                leak, bodies,
+                "the denial reason reached the conversation: %s" % leak)
+
+    def test_the_channel_is_not_left_wedged(self):
+        """ai_run_active must clear, or the channel refuses every later turn."""
+        channel = self._channel_of(self._open())
+        self._deny_the_run()
+
+        channel.with_user(self.employee).message_post(
+            body='anything', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        self.assertFalse(
+            channel.ai_run_active,
+            "a refused run left the channel unable to accept another message")

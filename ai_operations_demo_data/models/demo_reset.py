@@ -53,7 +53,7 @@ No ``sudo()``. The reset runs with the privileges of whoever calls it.
 
 import logging
 
-from odoo import api, models
+from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError
 
 from odoo.addons.ai_operations.services.enums import HandoffState
@@ -96,6 +96,7 @@ class AIOperationsDemoReset(models.AbstractModel):
             'quality_alerts_deleted': 0,
             'messages_deleted': 0,
             'relevelled': {},
+            'token_budget_cleared': 0,
             'steps_failed': [],
         }
         # Every search below has to see all three demo companies. Multi-company
@@ -122,6 +123,7 @@ class AIOperationsDemoReset(models.AbstractModel):
             # Last, because it re-reserves the order and wants the paperwork
             # already gone.
             ('stock level', self._relevel_stock, (summary,)),
+            ('token budget', self._reset_token_budget, (summary,)),
         )
         for label, step, args in steps:
             try:
@@ -221,6 +223,35 @@ class AIOperationsDemoReset(models.AbstractModel):
             [('name', '=like', ALERT_PREFIX + '%')])
         summary['quality_alerts_deleted'] = len(alerts)
         alerts.unlink()
+
+    # -- the daily token counter -------------------------------------------
+
+    @api.model
+    def _reset_token_budget(self, summary):
+        """Clear today's token counters for the demo profiles.
+
+        Rehearsal spends the same daily budget as the performance. Six
+        validation runs took the manufacturing profile to 204,620 of its 200,000
+        ceiling, after which every turn it attempted was refused at guard step 5
+        -- correctly, and in a way no prompt could recover from.
+
+        This clears the COUNTER for the demo's own profiles. It does not touch
+        ``max_daily_tokens``: the ceiling is a policy control and stays exactly
+        where it was, still enforced, still fail-closed. What is being removed
+        is the record of spend from a rehearsal, on a non-production database,
+        by the same act that removes the rest of the rehearsal's residue.
+
+        Non-production only, like everything else in this module.
+        """
+        profiles = self.env['ai.operations.agent.profile'].with_context(
+            active_test=False).search([('code', 'in', sorted(ROUTING))])
+        rows = self.env['ai.operations.budget'].search([
+            ('profile_id', 'in', profiles.ids),
+            ('date', '=', fields.Date.context_today(self)),
+        ])
+        summary['token_budget_cleared'] = len(rows)
+        if rows:
+            rows.write({'tokens_used': 0})
 
     # -- stock -------------------------------------------------------------
 

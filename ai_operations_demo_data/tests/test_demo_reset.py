@@ -370,3 +370,35 @@ class TestDemoReset(TransactionCase):
         summary = self.Reset.reset()
         self.assertIn('relevelled', summary)
         self.assertEqual(summary['steps_failed'], [])
+
+    # -- the daily token counter -------------------------------------------
+
+    def test_the_daily_token_counter_is_cleared_for_demo_profiles(self):
+        """Rehearsal spends the same budget as the performance.
+
+        Six validation runs took manufacturing to 204,620 of its 200,000
+        ceiling, after which every turn was refused at guard step 5 -- correctly,
+        and unrecoverably by any prompt.
+        """
+        profile = self._demo_profile('manufacturing')
+        budget = self.env['ai.operations.budget'].create({
+            'profile_id': profile.id,
+            'date': self.env['ai.operations.budget']._fields['date'].default(
+                self.env['ai.operations.budget']),
+            'tokens_used': 204_620,
+        })
+        summary = self.Reset.reset()
+        budget.invalidate_recordset()
+        self.assertEqual(budget.tokens_used, 0, "the counter was not cleared")
+        self.assertGreaterEqual(summary['token_budget_cleared'], 1)
+
+    def test_the_ceiling_itself_is_never_touched(self):
+        """The counter is rehearsal residue. The ceiling is a policy control."""
+        profile = self._demo_profile('manufacturing')
+        before = profile.max_daily_tokens
+        self.assertTrue(before, "the fixture has no ceiling to protect")
+        self.Reset.reset()
+        profile.invalidate_recordset()
+        self.assertEqual(
+            profile.max_daily_tokens, before,
+            "the reset weakened a policy ceiling instead of clearing a counter")

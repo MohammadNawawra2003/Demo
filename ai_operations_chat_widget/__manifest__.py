@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations: Chat Widget',
-    'version': '19.0.1.2.0',
+    'version': '19.0.1.3.0',
     'category': 'Productivity/AI',
     'summary': 'A floating AI Operations chat launcher in the Odoo backend',
     'description': """
