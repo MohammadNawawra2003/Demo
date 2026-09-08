@@ -417,3 +417,30 @@ class TestRunLevelDenialReachesTheUser(TestChatEntryPoint):
         self.assertEqual(
             second.tool_calls, 0,
             "a new run must not inherit the previous message's counter")
+
+    def test_a_run_level_denial_still_reaches_the_audit_log(self):
+        """C §5.9: a DENIED decision is unconditional.
+
+        check_token_ceiling refuses before a tool is chosen, so no OPEN row had
+        been written and nothing downstream recorded it. The user was told, with
+        the neutral string, and the log said nothing -- a whole class of refusal
+        the customer could see and an auditor could not. Found by driving a
+        profile over its ceiling and watching zero rows appear.
+        """
+        Log = self.env['ai.operations.audit.log']
+        channel = self._channel_of(self._open())
+        self.profile.max_daily_tokens = 100
+        self.env['ai.operations.budget'].add_tokens(self.profile, 500)
+        before = Log.search_count([])
+
+        channel.with_user(self.employee).message_post(
+            body='anything', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        self.assertGreater(
+            Log.search_count([]), before,
+            "a refusal the user was shown left no trace in the audit log")
+        denied = Log.search([('decision', '=', 'DENIED')], order='id desc', limit=1)
+        self.assertTrue(denied, "no DENIED row was written")
+        self.assertEqual(denied.denial_reason, 'BUDGET_EXCEEDED')
+        self.assertIn('ceiling', (denied.denial_detail or '').lower())

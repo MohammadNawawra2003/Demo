@@ -249,7 +249,25 @@ class AIExecutionRunner(models.AbstractModel):
         budget = RunBudget(max_tool_calls=profile.max_tool_calls or 12,
                            max_write_ops=profile.max_write_ops or 3)
 
-        security.check_token_ceiling(profile)                    # 4
+        # A run-level refusal has to reach the audit log like any other.
+        #
+        # check_token_ceiling raises BEFORE a tool is chosen, so no OPEN row has
+        # been written and nothing downstream records it. The user was told --
+        # correctly, with the neutral string -- and the log said nothing at all.
+        # Document C §5.9 makes a DENIED decision unconditional and says
+        # audit_level may not suppress it, and this was a whole class of refusal
+        # the customer could see and an auditor could not. Verified by driving a
+        # profile over its ceiling and watching zero rows appear.
+        try:
+            security.check_token_ceiling(profile)                # 4
+        except AIAccessDenied as denial:
+            audit.open_entry(
+                'run', profile, identity, execution_mode, trigger,
+                session_id, correlation_id)
+            audit.record_decision(
+                correlation_id, Decision.DENIED, profile=profile,
+                reason=denial.reason, detail=denial.detail)
+            raise
 
         try:
             provider = self._provider_for(profile)
