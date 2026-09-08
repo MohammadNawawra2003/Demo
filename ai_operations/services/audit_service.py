@@ -51,8 +51,12 @@ class AIAuditService(models.AbstractModel):
             # differ only in provider_code and model_code" -- was unassertable
             # without this.
             'model_code': getattr(profile, 'model_code', False) or False,
-            'company_id': (profile.company_ids[:1].id
-                           if profile and profile.company_ids else False),
+            # scoped_company_ids() rather than profile.company_ids: reading the
+            # m2m as records trips the multi-company rule for any user narrower
+            # than the profile's scope, and this row is opened before the guard
+            # has resolved anything.
+            'company_id': (profile.scoped_company_ids() or [False])[0]
+                          if profile else False,
             'user_id': user.id if user else False,
             'service_user_id': service_user.id if service_user else False,
             'execution_mode': execution_mode,

@@ -33,6 +33,32 @@ class AIOperationsAgentProfile(models.Model):
              "allowed companies at run time.",
     )
 
+    def scoped_company_ids(self):
+        """The profile's company scope as plain ids, readable by any caller.
+
+        Reading ``company_ids`` normally instantiates ``res.company`` records,
+        and ``convert_to_record`` filters them on ``active`` -- which fetches
+        the rows and trips the multi-company record rule for **any executing
+        user who is not in every company the profile spans**.
+
+        That is not an edge case, it is the design. Document C §12 makes the
+        Inventory agent span C1 and C2 precisely because it is "the sharpest
+        test": it sees quantities across the boundary and values across
+        neither. Its demo persona sits in one company, so every tool call it
+        made raised AccessError out of the audit service before the guard had
+        finished opening the row -- a crash, not a refusal. It never showed up
+        in testing because every earlier run drove the agents as an
+        administrator, who reads all companies.
+
+        ``active_test=False`` skips the filtering, so only the relation table is
+        read and no company data is exposed to the executing user. The scope may
+        then include an archived company; that is a configuration error rather
+        than a leak, and ``resolve_companies`` intersects it with the user's own
+        companies before anything is granted.
+        """
+        self.ensure_one()
+        return self.with_context(active_test=False).company_ids.ids
+
     # DEVIATION (review finding H4). Document C 9.3 requires "a discuss.channel
     # between the employee and the profile's partner", but C 5.1's field list
     # has no partner. res.partner is in base, so this holds the base+mail rule.

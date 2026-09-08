@@ -192,9 +192,12 @@ class AISecurityService(models.AbstractModel):
     def resolve_companies(self, profile, user):
         """Step 8. Empty intersection denies."""
         allowed = set(user.company_ids.ids)
-        scope = set(profile.company_ids.ids)
-        effective = [cid for cid in profile.company_ids.ids if cid in allowed] \
-            if scope else list(allowed)
+        # Plain ids, not records: see agent_profile.scoped_company_ids(). Reading
+        # the m2m here raised AccessError for exactly the users this step exists
+        # to bound -- the ones whose companies are narrower than the agent's.
+        scoped = profile.scoped_company_ids()
+        effective = [cid for cid in scoped if cid in allowed] \
+            if scoped else list(allowed)
         if not effective:
             raise AIAccessDenied(
                 DenialReason.COMPANY_OUT_OF_SCOPE,
