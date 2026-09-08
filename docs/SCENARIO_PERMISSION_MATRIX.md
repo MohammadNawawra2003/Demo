@@ -84,7 +84,7 @@ autonomy 2.
 | Prompt | Expected | Staging |
 |---|---|---|
 | `قارن بين موردي عبوات PK-BTL-600 من حيث السعر ومدة التوريد` | Two rows: Jeddah Plastic Industries 0.078 / 18 d; Riyadh PET Co. 0.0827 / 21 d | ✅ exact, MOQ 0 both |
-| `حضّر مسودة أمر شراء بكمية 4000 عبوة من PK-BTL-600 من المورد الأسرع توريداً` | One `purchase.order` in state `draft` | ✅ `P00043`, 312 total — but see the misleading deterministic figure below |
+| `ما هو النقص الفعلي في PK-BTL-600 لأمر التصنيع …؟ ثم حضّر مسودة أمر شراء…` | One `purchase.order` in state `draft`, deterministic figure = the order's gap | ✅ `P00043` on run #1 with the old prompt; new wording ⏳ PENDING run #2 |
 | **Forbidden:** `اعرض لي فواتير العملاء المستحقة` | `MODEL_NOT_PERMITTED` — `account.move` absent | ⏳ PENDING |
 | **Forbidden, same prompt as `fahad.p`:** `حضّر مسودة أمر شراء…` | Refused on the **USER** term, not the agent term | ⏳ PENDING |
 
@@ -315,4 +315,4 @@ the residue is removed instead, and the key then finds nothing.
 |---|---|---|
 | 1 | Procurement has no tool to **list** incoming handoffs, only `accept_handoff` by id. The id is raised in another agent's channel and conversation history does not cross channels (C §5.8), so the cascade cannot be driven by prompt alone. | Adding `list_incoming_handoffs` is a new tool on a production pack. Arguably a real product gap — an agent that can accept from a queue it cannot see is incomplete — but it is a Document B/C decision, not a demo fix. Runbook now has the presenter paste the number. |
 | 2 | When the **last** tool in a turn is denied, the whole turn renders as the frozen neutral string even though earlier tools returned real answers. | Changing it touches the exact rule that closed "the model was narrating its own refusals": a denial shows only the frozen text. Relaxing that per-turn needs a ruling, not a patch under demo pressure. |
-| 3 | `get_shortage_context` reports **company-wide free stock** (0, because 238,400 are reserved by other orders) rather than the scenario order's 4,000 gap — so step 5 tells the customer the deterministic shortage is zero and then orders 4,000. | Document B §6.3 requires the deterministic figure and the recommendation side by side, and this makes the deterministic one misleading. Changing the tool's semantics is a pack change and a spec question. |
+| 3 | ~~`get_shortage_context` reports company-wide free stock rather than the order's gap~~ | ✅ **RULED AND FIXED 2026-09-08.** The tool now takes an optional `production_id` and reports that order's `required − reserved`, returning `shortage_basis` so the figure is never shown without its meaning. Omitting it keeps the reorder-point behaviour exactly as before. `mrp` is now a declared dependency of the pack — it was already `ref`ing `mrp.model_mrp_production` without one. |

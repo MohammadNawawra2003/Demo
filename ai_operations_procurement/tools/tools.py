@@ -65,7 +65,7 @@ def find_product(ctx, params):
     category=ToolCategory.READ,
     autonomy=AutonomyLevel.QUERY,
     models=['product.product', 'stock.quant', 'stock.move',
-            'stock.warehouse.orderpoint'],
+            'stock.warehouse.orderpoint', 'mrp.production'],
     input_schema=schemas.ShortageContextInput,
     output_schema=schemas.ShortageContextOutput,
 )
@@ -74,6 +74,19 @@ def get_shortage_context(ctx, params):
     incoming, and the reorder configuration. Use it before recommending any
     purchase quantity; the shortage it returns is the deterministic figure Odoo
     computed, and your recommendation must be shown against it.
+
+    Pass ``production_id`` when the question is about a specific manufacturing
+    order. Without it the shortage is measured against the reorder point across
+    the company, which is the right answer to "are we below our minimum" and the
+    WRONG one to "is this order short": free stock can be zero because every
+    unit is reserved by other orders, and a company with no reorder point
+    configured reports a shortage of zero no matter how short the order is.
+    Recommending a purchase against that figure tells the reader the
+    deterministic shortage is nil while ordering thousands, which is exactly the
+    contradiction Document B 6.3 exists to prevent.
+
+    ``shortage_basis`` says which of the two was measured, so the figure is
+    never presented without its meaning.
     """
     product = ctx.model('product.product').browse(params['product_id'])
     ctx.check_records('product.product', product.ids)
@@ -98,6 +111,24 @@ def get_shortage_context(ctx, params):
 
     available = on_hand - reserved
     shortage = max(0.0, minimum - (available + incoming))
+    basis = 'reorder_point'
+    order_required = 0.0
+    order_reserved = 0.0
+
+    production_id = params.get('production_id')
+    if production_id:
+        production = ctx.model('mrp.production').browse(production_id)
+        ctx.check_records('mrp.production', production.ids)
+        lines = production.move_raw_ids.filtered(
+            lambda move: move.product_id.id == product.id
+            and move.state not in ('done', 'cancel'))
+        order_required = sum(lines.mapped('product_uom_qty'))
+        # `quantity` on a move that is not done is what Odoo has managed to
+        # reserve for it, which is the half of the figure the reorder point
+        # cannot see.
+        order_reserved = sum(lines.mapped('quantity'))
+        shortage = max(0.0, order_required - order_reserved)
+        basis = 'manufacturing_order'
 
     return {
         'product_id': product.id,
@@ -110,6 +141,9 @@ def get_shortage_context(ctx, params):
         'reorder_min': minimum,
         'reorder_max': maximum,
         'shortage': shortage,
+        'shortage_basis': basis,
+        'order_required': order_required,
+        'order_reserved': order_reserved,
     }
 
 

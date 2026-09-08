@@ -36,6 +36,7 @@ class FindProductOutput(Schema):
 class ShortageContextInput(Schema):
     product_id = Int(min=1)
     warehouse_id = Int(min=1, required=False)
+    production_id = Int(min=1, required=False)
 
 
 class ShortageContextOutput(Schema):
@@ -49,6 +50,9 @@ class ShortageContextOutput(Schema):
     reorder_min = Float()
     reorder_max = Float()
     shortage = Float()
+    shortage_basis = Str()
+    order_required = Float()
+    order_reserved = Float()
 
 
 class OpenPosInput(Schema):

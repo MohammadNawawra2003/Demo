@@ -270,6 +270,69 @@ class TestProcurementTools(TransactionCase):
                 self.assertNotIn(action, ('CONFIRM', 'VALIDATE', 'POST'))
 
 
+    # -- the deterministic figure must answer the question that was asked ----
+
+    def _short_production(self):
+        """An order needing more bottles than the warehouse can reserve."""
+        finished = self.env['product.product'].create({
+            'name': 'Bottled water 330 ml (test)', 'default_code': 'T-FG-330',
+            'is_storable': True})
+        production = self.env['mrp.production'].create({
+            'product_id': finished.id,
+            'product_qty': 1.0,
+            'company_id': self.company.id,
+        })
+        self.env['stock.move'].create({
+            'product_id': self.bottle.id,
+            'product_uom_qty': 500_000.0,
+            'product_uom': self.bottle.uom_id.id,
+            'location_id': self.warehouse.lot_stock_id.id,
+            'location_dest_id': self.env['stock.location'].search(
+                [('usage', '=', 'production')], limit=1).id,
+            'raw_material_production_id': production.id,
+            'company_id': self.company.id,
+        })
+        production.action_confirm()
+        return production
+
+    def test_without_a_production_id_the_basis_is_the_reorder_point(self):
+        result = self._run('procurement.get_shortage_context',
+                           {'product_id': self.bottle.id})
+        self.assertEqual(result['shortage_basis'], 'reorder_point')
+        self.assertEqual(result['order_required'], 0.0)
+
+    def test_with_a_production_id_the_shortage_is_that_orders_gap(self):
+        """Run #1 printed "deterministic shortage = 0" while ordering 4,000.
+
+        Both numbers were right and the pairing was nonsense: the reorder-point
+        figure measures free stock across the company, which is zero when every
+        unit is reserved by other orders and zero again when no reorder point is
+        configured. Document B 6.3 wants the deterministic figure beside the
+        recommendation, and one that contradicts it is worse than none.
+        """
+        production = self._short_production()
+        result = self._run('procurement.get_shortage_context',
+                           {'product_id': self.bottle.id,
+                            'production_id': production.id})
+        self.assertEqual(result['shortage_basis'], 'manufacturing_order')
+        self.assertEqual(result['order_required'], 500_000.0)
+        self.assertEqual(
+            result['shortage'],
+            result['order_required'] - result['order_reserved'],
+            'the order-scoped shortage is required minus what Odoo reserved')
+        self.assertGreater(
+            result['shortage'], 0.0,
+            'an order that cannot be reserved in full is short by definition')
+
+    def test_the_company_wide_figures_survive_the_order_scope(self):
+        """The order gap replaces the headline; it does not hide the rest."""
+        production = self._short_production()
+        result = self._run('procurement.get_shortage_context',
+                           {'product_id': self.bottle.id,
+                            'production_id': production.id})
+        self.assertEqual(result['on_hand'], 120_000)
+        self.assertEqual(result['reorder_min'], 486_000)
+
 @tagged('post_install', '-at_install', 'ai_security')
 class TestDraftRfqIdempotency(TestProcurementTools):
     """Replay protection must be a property of the system, not of the model.
@@ -368,3 +431,5 @@ class TestDraftRfqIdempotency(TestProcurementTools):
         self.assertTrue(order.ai_idempotency_key.startswith('procurement:'),
                         "the stored key is not the namespaced one")
         self.assertEqual(order.state, 'draft')
+
+
