@@ -48,6 +48,8 @@ import logging
 from odoo import api, models
 from odoo.exceptions import AccessError, UserError
 
+from odoo.addons.ai_operations.services.enums import HandoffState
+
 from .demo_setup import ROUTING
 
 _logger = logging.getLogger(__name__)
@@ -82,9 +84,10 @@ class AIOperationsDemoReset(models.AbstractModel):
             'purchase_orders_deleted': 0,
             'purchase_orders_cancelled_not_deleted': [],
             'activities_deleted': 0,
-            'handoffs_deleted': 0,
+            'handoffs_cancelled': 0,
             'quality_alerts_deleted': 0,
             'messages_deleted': 0,
+            'steps_failed': [],
         }
         # Every search below has to see all three demo companies. Multi-company
         # record rules scope a search to the caller's active companies, so an
@@ -97,11 +100,23 @@ class AIOperationsDemoReset(models.AbstractModel):
             allowed_company_ids=self.env.user.company_ids.ids
             or self.env.companies.ids)
         codes = sorted(ROUTING)
-        self._reset_draft_rfqs(codes, summary)
-        self._reset_activities(codes, summary)
-        self._reset_handoffs(codes, summary)
-        self._reset_quality_alerts(summary)
-        self._reset_conversations(summary)
+        # Each step is isolated. One model the caller may not remove used to
+        # abort the whole reset and roll back everything already done, which
+        # reads on staging as "the reset is broken" rather than "this one step
+        # could not run". A failed step is reported and the rest still happen.
+        steps = (
+            ('purchase orders', self._reset_draft_rfqs, (codes, summary)),
+            ('activities', self._reset_activities, (codes, summary)),
+            ('handoffs', self._reset_handoffs, (codes, summary)),
+            ('quality alerts', self._reset_quality_alerts, (summary,)),
+            ('conversations', self._reset_conversations, (summary,)),
+        )
+        for label, step, args in steps:
+            try:
+                with self.env.cr.savepoint(flush=False):
+                    step(*args)
+            except (UserError, AccessError) as exc:
+                summary['steps_failed'].append('%s: %s' % (label, exc))
         _logger.info("ai_operations_demo_data: demo reset -> %s", summary)
         return summary
 
@@ -157,12 +172,34 @@ class AIOperationsDemoReset(models.AbstractModel):
 
     @api.model
     def _reset_handoffs(self, codes, summary):
+        """Handoffs are cancelled and their key released, never deleted.
+
+        ``ir.model.access`` grants ``ai.operations.handoff`` read, write and
+        create to AI Operations / User, and unlink to **nobody at all** -- the
+        same posture as the audit log. That is deliberate: a handoff is
+        audit-adjacent evidence, and "nobody may delete one" is a property worth
+        keeping. So this does not reach for ``sudo()`` and does not widen a
+        kernel ACL for the convenience of a demo helper.
+
+        Cancelling on its own would not be enough. ``raise_handoff``
+        deduplicates on ``(to_profile_id, idempotency_key)`` with **no state
+        filter**, so a cancelled handoff still answers the second run's raise
+        and the agent reports "already queued" instead of raising a fresh one.
+        Releasing the key is what deleting a purchase order does for its own
+        key; here it is done explicitly because the row has to stay.
+        """
+        cancelled = HandoffState.CANCELLED.value
         handoffs = self.env['ai.operations.handoff'].search([
             '|', ('from_profile_id.code', 'in', codes),
             ('to_profile_id.code', 'in', codes),
         ])
-        summary['handoffs_deleted'] = len(handoffs)
-        handoffs.unlink()
+        # Anything already cancelled AND already keyless is done; leaving it out
+        # is what makes a second reset report nothing to do.
+        todo = handoffs.filtered(
+            lambda h: h.state != cancelled or h.idempotency_key)
+        summary['handoffs_cancelled'] = len(todo)
+        if todo:
+            todo.write({'state': cancelled, 'idempotency_key': False})
 
     @api.model
     def _reset_quality_alerts(self, summary):

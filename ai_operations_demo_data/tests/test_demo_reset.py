@@ -34,7 +34,14 @@ class TestDemoReset(TransactionCase):
         super().setUpClass()
         cls.company = cls.env['res.company'].search(
             [('name', '=', COMPANY)], limit=1)
-        cls.Reset = cls.env['ai.operations.demo.reset']
+        # The reset runs as a REAL user, never as the superuser this suite
+        # otherwise runs as. uid 1 bypasses ir.model.access entirely, so a
+        # superuser reset proves nothing about whether an administrator can
+        # actually perform it -- and that is not hypothetical: the first version
+        # of this suite passed while the reset died on staging with AccessError,
+        # because nobody may unlink ai.operations.handoff and uid 1 never asked.
+        cls.operator = cls.env.ref('base.user_admin')
+        cls.Reset = cls.env['ai.operations.demo.reset'].with_user(cls.operator)
         cls.Scenario = cls.env['ai.operations.e2e.scenario']
         cls.Profile = cls.env['ai.operations.agent.profile'].with_context(
             active_test=False)
@@ -139,11 +146,24 @@ class TestDemoReset(TransactionCase):
         self.Reset.reset()
         self.assertFalse(activity.exists(), "the agent's review activity survived")
 
-    def test_reset_removes_the_agents_handoff(self):
+    def test_reset_cancels_the_agents_handoff_and_frees_its_key(self):
+        """Nobody may delete a handoff, so it is cancelled and its key released.
+
+        Releasing the key is the half that matters for run two: raise_handoff
+        deduplicates on (to_profile_id, idempotency_key) with no state filter,
+        so a cancelled handoff that kept its key would still answer the second
+        run and the agent would raise nothing.
+        """
         handoff = self._handoff(
             self._demo_profile('manufacturing'), self._demo_profile('procurement'))
+        handoff.idempotency_key = 'kt:reset:key'
         self.Reset.reset()
-        self.assertFalse(handoff.exists(), "the agent's handoff survived")
+        self.assertTrue(handoff.exists(), "the handoff was deleted; the ACL "
+                                          "grants unlink to nobody")
+        self.assertEqual(handoff.state, 'CANCELLED', "the handoff was not cancelled")
+        self.assertFalse(handoff.idempotency_key,
+                         "the key was not released, so run two would dedup "
+                         "against this handoff and raise nothing")
 
     def test_reset_removes_the_proposed_hold(self):
         alert = self._alert(ALERT_PREFIX + 'LOT-TEST (SPEC_EXCEEDED)')
@@ -182,9 +202,11 @@ class TestDemoReset(TransactionCase):
 
     def test_a_handoff_outside_the_demo_profiles_survives(self):
         outsider = self._handoff(self.outsider, self.outsider, code='KT_RESET_OUT')
+        outsider.idempotency_key = 'kt:outsider:key'
+        before = (outsider.state, outsider.idempotency_key)
         self.Reset.reset()
-        self.assertTrue(
-            outsider.exists(),
+        self.assertEqual(
+            (outsider.state, outsider.idempotency_key), before,
             "the reset deleted a handoff belonging to a profile the demo does "
             "not route")
 
@@ -214,7 +236,9 @@ class TestDemoReset(TransactionCase):
         second = self.Reset.reset()
         self.assertEqual(
             second['purchase_orders_deleted'], 0, "the second reset found residue")
-        self.assertEqual(second['handoffs_deleted'], 0)
+        self.assertEqual(second['handoffs_cancelled'], 0)
+        self.assertEqual(first['steps_failed'], [], "a reset step could not run")
+        self.assertEqual(second['steps_failed'], [])
         self.assertFalse(second['purchase_orders_cancelled_not_deleted'])
         self.assertGreaterEqual(first['purchase_orders_deleted'], 1)
 
@@ -222,7 +246,7 @@ class TestDemoReset(TransactionCase):
         self.Reset.reset()
         summary = self.Reset.reset()
         for key in ('purchase_orders_deleted', 'activities_deleted',
-                    'handoffs_deleted', 'quality_alerts_deleted',
+                    'handoffs_cancelled', 'quality_alerts_deleted',
                     'messages_deleted'):
             self.assertEqual(
                 summary[key], 0,

@@ -260,12 +260,19 @@ itself writes:
 |---|---|---|
 | `purchase.order` | `ai_idempotency_key` starts with a demo profile code | carries no key — untouched |
 | `mail.activity` | `ai_profile_code` in the demo profiles | no code — untouched |
-| `ai.operations.handoff` | `from_profile_id` / `to_profile_id` in the demo profiles | another profile's — untouched |
+| `ai.operations.handoff` | `from_profile_id` / `to_profile_id` in the demo profiles | another profile's — untouched. **Cancelled, never deleted** |
 | `quality.alert` | name starts with `AI: proposed hold on` | untouched |
 | `mail.message` | posted in a channel bound via `discuss.channel.ai_profile_id` | channels kept, contents cleared |
 
 A confirmed purchase order is cancelled through `button_cancel` — which cancels the pickings it
 created — and only then deleted. `state` is never written directly, and there is no `sudo()`.
+
+Handoffs are the exception: `ir.model.access` grants `ai.operations.handoff` unlink to **no group at
+all**, the same posture as the audit log, so the reset sets their state to `CANCELLED` and **releases
+`idempotency_key`** instead. Releasing the key is the half that matters — `raise_handoff` dedups on
+`(to_profile_id, idempotency_key)` with no state filter, so a cancelled handoff that kept its key
+would still answer run 2 and the agent would raise nothing. The kernel ACL is not widened and no
+`sudo()` is used.
 
 **Not touched:** the `AI-DEMO-E2E` sales orders, the manufacturing order, the component stock
 behind the 12,000-against-8,000 shortage, the `AI-DEMO` seeds, the eighteen scheduled orders, and
@@ -279,7 +286,9 @@ the residue is removed instead, and the key then finds nothing.
 
 | Check | Local | Staging |
 |---|---|---|
-| Reset removes the agent's RFQ, activity, handoff, proposed hold and conversation | ✅ | ⏳ PENDING |
+| Reset removes the agent's RFQ, activity, proposed hold and conversation | ✅ | ⏳ PENDING |
+| Reset cancels the handoff and frees its key (unlink is granted to nobody) | ✅ | ⏳ PENDING |
+| The reset runs as a real user, not the superuser — uid 1 bypasses every ACL | ✅ | ⏳ PENDING |
 | A purchase order, activity, handoff and alert no agent created all survive | ✅ | ⏳ PENDING |
 | Reset twice = reset once; on a clean database it is a no-op | ✅ | ⏳ PENDING |
 | A confirmed order is cancelled, then deleted | ✅ | ⏳ PENDING |
