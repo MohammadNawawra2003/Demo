@@ -27,6 +27,9 @@ _logger = logging.getLogger(__name__)
 #: the whole build programme for no demonstrative gain.
 INVOICED_MONTHS = 3
 
+#: Net-30. What makes an ageing report have more than one bucket in it.
+PAYMENT_TERM_DAYS = 30
+
 #: Orders older than this are historical production and are closed. Leaving the
 #: whole eighteen months `confirmed` produced a plant with a 500-order backlog
 #: of things it had supposedly already made, and it crowded every recent order
@@ -249,6 +252,93 @@ class AlshayebDemoHistoryTransactions(models.AbstractModel):
                     invoices += self._invoice_order(order, day)
         return {'orders': orders, 'invoices': invoices}
 
+    # -- §3/§6 the manufacturer's own receivables -------------------------
+
+    #: Share of a day's output that C1 bills its distribution arm for. The
+    #: point is a believable ledger, not a second sales curve.
+    INTERCOMPANY_SHARE = 0.35
+
+    @api.model
+    def _generate_intercompany_sales(self, company, products, anchor, months,
+                                     scale, rng):
+        """C1 invoices its own distribution arm, at §3's transfer price.
+
+        Without this the **Accountant agent is structurally empty**. Every
+        invoice in the demo belonged to Naqaa Distribution Co., while the
+        accountant and his agent are both scoped to Naqaa Water Manufacturing
+        Co., so zero was the *correct* answer to every question he could ask --
+        the company boundary working exactly as specified, and indistinguishable
+        on screen from a broken tool.
+
+        The honest fix is to record the sale that a manufacturer shipping to its
+        own distributor actually makes, rather than to widen anybody's company
+        scope. §3's transfer price already describes this relationship and
+        ``intercompany._seed_transfer_priced_sale`` already models one such
+        order; this generates the ongoing series and invoices it, so the
+        manufacturer has a ledger of its own.
+
+        Deduped on origin like every other generator here. Note what that means
+        if you ever delete these invoices by hand: the guard skips the order and
+        ``_invoice_order`` is never reached, so re-running will NOT put them
+        back. Rebuild instead.
+        """
+        distribution = self.env['res.company'].search(
+            [('name', '=', 'Naqaa Distribution Co.')], limit=1)
+        if not distribution or not distribution.partner_id:
+            return {'orders': 0, 'invoices': 0}
+
+        pricelist = self.env['product.pricelist'].with_context(
+            active_test=False).search(
+            [('name', '=', 'Naqaa Transfer Price'),
+             ('company_id', '=', distribution.id)], limit=1)
+        if not pricelist:
+            return {'orders': 0, 'invoices': 0}
+
+        Item = self.env['product.pricelist.item']
+        priced = []
+        for code, _name, _uom, _line, cartons, _price, _l in bp.FINISHED_GOODS:
+            product = products.get(code)
+            if not product:
+                continue
+            item = Item.search(
+                [('pricelist_id', '=', pricelist.id),
+                 ('product_tmpl_id', '=', product.product_tmpl_id.id)], limit=1)
+            if item and item.fixed_price:
+                priced.append((product, item.fixed_price, cartons))
+        if not priced:
+            return {'orders': 0, 'invoices': 0}
+
+        Sale = self.env['sale.order'].with_company(company)
+        cutoff = self._invoice_cutoff(anchor)
+        orders = invoices = 0
+
+        for day in self._sampled_days(anchor, months, scale):
+            origin = 'DEMO:ICSO:%s' % day.isoformat()
+            if Sale.search([('origin', '=', origin)], limit=1):
+                continue
+            # Indexed, not random: the same anchor must produce the same ledger.
+            product, price, cartons = priced[day.toordinal() % len(priced)]
+            quantity = int(season.daily_cartons(day, cartons)
+                           * self.INTERCOMPANY_SHARE)
+            if quantity < 1:
+                continue
+            order = Sale.create({
+                'partner_id': distribution.partner_id.id,
+                'company_id': company.id,
+                'origin': origin,
+                'date_order': fields.Datetime.to_datetime(day),
+                'order_line': [(0, 0, {
+                    'product_id': product.id,
+                    'product_uom_qty': quantity,
+                    'price_unit': price,
+                })],
+            })
+            order.action_confirm()
+            orders += 1
+            if day >= cutoff:
+                invoices += self._invoice_order(order, day)
+        return {'orders': orders, 'invoices': invoices}
+
     @api.model
     def _invoice_order(self, order, day):
         """§14: only the last three months are invoiced, and posted."""
@@ -260,6 +350,15 @@ class AlshayebDemoHistoryTransactions(models.AbstractModel):
         if not invoice:
             return 0
         invoice.invoice_date = day
+        # Due date explicitly, on net-30 terms. Odoo computes invoice_date_due
+        # when the invoice is created and does not recompute it when we
+        # backdate invoice_date, so every invoice in the demo was due on the
+        # day it happened to be looked at. That collapses EVERY ageing report
+        # to a single bucket: the Accountant's four brackets and the GM's
+        # receivable_overdue were structurally zero for the same reason the
+        # accountant himself was -- the tool was fine, the data could not
+        # demonstrate it.
+        invoice.invoice_date_due = day + datetime.timedelta(days=PAYMENT_TERM_DAYS)
         try:
             invoice.action_post()
         except Exception:                       # noqa: BLE001 - demo data

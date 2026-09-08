@@ -45,6 +45,46 @@ class TestGeneratedHistory(TransactionCase):
                 [('origin', 'like', 'DEMO:SO:%s:%%' % channel)], limit=1)
             self.assertTrue(orders, "no sales at all in the %s channel" % channel)
 
+    def test_the_manufacturer_has_receivables_of_its_own(self):
+        """The Accountant agent is scoped to C1, and every invoice used to
+        belong to C2 -- so zero was the *correct* answer to every question he
+        could be asked, and the agent could never show a non-zero figure.
+
+        Asserted on the company rather than on the origin, because what matters
+        is not that the orders exist but that C1 has a ledger the accountant can
+        actually read.
+        """
+        invoices = self.env['account.move'].search(
+            [('move_type', '=', 'out_invoice'), ('state', '=', 'posted'),
+             ('company_id', '=', self.c1.id)])
+        self.assertTrue(
+            invoices,
+            "Naqaa Water Manufacturing Co. has no posted customer invoices, so "
+            "the Accountant agent reports 0.00 in every bucket no matter what "
+            "it is asked")
+        self.assertTrue(
+            invoices.filtered(lambda m: m.partner_id == self.c2.partner_id),
+            "C1's invoices should be to its own distribution arm, at the §3 "
+            "transfer price")
+
+    def test_the_ageing_report_has_more_than_one_bucket(self):
+        """Odoo computes invoice_date_due at creation and does not recompute it
+        when the generator backdates invoice_date, so every invoice used to be
+        due on whatever day you looked at it. An ageing report over that data
+        has exactly one non-empty bracket however good the tool is."""
+        invoices = self.env['account.move'].search(
+            [('move_type', '=', 'out_invoice'), ('state', '=', 'posted')])
+        self.assertTrue(invoices, "nothing was invoiced")
+        due_dates = set(invoices.mapped('invoice_date_due'))
+        self.assertGreater(
+            len(due_dates), 1,
+            "every invoice shares one due date, so the ageing report collapses "
+            "into a single bucket")
+        for invoice in invoices:
+            self.assertGreater(
+                invoice.invoice_date_due, invoice.invoice_date,
+                "%s is due on the day it was issued" % invoice.name)
+
     def test_only_the_last_three_months_are_invoiced(self):
         """§14 trims accounting deliberately: posting fifteen months of journal
         items was the slowest step in the build for no demonstrative gain."""

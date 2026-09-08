@@ -84,6 +84,10 @@ class AlshayebDemoHistory(models.AbstractModel):
             company, products, anchor, months, scale, rng)
         summary['sales'] = self._generate_sales(
             company, products, anchor, months, scale, rng)
+        # C1's own receivables. Runs after the C2 sales because it prices off
+        # the same transfer pricelist and shares the invoice cutoff.
+        summary['intercompany_sales'] = self._generate_intercompany_sales(
+            company, products, anchor, months, scale, rng)
         summary['quality_checks'] = self._generate_quality_checks(
             company, products, anchor, months, scale, rng)
         if with_conditions:

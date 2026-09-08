@@ -134,9 +134,17 @@ the prose stands.
 Both look like faults on screen and are neither. They came out of reading the
 screenshots one at a time, and a presenter who cannot answer them loses the room.
 
-- **The Accountant reports every ageing bucket as 0.00.** That is correct: the
-  125 open receivables belong to Naqaa Distribution Co., and both the accountant
-  and his agent are scoped to Naqaa Water Manufacturing Co. It is the company
-  boundary working, not an empty database.
+- ~~The Accountant reports every ageing bucket as 0.00.~~ **FIXED.** It was
+  correct — the invoices all belonged to Naqaa Distribution while the accountant
+  and his agent are scoped to Naqaa Water Manufacturing — but it meant the agent
+  could *never* show a figure. The manufacturer now invoices its own
+  distribution arm at §3's transfer price, so it has a ledger of its own. The
+  Accountant returns **367,145.85 SAR outstanding, 247,735.07 overdue** across
+  three buckets, and the GM's financial headlines report the same. **No agent's
+  company scope was changed and no permission was widened** — the fix was to
+  record the sale a manufacturer actually makes.
+- **Payables still read 0.00.** Purchase orders exist but were never billed, so
+  there is nothing outstanding to a supplier. That is a true state, not a gap,
+  and the GM will say so.
 - **Stock shows 230,400 bottles and the order is still short.** Different
   warehouse. The order pulls from the Raw Material Store, which holds 8,000.
