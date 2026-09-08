@@ -86,7 +86,11 @@ def get_shortage_context(ctx, params):
     contradiction Document B 6.3 exists to prevent.
 
     ``shortage_basis`` says which of the two was measured, so the figure is
-    never presented without its meaning.
+    never presented without its meaning, and the two sets are never returned
+    together: given a ``production_id`` this reports the order's numbers and
+    nothing else. Returning both made the model read them as a contradiction --
+    it raised an activity about "a conflict between the reported shortage and
+    the deterministic shortage" instead of drafting the order it was asked for.
     """
     product = ctx.model('product.product').browse(params['product_id'])
     ctx.check_records('product.product', product.ids)
@@ -130,21 +134,29 @@ def get_shortage_context(ctx, params):
         shortage = max(0.0, order_required - order_reserved)
         basis = 'manufacturing_order'
 
-    return {
+    result = {
         'product_id': product.id,
         'product_name': product.display_name,
         'uom': product.uom_id.name,
+        'shortage': shortage,
+        'shortage_basis': basis,
+    }
+    if production_id:
+        # Order-scoped: only this order's numbers. Returning the company-wide
+        # position alongside them made the model treat the two as contradictory
+        # and escalate rather than act -- see the docstring.
+        result['order_required'] = order_required
+        result['order_reserved'] = order_reserved
+        return result
+    result.update({
         'on_hand': on_hand,
         'reserved': reserved,
         'available': available,
         'incoming': incoming,
         'reorder_min': minimum,
         'reorder_max': maximum,
-        'shortage': shortage,
-        'shortage_basis': basis,
-        'order_required': order_required,
-        'order_reserved': order_reserved,
-    }
+    })
+    return result
 
 
 @ai_tool(

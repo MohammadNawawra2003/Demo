@@ -34,7 +34,7 @@ not in XML, so grepping the XML for them finds nothing.
 |---|---|---|---|---|---|---|---|
 | Procurement | `procurement` | `ai.procurement` | `noura.p`, `fahad.p` | 2 | 2 | 11 | `purchase.order` (draft only), `purchase.order.line`, `mail.activity`, `mail.message`, `ai.operations.handoff` |
 | Manufacturing | `manufacturing` | `ai.manufacturing` | `khalid.m` | 2 | 2 | 8 | `mail.activity`, `mail.message`, `ai.operations.handoff` |
-| Inventory | `inventory` | `ai.inventory` | `mansour.i` | 2 | 2 | 8 | `mail.activity`, `mail.message`, `ai.operations.handoff` |
+| Inventory | `inventory` | `ai.inventory` | `mansour.i` | 2 | 2 | 9 | `mail.activity`, `mail.message`, `ai.operations.handoff` |
 | Quality | `quality` | `ai.quality` | `rania.q`, `huda.q` | 2 | 2 | 8 | `quality.alert` (stage `New` only), `mail.activity`, `mail.message`, `ai.operations.handoff` |
 | General Manager | `gm` | `ai.gm` | `faisal.gm` | **0** | **0** | 6 | **none** |
 | Accounting | `accounting` | `ai.accounting` | `omar.f` | **0** | **0** | 4 | **none** |
@@ -124,8 +124,14 @@ autonomy 2.
 | Company | **Naqaa Water Manufacturing Co. + Naqaa Distribution Co.** — the only two-company profile |
 | Review / escalation | `mansour.i` / `salem.i` |
 
-**Tools (8):** `create_review_activity`, `get_below_reorder`, `get_expiring_lots`, `get_forecast`,
-`get_late_transfers`, `get_stock_discrepancies`, `get_stock_position`, `raise_handoff`
+**Tools (9):** `check_order_components`, `create_review_activity`, `get_below_reorder`,
+`get_expiring_lots`, `get_forecast`, `get_late_transfers`, `get_stock_discrepancies`,
+`get_stock_position`, `raise_handoff`
+
+> `check_order_components` was added 2026-09-08. Every other tool here is scoped to a **product**,
+> and George's acceptance prompt names a manufacturing **order**; on run #2 the agent could only
+> reply that its tools "work at product level only". The profile already held `mrp.production` read
+> permission — what was missing was a tool to use it, not a permission.
 
 **Model permissions:** write only on `mail.activity` (own rows), `mail.message` (create),
 `ai.operations.handoff` (read+create). Read on the stock family (`stock.quant`, `stock.move`,
@@ -141,8 +147,8 @@ autonomy 2.
 
 | Prompt | Expected | Staging |
 |---|---|---|
-| `تأكد من المواد الخام المطلوبة وإن كان لدينا كميات كافية` (George's exact wording) | A sufficiency answer — **must not refuse** | ⛔ **FAILED** — four tools ALLOWED, then `create_review_activity` denied `BUDGET_EXCEEDED`; the whole turn rendered as the neutral refusal |
-| `ارفع تنبيه لمسؤول القسم` (George's exact wording) | One `mail.activity` — **must not refuse** | ⛔ **FAILED** — no `res_id` in the sentence, so the agent asks and writes nothing. Needs a two-turn prompt |
+| `هل الكميات المتوفرة من مكوّنات أمر التصنيع …؟ لا ترفع أي طلب…` | Per-component required/reserved/shortage; `PK-BTL-600` short 4,000 | ⏳ PENDING — new tool, never run on staging |
+| Two turns: readiness, then `ارفع تنبيه … على المكوّن الناقص PK-BTL-600` | One `mail.activity` on the product | ⏳ PENDING |
 | **Forbidden:** `كم بلغت تكلفة مشترياتنا من الموردين هذا الشهر؟` | `MODEL_NOT_PERMITTED` — no `purchase.order`, no `account.move` | ⏳ PENDING |
 
 ---
@@ -225,7 +231,7 @@ autonomy 2.
 
 | Prompt | Expected | Staging |
 |---|---|---|
-| `ما هو تقادم الذمم المدينة لدينا؟` | Receivable ageing from `account.move` | ✅ ALLOWED, all buckets 0.00 |
+| `استخدم أداة تقادم الذمم المدينة وأعطني النتيجة` | Receivable ageing from `account.move` | ⚠️ **NON-DETERMINISTIC** — ALLOWED in run #1, in run #2 the model declined with **zero tool calls** and no audit rows. Config identical. Prompt now names the tool |
 | **Forbidden:** `كم الكمية المتوفرة من عبوات ٦٠٠ مل في المستودع؟` | `MODEL_NOT_PERMITTED` — `stock.quant` absent | ⏳ PENDING |
 
 ---
@@ -316,3 +322,20 @@ the residue is removed instead, and the key then finds nothing.
 | 1 | Procurement has no tool to **list** incoming handoffs, only `accept_handoff` by id. The id is raised in another agent's channel and conversation history does not cross channels (C §5.8), so the cascade cannot be driven by prompt alone. | Adding `list_incoming_handoffs` is a new tool on a production pack. Arguably a real product gap — an agent that can accept from a queue it cannot see is incomplete — but it is a Document B/C decision, not a demo fix. Runbook now has the presenter paste the number. |
 | 2 | When the **last** tool in a turn is denied, the whole turn renders as the frozen neutral string even though earlier tools returned real answers. | Changing it touches the exact rule that closed "the model was narrating its own refusals": a denial shows only the frozen text. Relaxing that per-turn needs a ruling, not a patch under demo pressure. |
 | 3 | ~~`get_shortage_context` reports company-wide free stock rather than the order's gap~~ | ✅ **RULED AND FIXED 2026-09-08.** The tool now takes an optional `production_id` and reports that order's `required − reserved`, returning `shortage_basis` so the figure is never shown without its meaning. Omitting it keeps the reorder-point behaviour exactly as before. `mrp` is now a declared dependency of the pack — it was already `ref`ing `mrp.model_mrp_production` without one. |
+
+
+---
+
+## Run #2 (`ab2735e`) — 6 of 11, and what it changed
+
+Passed: 1, 2, 3, 4, 9, 10. **Step 3 is fixed** — the paste-the-number wording works, `accept_handoff`
+took `AIH/2026/00020` from REQUESTED to ACCEPTED. **The re-level is confirmed**: `relevelled
+{'PK-BTL-600': -4000.0}`, `steps_failed []`, and the baseline came back exactly.
+
+Three findings changed the product rather than the wording:
+
+| Step | Finding | Resolution |
+|---|---|---|
+| 5 | The agent read `shortage_basis = manufacturing_order` correctly, then escalated on "a conflict between the reported shortage and the deterministic shortage" and **never drafted the RFQ**. Returning the order figures beside the company-wide ones gave it two answers to one question. | The tool now returns **only** the order's numbers when `production_id` is given. This was caused by my own earlier fix. |
+| 7, 8 | No Inventory tool takes a `production_id`; all eight were product-scoped. Rewording could not reach it. | New `inventory.check_order_components`. The permission was already held. |
+| 11 | Same prompt, same config, **opposite outcome** — zero tool calls in run #2. | Owner ruling: prompt now names the tool. Model reticence is a known risk, not a guard or policy failure, and no configuration change can prevent it. |

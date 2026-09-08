@@ -104,6 +104,7 @@ ASSIGNMENTS = {
         ('procurement.complete_handoff', 4),
     ],
     'inventory': [
+        ('inventory.check_order_components', 4),
         ('inventory.get_stock_position', 4),
         ('inventory.get_forecast', 4),
         ('inventory.get_below_reorder', 4),

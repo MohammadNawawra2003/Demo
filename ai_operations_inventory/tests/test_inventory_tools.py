@@ -219,3 +219,58 @@ class TestInventoryTools(TransactionCase):
                          "the second raise did not return the first handoff")
         self.assertTrue(manufacturing_result['idempotent_hit'],
                         "the collision was not recorded as an idempotent hit")
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestOrderComponents(TestInventoryTools):
+    """The question an inventory controller actually asks.
+
+    Every other tool in this pack is scoped to a product, and George's own
+    acceptance prompt names a manufacturing order: "check the raw materials
+    required and whether we have enough". On staging run #2 the agent could only
+    answer that it had no tool able to connect an order number to its
+    components, and no rewording could get past that -- the profile held
+    mrp.production read permission the whole time, and nothing exposed it.
+    """
+
+    def _order(self):
+        production = self.env['mrp.production'].search(
+            [('origin', '=', 'AI-DEMO')], limit=1)
+        self.assertTrue(production, "the scenario order is missing")
+        return production
+
+    def test_it_reports_every_component_of_the_order(self):
+        production = self._order()
+        result = self._run('inventory.check_order_components',
+                           {'production_id': production.id})
+        self.assertEqual(result['production_id'], production.id)
+        self.assertEqual(result['reference'], production.name)
+        self.assertEqual(
+            len(result['components']),
+            len(production.move_raw_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel'))),
+            "a component was dropped from the answer")
+
+    def test_a_short_component_is_reported_as_short(self):
+        production = self._order()
+        result = self._run('inventory.check_order_components',
+                           {'production_id': production.id})
+        for row in result['components']:
+            self.assertEqual(
+                row['sufficient'], row['shortage'] <= 0.0,
+                "%s reports sufficient=%s with a shortage of %s"
+                % (row['product_code'], row['sufficient'], row['shortage']))
+        self.assertEqual(
+            result['short_count'],
+            len([r for r in result['components'] if not r['sufficient']]))
+        self.assertEqual(result['ready'], result['short_count'] == 0)
+
+    def test_it_declares_no_value_field(self):
+        """Quantities cross the company boundary here; values never do."""
+        result = self._run('inventory.check_order_components',
+                           {'production_id': self._order().id})
+        for row in result['components']:
+            for forbidden in ('price', 'cost', 'value', 'amount'):
+                self.assertFalse(
+                    [k for k in row if forbidden in k],
+                    "a value field reached an inventory output: %s" % row)

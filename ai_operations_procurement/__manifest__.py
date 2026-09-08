@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations: Procurement',
-    'version': '19.0.1.7.0',
+    'version': '19.0.1.8.0',
     'category': 'Productivity/AI',
     'summary': 'Procurement Intelligence tool pack',
     'author': 'AlShayeb Partners',

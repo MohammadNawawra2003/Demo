@@ -35,6 +35,80 @@ class StockPositionOutput(Schema):
     total_reserved = Float()
 
 
+class OrderComponentsInput(Schema):
+    production_id = Int(min=1)
+
+
+class OrderComponentsOutput(Schema):
+    production_id = Int()
+    reference = Str()
+    state = Str()
+    ready = Bool()
+    components = List(Nested({
+        'product_id': Int(),
+        'product_code': Str(),
+        'product_name': Str(),
+        'required': Float(),
+        'reserved': Float(),
+        'shortage': Float(),
+        'sufficient': Bool(),
+    }), max_items=100)
+    short_count = Int()
+
+
+@ai_tool(
+    code='inventory.check_order_components',
+    category=ToolCategory.READ,
+    autonomy=AutonomyLevel.QUERY,
+    models=['mrp.production', 'stock.move', 'product.product'],
+    input_schema=OrderComponentsInput,
+    output_schema=OrderComponentsOutput,
+)
+def check_order_components(ctx, params):
+    """Whether a manufacturing order's raw materials are sufficient, component
+    by component: required, reserved, and what is missing.
+
+    Every other tool here is scoped to a product, which cannot answer a question
+    asked about an ORDER -- "are the raw materials for this order sufficient" is
+    the ordinary way an inventory controller asks it, and until this existed the
+    agent could only reply that it had no way to reach a manufacturing order.
+    The permission was already held; what was missing was a tool to use it.
+
+    Quantities only. No cost, no price, nothing that crosses the value boundary
+    this pack is built on.
+    """
+    production = ctx.model('mrp.production').browse(params['production_id'])
+    ctx.check_records('mrp.production', production.ids)
+
+    rows = []
+    for move in production.move_raw_ids:
+        if move.state in ('done', 'cancel'):
+            continue
+        required = move.product_uom_qty
+        # `quantity` on a move that is not done is what Odoo reserved for it.
+        reserved = move.quantity
+        shortage = max(0.0, required - reserved)
+        rows.append({
+            'product_id': move.product_id.id,
+            'product_code': move.product_id.default_code or '',
+            'product_name': move.product_id.display_name,
+            'required': required,
+            'reserved': reserved,
+            'shortage': shortage,
+            'sufficient': shortage <= 0.0,
+        })
+
+    short = [row for row in rows if not row['sufficient']]
+    return {
+        'production_id': production.id,
+        'reference': production.name,
+        'state': production.state,
+        'ready': not short,
+        'components': rows,
+        'short_count': len(short),
+    }
+
+
 class BelowReorderInput(Schema):
     limit = Int(min=1, max=200, required=False, default=50)
 

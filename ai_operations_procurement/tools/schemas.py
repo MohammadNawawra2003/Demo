@@ -43,16 +43,21 @@ class ShortageContextOutput(Schema):
     product_id = Int()
     product_name = Str()
     uom = Str()
-    on_hand = Float()
-    reserved = Float()
-    available = Float()
-    incoming = Float()
-    reorder_min = Float()
-    reorder_max = Float()
     shortage = Float()
     shortage_basis = Str()
-    order_required = Float()
-    order_reserved = Float()
+    # Company-wide position. Omitted entirely when the question was asked about
+    # a manufacturing order: returning both sets side by side made the model
+    # read them as contradicting each other -- it escalated "a conflict between
+    # the reported shortage and the deterministic shortage" instead of drafting
+    # the order it had been asked for. One question, one set of numbers.
+    on_hand = Float(required=False)
+    reserved = Float(required=False)
+    available = Float(required=False)
+    incoming = Float(required=False)
+    reorder_min = Float(required=False)
+    reorder_max = Float(required=False)
+    order_required = Float(required=False)
+    order_reserved = Float(required=False)
 
 
 class OpenPosInput(Schema):

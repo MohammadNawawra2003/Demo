@@ -299,7 +299,9 @@ class TestProcurementTools(TransactionCase):
         result = self._run('procurement.get_shortage_context',
                            {'product_id': self.bottle.id})
         self.assertEqual(result['shortage_basis'], 'reorder_point')
-        self.assertEqual(result['order_required'], 0.0)
+        self.assertNotIn('order_required', result,
+                         'an order figure appeared without an order')
+        self.assertEqual(result['on_hand'], 120_000)
 
     def test_with_a_production_id_the_shortage_is_that_orders_gap(self):
         """Run #1 printed "deterministic shortage = 0" while ordering 4,000.
@@ -324,14 +326,25 @@ class TestProcurementTools(TransactionCase):
             result['shortage'], 0.0,
             'an order that cannot be reserved in full is short by definition')
 
-    def test_the_company_wide_figures_survive_the_order_scope(self):
-        """The order gap replaces the headline; it does not hide the rest."""
+    def test_the_order_scope_returns_only_the_orders_numbers(self):
+        """One question, one set of numbers.
+
+        Returning the company-wide position beside the order's gap made the
+        model treat them as contradictory: on run #2 it raised an activity about
+        "a conflict between the reported shortage and the deterministic
+        shortage" and never drafted the purchase order the step exists to
+        produce.
+        """
         production = self._short_production()
         result = self._run('procurement.get_shortage_context',
                            {'product_id': self.bottle.id,
                             'production_id': production.id})
-        self.assertEqual(result['on_hand'], 120_000)
-        self.assertEqual(result['reorder_min'], 486_000)
+        for absent in ('on_hand', 'reserved', 'available', 'incoming',
+                       'reorder_min', 'reorder_max'):
+            self.assertNotIn(
+                absent, result,
+                'the company-wide %s must not appear beside an order figure'
+                % absent)
 
 @tagged('post_install', '-at_install', 'ai_security')
 class TestDraftRfqIdempotency(TestProcurementTools):
