@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations: Demo Data (NON-PRODUCTION)',
-    'version': '19.0.1.12.0',
+    'version': '19.0.1.13.0',
     'category': 'Productivity/AI',
     'summary': 'NON-PRODUCTION staging and manual-testing configuration for AI Operations',
     'description': """

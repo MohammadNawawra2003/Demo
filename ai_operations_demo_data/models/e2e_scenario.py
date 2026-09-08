@@ -50,6 +50,11 @@ _logger = logging.getLogger(__name__)
 #: -- and reset -- with one domain.
 SCENARIO_ORIGIN = 'AI-DEMO-E2E'
 
+#: The two orders, named once so the top-up can find the shortage order's own
+#: manufacturing order before measuring free stock.
+SHORTAGE_ORIGIN = '%s/SHORTAGE' % SCENARIO_ORIGIN
+SUFFICIENT_ORIGIN = '%s/SUFFICIENT' % SCENARIO_ORIGIN
+
 #: The scenario SKU. Not a Document A product: it exists so the demo can run
 #: repeatedly without disturbing the seeded FG-600 history.
 SCENARIO_FG = 'FG-600-E2E'
@@ -104,7 +109,7 @@ class AIOperationsE2EScenario(models.AbstractModel):
         product = self._scenario_product(company)
         self._top_up_components(company)
         shortage = self._sales_order(
-            product, SHORTAGE_QTY, '%s/SHORTAGE' % SCENARIO_ORIGIN, company)
+            product, SHORTAGE_QTY, SHORTAGE_ORIGIN, company)
         contrast = self._contrast_order(company)
         _logger.info(
             "e2e scenario: %s ready, shortage order %s, contrast order %s",
@@ -124,6 +129,9 @@ class AIOperationsE2EScenario(models.AbstractModel):
                 "%s is missing; alshayeb_demo_water has not been built."
                 % CONTRAST_FG)
         if existing:
+            # Repair rather than skip: a database built before the routes were
+            # resolved by xmlid has the product on MTO alone.
+            existing.route_ids = [(6, 0, self._scenario_routes().ids)]
             self._scenario_bom(existing, source, company)
             return existing
 
@@ -143,22 +151,38 @@ class AIOperationsE2EScenario(models.AbstractModel):
 
     @api.model
     def _scenario_routes(self):
-        """Manufacture, plus Replenish on Order.
+        """Replenish on Order, and only that.
 
-        Both are needed and for different reasons: Manufacture is what makes the
-        product buildable at all, and MTO is what makes CONFIRMING the sales
-        order create the manufacturing order. Without MTO the demo would need a
-        human to create the MO by hand, which breaks the chain George wants to
-        show -- sales demand producing production demand by itself.
+        MTO is what makes CONFIRMING the sales order create the manufacturing
+        order. Without it the demo would need a human to create the MO by hand,
+        which breaks the chain George wants to show -- sales demand producing
+        production demand by itself.
+
+        There is deliberately no Manufacture route here. Odoo ships it
+        ``product_selectable=False``, and the domain on ``route_ids`` filters
+        the field on READ as well as in the interface, so the route can be
+        written and can never be read back: the row sits in
+        ``stock_route_product`` and the ORM keeps returning MTO alone. What
+        makes the product buildable is its bill of materials plus the
+        warehouse's own manufacture rule, which is why the FG-600 this scenario
+        is copied from carries no routes at all.
+
+        Resolved by xmlid rather than by name, because ``stock.route.name`` is
+        translatable and this demo installs Arabic. The stored value is
+        ``{'en_US': 'Replenish on Order (MTO)', 'ar_001': 'تجديد المخزون عند
+        الطلب (الإنتاج حسب الطلب)'}``, and a search for the English name under
+        ``ar_001`` matches nothing at all -- which would leave the scenario
+        product with no MTO, no manufacturing order, and no demo.
         """
-        Route = self.env['stock.route']
-        names = ['Manufacture', 'Replenish on Order (MTO)']
-        routes = Route.with_context(active_test=False).search(
-            [('name', 'in', names)])
-        for route in routes:
-            if not route.active:
-                route.active = True
-        return routes
+        route = self.env.ref('stock.route_warehouse0_mto',
+                             raise_if_not_found=False)
+        if not route:
+            raise ValueError(
+                "stock.route_warehouse0_mto is missing; confirming the sales "
+                "order would create no manufacturing order.")
+        if not route.active:
+            route.active = True
+        return route
 
     @api.model
     def _scenario_bom(self, product, source, company):
@@ -199,6 +223,7 @@ class AIOperationsE2EScenario(models.AbstractModel):
         if not location:
             raise ValueError("%s is missing." % RAW_MATERIAL_LOCATION)
 
+        held = self._scenario_reservations()
         targets = dict(COMPONENT_TOPUP)
         targets[SHORT_COMPONENT] = SHORT_COMPONENT_ONHAND
         for code, free_target in targets.items():
@@ -207,17 +232,50 @@ class AIOperationsE2EScenario(models.AbstractModel):
             if not product:
                 _logger.warning("e2e scenario: component %s missing", code)
                 continue
-            self._set_free_quantity(product, location, free_target)
+            self._set_free_quantity(
+                product, location, free_target, held.get(product.id, 0.0))
 
     @api.model
-    def _set_free_quantity(self, product, location, free_target):
+    def _scenario_reservations(self):
+        """What the scenario's own manufacturing order is already holding.
+
+        ``build`` runs from an updatable data file, so it runs again on every
+        upgrade. By the second run the order this fixture created is reserving
+        the very stock the top-up is about to measure: free reads zero again, a
+        second full top-up lands on top of the first, and the eight thousand
+        bottles become sixteen thousand against a requirement of twelve. The
+        order reserves in full and the one shortage the whole demo turns on is
+        quietly gone.
+
+        The scenario's own reservation is not competition for stock. It IS the
+        scenario, so it is added back before the comparison.
+        """
+        order = self.env['sale.order'].search(
+            [('origin', '=', SHORTAGE_ORIGIN)], limit=1)
+        if not order:
+            return {}
+        productions = self.env['mrp.production'].with_context(
+            active_test=False).search([('origin', '=', order.name)])
+        held = {}
+        for move in productions.move_raw_ids:
+            if move.state in ('done', 'cancel'):
+                continue
+            held[move.product_id.id] = (
+                held.get(move.product_id.id, 0.0) + move.quantity)
+        return held
+
+    @api.model
+    def _set_free_quantity(self, product, location, free_target,
+                           scenario_reserved=0.0):
         """Make ``free_target`` units available, counting existing reservations.
 
         Reserved stock is not available stock, and on a freshly built database
         almost all of this component stock is reserved by the seeded schedule.
         Topping up to an ON HAND figure would leave the scenario still short of
         everything, so the target is FREE quantity and the reservation is added
-        back on top.
+        back on top -- except the scenario's own, which
+        ``_scenario_reservations`` measures and which must not count against
+        the target.
         """
         quants = self.env['stock.quant'].with_context(
             inventory_mode=True).search([
@@ -225,7 +283,7 @@ class AIOperationsE2EScenario(models.AbstractModel):
                 ('location_id', 'child_of', location.id),
             ])
         on_hand = sum(quants.mapped('quantity'))
-        reserved = sum(quants.mapped('reserved_quantity'))
+        reserved = sum(quants.mapped('reserved_quantity')) - scenario_reserved
         free = on_hand - reserved
         if free >= free_target:
             return
@@ -286,4 +344,4 @@ class AIOperationsE2EScenario(models.AbstractModel):
         if not product:
             return False
         return self._sales_order(
-            product, CONTRAST_QTY, '%s/SUFFICIENT' % SCENARIO_ORIGIN, company)
+            product, CONTRAST_QTY, SUFFICIENT_ORIGIN, company)
