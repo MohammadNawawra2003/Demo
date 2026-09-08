@@ -69,19 +69,38 @@ CANCELLED rows in the handoff list after a reset are expected.
 
 Renumber against the current runbook rather than patching the old numbers.
 
-## 6. Every record reference changed
+## 6. Every record reference changed, and so did the currency
 
-The screenshot pack and runbook were rebuilt. Old references are gone:
+Staging was **rebuilt from scratch** on `89a7964`, and the screenshot pack with
+it. Old references are gone:
 
-| | Current |
-|---|---|
-| Sales order | `S02067` |
-| Manufacturing order | `RM/MO/00004` |
-| Draft purchase order | `P01066` — 4,000 @ 0.078, Jeddah Plastic Industries |
-| Shortage | `PK-BTL-600`, 12,000 required / 8,000 reserved / **4,000 short** |
+| | Current (staging) | Current (screenshot pack) |
+|---|---|---|
+| Sales order | regenerated | `S00662` |
+| Manufacturing order | `RM/MO/00002` | `RM/MO/00002` |
+| Draft purchase order | `P00023` / `P00024` | **`P00023`** |
+| The headline total | **312.00 SAR** | **312.00 SAR** |
+| Shortage | `PK-BTL-600`, 12,000 / 8,000 / **4,000 short** | same |
+| Supplier offers | Jeddah 0.0780 SAR / 18d · Riyadh 0.0827 SAR / 21d | same |
 
 Any figure, screenshot, or reference from an earlier pack should be replaced
-wholesale rather than checked one by one.
+wholesale rather than checked one by one. **Record ids move on every rebuild** —
+companies are now 2–5 and channels 3–9 — so nothing may hardcode an id.
+
+**The guide's own expected values need no arithmetic change.** 0.078 and 0.0827
+were always the right numbers; only the symbol was wrong. Change `$` to SAR and
+the prose stands.
+
+## 6a. New pre-flight facts
+
+- Staging host: `ksa-ai-stage-37686456.dev.odoo.com`, user `37686456`,
+  database `ksa-ai-stage-37686456`.
+- **The provider key does not survive a rebuild.** `odoo.conf` comes back with
+  `dbfilter` only — no `ai_anthropic_token`, no environment variable. Expected
+  consequence, not a fault. Restore it and set the file to `600`.
+- **A build is not a rebuild.** A normal Odoo.sh build *updates* the database and
+  will not fix currency: the companies already exist so `_get_or_create` returns
+  early, and Odoo refuses a currency change once the branch has journal items.
 
 ## 7. Numbers to restate
 
@@ -94,9 +113,12 @@ wholesale rather than checked one by one.
 
 ## 8. Known defects the guide must not paper over
 
-1. **Currency shows USD, not SAR.** The chat says "ريال", the purchase order
-   prints dollars. Every Naqaa company is USD because SAR is archived. Customer-
-   visible and unfixed.
+1. ~~Currency shows USD~~ — **FIXED in `89a7964`.** It was a bug, not a
+   configuration choice: `_build_companies` searched for SAR without
+   `active_test=False`, Odoo ships unused currencies archived, so the search
+   found nothing and the company took the database default. Supplier offers
+   needed the same fix separately. Every price is now SAR and no amount changed.
+   If the guide contains a dollar sign, it is stale.
 2. **The refusal string is English inside an Arabic UI, by decision.** It is a
    frozen security constant, not a missing translation.
 3. **Chat widget labels render in English** despite a shipped `ar_001.po` —
@@ -106,3 +128,15 @@ wholesale rather than checked one by one.
 5. `profile.tokens_today` is a **non-stored compute** — reading it in SQL always
    returns NULL. Do not document a SQL check against it.
 6. The full demo requires **Odoo Enterprise**.
+
+## 9. Two things the guide should teach the presenter to say
+
+Both look like faults on screen and are neither. They came out of reading the
+screenshots one at a time, and a presenter who cannot answer them loses the room.
+
+- **The Accountant reports every ageing bucket as 0.00.** That is correct: the
+  125 open receivables belong to Naqaa Distribution Co., and both the accountant
+  and his agent are scoped to Naqaa Water Manufacturing Co. It is the company
+  boundary working, not an empty database.
+- **Stock shows 230,400 bottles and the order is still short.** Different
+  warehouse. The order pulls from the Raw Material Store, which holds 8,000.
