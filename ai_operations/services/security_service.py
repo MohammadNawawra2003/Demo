@@ -505,9 +505,28 @@ class AISecurityService(models.AbstractModel):
         return max([int(f) for f in floors if f] or [0])
 
     def _required_operations(self, spec):
+        """What the guard will demand of the profile, per model.
+
+        ``models`` means the tool reads the model, so every entry requires
+        ``read``. ``actions`` means it performs a named operation, and a model
+        that appears ONLY there requires only that operation -- it does not
+        also require read.
+
+        That distinction is not cosmetic. Every model used to be given an
+        implicit ``read``, which made a create-only permission impossible to
+        satisfy: ``manufacturing.post_readiness_note`` posts to an order's
+        chatter and never reads a message, the pack grants ``mail.message``
+        create-only on purpose, and the tool was therefore denied
+        ``OPERATION_NOT_PERMITTED`` on every call it ever received. The
+        alternative was granting an agent read access to all chatter to let it
+        write one note, which is a real widening for a bookkeeping reason.
+
+        The allowlist still binds: an action-only model must still have a
+        permission row, and that row must still carry the operation's flag.
+        """
         required = {model_name: {'read'} for model_name in spec.models}
         for model_name, action_code in spec.actions:
-            required.setdefault(model_name, {'read'})
+            required.setdefault(model_name, set())
             operation = ACTION_OPERATION.get(action_code)
             if operation:
                 required[model_name].add(operation)

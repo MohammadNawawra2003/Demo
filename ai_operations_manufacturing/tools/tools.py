@@ -207,7 +207,10 @@ def get_scrap_analysis(ctx, params):
     code='manufacturing.post_readiness_note',
     category=ToolCategory.DRAFT_WRITE,
     autonomy=AutonomyLevel.PREPARE,
-    models=['mrp.production', 'mail.message'],
+    # mail.message is declared through `actions` alone: this posts a note and
+    # never reads one, and the pack grants it create-only. Listing it in
+    # `models` would demand read as well and deny the tool on every call.
+    models=['mrp.production'],
     actions=[('mail.message', 'CREATE_DRAFT')],
     input_schema=schemas.ReadinessNoteInput,
     output_schema=schemas.ReadinessNoteOutput,

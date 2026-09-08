@@ -31,6 +31,7 @@ lives in the kernel and covers packs that do not exist yet.
 from odoo.tests import tagged
 
 from ..services import registry as registry_module
+from ..services.security_service import PERM_FIELD
 from ..services.enums import AutonomyLevel, ToolCategory
 from .common import AIOperationsCommon
 
@@ -39,13 +40,29 @@ from .common import AIOperationsCommon
 class TestPackPolicyCoverage(AIOperationsCommon):
 
     def _offenders(self, assignments):
-        """Which of these assignments name a model their profile cannot touch.
+        """Which of these assignments the guard would deny on every call.
 
-        ``check_model`` step 11 denies on a missing permission row before it
-        ever looks at the operation, so a model absent from the allowlist makes
-        the tool unusable no matter how the rest of the policy is configured.
-        Shared with the synthetic test below so both exercise one comparison.
+        Two ways a tool can be dead on arrival, and the first version of this
+        test only caught one of them.
+
+        A model missing from the allowlist denies at ``check_model`` step 11,
+        before the operation is even looked at. That was the original sweep, and
+        it caught George's two refusals.
+
+        But membership is not enough. Step 12 then checks the OPERATION, and
+        ``_required_operations`` asks for ``read`` on every declared model. A
+        profile holding ``mail.message`` as create-only satisfies the name check
+        and is denied ``OPERATION_NOT_PERMITTED`` on every call --
+        ``manufacturing.post_readiness_note`` was in exactly that state, unusable
+        since the day it shipped, and this test passed it. Comparing names where
+        the guard compares operations is how a sweep reports green on a tool
+        nobody can run.
+
+        So this asks the guard itself what each tool requires rather than
+        re-deriving it, and compares that against the permission flags.
         """
+        security = self.env['ai.operations.security']
+        Permission = self.env['ai.operations.model.permission']
         offenders = []
         for assignment in assignments:
             code = assignment.tool_id.code
@@ -54,13 +71,23 @@ class TestPackPolicyCoverage(AIOperationsCommon):
                 # enabled. Not this test's business.
                 continue
             profile = assignment.profile_id
-            permitted = set(self.env['ai.operations.model.permission'].search([
-                ('profile_id', '=', profile.id),
-            ]).mapped('model_name'))
-            missing = set(registry_module.get_tool(code).models) - permitted
-            if missing:
-                offenders.append('%s -> %s needs %s' % (
-                    profile.code, code, ', '.join(sorted(missing))))
+            permissions = {
+                perm.model_name: perm
+                for perm in Permission.search([('profile_id', '=', profile.id)])
+            }
+            required = security._required_operations(registry_module.get_tool(code))
+            for model_name, operations in sorted(required.items()):
+                permission = permissions.get(model_name)
+                if not permission:
+                    offenders.append('%s -> %s needs %s' % (
+                        profile.code, code, model_name))
+                    continue
+                lacking = sorted(
+                    operation for operation in operations
+                    if not permission[PERM_FIELD[operation]])
+                if lacking:
+                    offenders.append('%s -> %s needs %s on %s' % (
+                        profile.code, code, ', '.join(lacking), model_name))
         return sorted(offenders)
 
     def test_every_assigned_tool_has_its_models_in_the_allowlist(self):
@@ -119,3 +146,33 @@ class TestPackPolicyCoverage(AIOperationsCommon):
             ['%s -> test.uncovered needs res.currency' % self.profile.code],
             "the sweep no longer detects a tool whose model is unpermitted; "
             "the check that would have caught George's two refusals is dead")
+
+    def test_a_model_declared_only_as_an_action_does_not_also_require_read(self):
+        """A create-only permission must be satisfiable.
+
+        Giving every declared model an implicit ``read`` made
+        ``manufacturing.post_readiness_note`` impossible to run: it posts to a
+        chatter and never reads a message, the pack grants ``mail.message``
+        create-only deliberately, and the guard demanded read anyway. The only
+        way to satisfy it would have been to let an agent read all chatter in
+        order to write one note.
+        """
+        security = self.env['ai.operations.security']
+        spec = registry_module.get_tool('manufacturing.post_readiness_note')
+        required = security._required_operations(spec)
+        self.assertEqual(
+            required.get('mail.message'), {'create'},
+            "mail.message is declared through actions alone and must require "
+            "only create")
+        self.assertEqual(
+            required.get('mrp.production'), {'read'},
+            "a model in `models` still requires read")
+
+    def test_an_action_only_model_still_has_to_be_in_the_allowlist(self):
+        """Dropping the implicit read must not drop the allowlist itself."""
+        security = self.env['ai.operations.security']
+        spec = registry_module.get_tool('manufacturing.post_readiness_note')
+        self.assertIn(
+            'mail.message', security._required_operations(spec),
+            "an action-only model that vanished from the requirements would "
+            "no longer be checked against the profile at all")
