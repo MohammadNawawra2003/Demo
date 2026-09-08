@@ -24,7 +24,15 @@ class AIOperationsAgentProfile(models.Model):
 
     name = fields.Char(required=True)
     code = fields.Char(required=True, index=True, help="Stable identifier, e.g. 'procurement'.")
-    description = fields.Text()
+    description = fields.Text(
+        help="⚠ THIS IS THE SYSTEM PROMPT. build_system_prompt() returns it "
+             "verbatim to the model, so it is executable text and not "
+             "documentation: a stale description is a stale INSTRUCTION the "
+             "model obeys. The Accountant's said it held no tools and no "
+             "permissions long after it had four of each, and the agent duly "
+             "refused to use them. Say what the agent CAN do, and scope any "
+             "restriction to the operation it forbids -- 'no write capability' "
+             "bounds an action; 'no permissions' denies the capability itself.")
     active = fields.Boolean(default=True)
 
     company_ids = fields.Many2many(

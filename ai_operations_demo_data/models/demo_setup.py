@@ -101,6 +101,7 @@ ASSIGNMENTS = {
         ('procurement.prepare_draft_rfq', 2),
         ('procurement.update_draft_rfq', 2),
         ('procurement.create_review_activity', 4),
+        ('procurement.find_handoff', 4),
         ('procurement.accept_handoff', 4),
         ('procurement.complete_handoff', 4),
     ],

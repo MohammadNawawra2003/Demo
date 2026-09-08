@@ -532,6 +532,47 @@ def update_draft_rfq(ctx, params):
 
 
 @ai_tool(
+    code='procurement.find_handoff',
+    category=ToolCategory.READ,
+    autonomy=AutonomyLevel.QUERY,
+    models=['ai.operations.handoff'],
+    input_schema=schemas.FindHandoffInput,
+    output_schema=schemas.FindHandoffOutput,
+    max_results=10,
+)
+def find_handoff(ctx, params):
+    """Resolve a handoff reference to the id ``accept_handoff`` needs.
+
+    ``accept_handoff`` and ``complete_handoff`` take a numeric id. A person
+    reads "AIH/2026/00027" off a list and types that, because it is what the
+    screen shows -- so without this the reference cannot be used at all, and
+    the alternatives are both bad: guess an integer out of the digits, which
+    lands on somebody else's handoff, or decline. Both happened.
+
+    Only handoffs addressed to the caller's own profile are returned. That is
+    not a convenience: the receiver scope is what stops one agent enumerating
+    another's queue, and it is the same boundary ``_for_receiver`` enforces on
+    accept.
+    """
+    handoff_ref = params['handoff_ref']
+    handoffs = ctx.model('ai.operations.handoff').search([
+        ('to_profile_id', '=', ctx.profile.id),
+        ('name', '=ilike', handoff_ref),
+    ], limit=10)
+    ctx.check_records('ai.operations.handoff', handoffs.ids)
+    return {
+        'handoffs': [{
+            'id': handoff.id,
+            'reference': handoff.name,
+            'type_code': handoff.type_id.code or '',
+            'from_profile': handoff.from_profile_id.code or '',
+            'state': handoff.state,
+            'priority': handoff.priority or '',
+        } for handoff in handoffs],
+    }
+
+
+@ai_tool(
     code='procurement.accept_handoff',
     category=ToolCategory.HANDOFF,
     autonomy=AutonomyLevel.PREPARE,

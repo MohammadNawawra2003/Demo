@@ -1,6 +1,6 @@
 {
     'name': 'AI Operations: Accounting',
-    'version': '19.0.1.1.0',
+    'version': '19.0.1.2.0',
     'category': 'Productivity/AI',
     'summary': 'Accounting Intelligence: read-only financial reporting. It '
                'cannot post, pay, reconcile or alter anything.',

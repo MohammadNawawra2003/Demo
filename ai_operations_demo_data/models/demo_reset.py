@@ -245,9 +245,14 @@ class AIOperationsDemoReset(models.AbstractModel):
         """
         profiles = self.env['ai.operations.agent.profile'].with_context(
             active_test=False).search([('code', 'in', sorted(ROUTING))])
+        # Only rows that actually carry spend. Reporting every row every time
+        # broke the "non-zero then zero" rule the runbook teaches presenters to
+        # read a reset by -- and that rule is what distinguishes a real reset
+        # from the silent no-op the multi-company bug used to produce.
         rows = self.env['ai.operations.budget'].search([
             ('profile_id', 'in', profiles.ids),
             ('date', '=', fields.Date.context_today(self)),
+            ('tokens_used', '>', 0),
         ])
         summary['token_budget_cleared'] = len(rows)
         if rows:

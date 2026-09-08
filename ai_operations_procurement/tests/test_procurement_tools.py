@@ -446,3 +446,57 @@ class TestDraftRfqIdempotency(TestProcurementTools):
         self.assertEqual(order.state, 'draft')
 
 
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestFindHandoff(TestProcurementTools):
+    """A reference is not an id -- the handoff half of the same gap.
+
+    find_production closed this for manufacturing orders. Handoffs still had it:
+    accept_handoff takes an integer, the runbook has the presenter paste
+    "AIH/2026/00027" because that is what the screen shows, and nothing resolved
+    one to the other. On staging run #7 the agent declined to guess, which is
+    better behaviour and a worse demo; in earlier runs it guessed an integer
+    that happened to land on a real handoff.
+    """
+
+    def _handoff_to_me(self):
+        htype = self.env['ai.operations.handoff.type'].create({
+            'code': 'KT_FIND', 'name': 'KT_FIND', 'payload_schema': '{}',
+            'to_profile_id': self.profile.id,
+        })
+        return self.env['ai.operations.handoff'].create({
+            'name': 'AIH/2026/09999', 'type_id': htype.id,
+            'to_profile_id': self.profile.id, 'payload': {},
+        })
+
+    def test_a_reference_resolves_to_its_id(self):
+        handoff = self._handoff_to_me()
+        result = self._run('procurement.find_handoff',
+                           {'handoff_ref': handoff.name})
+        self.assertEqual([row['id'] for row in result['handoffs']], [handoff.id])
+        self.assertEqual(result['handoffs'][0]['reference'], handoff.name)
+
+    def test_the_match_is_case_insensitive(self):
+        handoff = self._handoff_to_me()
+        result = self._run('procurement.find_handoff',
+                           {'handoff_ref': handoff.name.lower()})
+        self.assertIn(handoff.id, [row['id'] for row in result['handoffs']])
+
+    def test_another_profiles_queue_is_not_searchable(self):
+        """Receiver scope is a boundary, not a convenience."""
+        other = self.env['ai.operations.agent.profile'].with_context(
+            skip_policy_audit=True).create({
+                'name': 'KT Other Receiver', 'code': 'kt_other_receiver',
+                'active': False})
+        htype = self.env['ai.operations.handoff.type'].create({
+            'code': 'KT_OTHER', 'name': 'KT_OTHER', 'payload_schema': '{}',
+            'to_profile_id': other.id})
+        theirs = self.env['ai.operations.handoff'].create({
+            'name': 'AIH/2026/08888', 'type_id': htype.id,
+            'to_profile_id': other.id, 'payload': {}})
+        result = self._run('procurement.find_handoff',
+                           {'handoff_ref': theirs.name})
+        self.assertEqual(
+            result['handoffs'], [],
+            "one agent could enumerate another agent's queue by reference")

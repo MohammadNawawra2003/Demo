@@ -45,6 +45,17 @@ class FindProductionOutput(Schema):
     }), max_items=10)
 
 
+class FindHandoffInput(Schema):
+    handoff_ref = Str(max_length=64)
+
+
+class FindHandoffOutput(Schema):
+    handoffs = List(Nested({
+        'id': Int(), 'reference': Str(), 'type_code': Str(),
+        'from_profile': Str(), 'state': Str(), 'priority': Str(),
+    }), max_items=10)
+
+
 class ShortageContextInput(Schema):
     product_id = Int(min=1)
     warehouse_id = Int(min=1, required=False)

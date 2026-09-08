@@ -168,3 +168,45 @@ class TestAccountingRoster(TransactionCase):
                 'account.group_account_user'),
             "the Accountant's service user can write accounting; read-only "
             "means group_account_readonly and nothing above it")
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestAccountantSystemPrompt(TransactionCase):
+    """The description IS the system prompt, so its wording is behaviour.
+
+    ``build_system_prompt`` returns ``profile.description`` verbatim. The
+    original ended "it holds no permission on any of the models those actions
+    need", and on staging the agent dropped the qualifier: three times in seven
+    runs it answered that it had no permission to use accounting tools and
+    called nothing at all, while holding four assigned and enabled tools.
+    Configuration was correct every time. The sentence was not.
+
+    The General Manager is read-only in the same way, says "no WRITE capability
+    of any kind", and has never refused.
+    """
+
+    def _accounting(self):
+        return self.env['ai.operations.agent.profile'].with_context(
+            active_test=False).search([('code', '=', 'accounting')], limit=1)
+
+    def test_the_prompt_does_not_deny_holding_permissions(self):
+        description = (self._accounting().description or '').lower()
+        self.assertTrue(description, "the accountant has no system prompt")
+        for phrase in ('holds no permission', 'no permission on any',
+                       'without permissions'):
+            self.assertNotIn(
+                phrase, description,
+                "the system prompt tells the model it holds no permissions, "
+                "which it reads as 'do not call your tools'")
+
+    def test_the_prompt_names_what_it_can_do(self):
+        description = (self._accounting().description or '').lower()
+        for capability in ('receivable', 'payable', 'invoice', 'revenue'):
+            self.assertIn(
+                capability, description,
+                "a read-only agent's prompt must lead with what it CAN do")
+
+    def test_the_restriction_is_scoped_to_writing(self):
+        description = (self._accounting().description or '').lower()
+        self.assertIn('write', description,
+                      "the restriction must name writing, not permissions")
