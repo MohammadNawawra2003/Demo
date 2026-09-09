@@ -82,7 +82,7 @@ What the guide should say, and should not overstate:
 
 ### 0e. Which new screenshot replaces which old one
 
-The pack was rebuilt on 2026-09-09 against **`c60202c`** — the handoff-notification
+The pack was rebuilt on 2026-09-09 against **`0dd8a59`** — the handoff-notification
 round, not the earlier `89b707e` capture — and lives in
 `~/ai_operations-screenshots/` (**31 images**, with `SCREENSHOT_INDEX.md`). Use
 this table to swap images rather than hunting through both sets.
@@ -111,7 +111,8 @@ George's question and the guide has nothing to swap them for:
 | **`04-systray-activity-counter.png`** | the three counters on Noura's bar: messages, **the AI chat badge**, **the activity clock**. The before-picture is George's own "you have finished all your activities" screenshot |
 | **`08-activity-menu-open.png`** | the activity menu open: two items due today, grouped by model — the handoff and the draft PO |
 | **`30-handoff-form-chatter.png`** | the handoff record with its chatter and the activity **assigned to Noura Al-Harbi by name** |
-| **`31-audit-autonomous-handoff.png`** | the same audit log filtered to the receiving agent: **Execution Mode `Autonomous`, Trigger `Handoff`**, and no interactive user. This is the "who ran it" evidence — the work that started by itself carries the service identity, not an employee's |
+| **`31-audit-autonomous-handoff.png`** | the same audit log filtered to the receiving agent, with the hidden **`Autonomous Identity`** column switched on: `Interactive User` names the **employee who raised** the work, `Autonomous Identity` names **`AI / Procurement`, which ran it**, beside Execution Mode `Autonomous` and Trigger `Handoff`. Both columns are true and they answer different questions — never caption this as "the employee ran it" |
+| **`32-audit-row-service-identity.png`** | one audit row opened: the same identity pair with correlation, session, policy version and provider, under the log's append-only banner. `31` is the claim, `32` is the record behind it |
 
 **Unchanged in meaning, safe to keep if the old one is legible:** `00-apps`,
 `15-manufacturing-orders`, `16-manufacturing-order-form`, `17-inventory-overview`,
