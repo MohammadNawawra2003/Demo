@@ -1896,3 +1896,46 @@ wider — Document C §12 makes Inventory span C1 and C2 deliberately — and Qu
 it crashed with `AccessError` rather than routing. `scoped_company_ids()` was already the
 established fix for this exact shape and is now used here too. **Third instance of the same
 bug**, and the first one found by a test rather than on staging.
+
+### 2026-09-09 — what delivering the work also delivers
+
+Found by the peer session re-running the flow on staging, and confirmed by reading
+the orders directly: **step 3 run standalone, immediately after a reset, drafts
+138,240 units instead of 4,000.**
+
+Not a defect in the tool, and worth being precise about why. The reset empties the
+channel, so a prompt that names no manufacturing order arrives with no history to
+anchor it. The agent calls `get_open_mos`, is handed a wide field, and picks
+`WIP/MO/00223` — which is genuinely short of PK-BTL-600. It claimed 230,400, which
+is that order's *requirement*; the server-side correction replaced it with 138,240,
+which is that order's real gap. The tool did exactly what it was built to do, on an
+order nobody meant.
+
+The demo data makes this the expected outcome rather than bad luck: **100 open
+manufacturing orders, 14 of them consuming PK-BTL-600 with gaps up to 312,672**, and
+the scenario order `RM/MO/00002` sits **20th** in `get_open_mos`' own
+`date_start desc, id desc` ordering. It is not near the top of the list the agent
+reads.
+
+No constraint is being added. Narrowing `raise_handoff` to "orders the user
+mentioned" is a demo-shaped rule in production code, and the guard could not enforce
+it in any case: a legitimate request about a legitimate order is not something a
+permission check can refuse. The runbook now anchors step 3 to step 2 in the same
+channel, which is where a presenter actually meets this.
+
+**What this change did do is enlarge the blast radius, and that is worth recording
+plainly.** Before delivery existed, a mis-picked order produced a handoff row nobody
+looked at. It now auto-drafts a 10,782.72 SAR purchase order onto a human's desk —
+and it arrives **unflagged**. `prepare_draft_rfq` sets `ai_approval_required` from
+`check_variance(deterministic_shortage, recommended_quantity)`, and when the
+receiving agent takes both sides from the handoff payload — which the raising tool
+now authors — the variance is zero by construction and the flag never lifts, whatever
+the size. A 10,782 SAR draft looks exactly as routine as a 312 SAR one.
+
+Every control that was claimed still held: the order stayed **draft**, a human still
+has to press Confirm, the identity was the service user, and the whole chain is in
+the audit log. So this is a bounded wrong answer, which is the posture Level 2
+"Prepare" promises. But "the variance bound flags an outsized proposal" is **not**
+true on this path, and a value or size threshold is a Document B/C policy decision
+rather than something to invent inside a scoped change. Recorded here rather than
+patched.
