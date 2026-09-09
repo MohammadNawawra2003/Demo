@@ -32,6 +32,16 @@ class TestDemoAgentEligibilityMatrix(TransactionCase):
         super().setUpClass()
         cls.Profile = cls.env['ai.operations.agent.profile']
         cls.security = cls.env['ai.operations.security']
+        # The selector lives in ai_operations_chat_widget, and this module does
+        # NOT depend on it -- so a fresh `-i ai_operations_demo_data` builds the
+        # whole demo with no widget at all. That is pre-existing and left alone;
+        # what it must not do is make this file assert against a method that
+        # isn't there. Only an install where the widget is absent was ever going
+        # to catch it, which is why it survived every upgrade run.
+        cls.has_widget = hasattr(cls.Profile, 'ai_widget_profiles')
+
+    def _offered(self, user):
+        return {p['code'] for p in self.Profile.with_user(user).ai_widget_profiles()}
 
     def _user(self, login):
         user = self.env['res.users'].with_context(active_test=False).search(
@@ -58,11 +68,12 @@ class TestDemoAgentEligibilityMatrix(TransactionCase):
 
     def test_each_employee_is_offered_only_their_own_agents(self):
         """The screenshot George sent, inverted into an assertion."""
+        if not self.has_widget:
+            self.skipTest('ai_operations_chat_widget is not installed')
         for code, logins in AGENT_USERS.items():
             for login in logins:
                 user = self._user(login)
-                offered = {p['code'] for p
-                           in self.Profile.with_user(user).ai_widget_profiles()}
+                offered = self._offered(user)
                 expected = {c for c, ls in AGENT_USERS.items()
                             if login in ls}
                 self.assertEqual(
@@ -72,8 +83,9 @@ class TestDemoAgentEligibilityMatrix(TransactionCase):
 
     def test_noura_is_not_offered_the_accountant(self):
         """Named explicitly because it is the report, not just an instance."""
-        offered = {p['code'] for p in self.Profile.with_user(
-            self._user('noura.p')).ai_widget_profiles()}
+        if not self.has_widget:
+            self.skipTest('ai_operations_chat_widget is not installed')
+        offered = self._offered(self._user('noura.p'))
         self.assertEqual(offered, {'procurement'})
         self.assertNotIn('accounting', offered)
 
