@@ -80,7 +80,61 @@ What the guide should say, and should not overstate:
 - **Voice is not supported.** If anyone asks, it was not requested and was not
   built.
 
-### 0e. A new denial reason exists
+### 0e. Which new screenshot replaces which old one
+
+The pack was rebuilt on 2026-09-09 against `89b707e` and lives in
+`~/ai_operations-screenshots/` (28 images, with `SCREENSHOT_INDEX.md`). Use this
+table to swap images rather than hunting through both sets.
+
+| Old guide image | Replace with | Why |
+|---|---|---|
+| any **agent selector / picker** shot listing several agents | **`01-eligibility-noura-procurement-only.png`** + **`02-eligibility-khalid-manufacturing-only.png`** | the selector no longer lists other people's agents; each employee gets one |
+| any **Agent Profiles list** | **`18-agent-profiles.png`** | now carries the **Allowed Users** column — this single image answers George's question |
+| any **Agent Profile form** | **`26-agent-profile-allowed-users.png`** | ALLOWED USERS is now a group on the form |
+| any **user list** used to explain the `AI /` accounts | **`27-ai-service-users.png`** | now shows the **AI Service User** marker column |
+| — (new, no predecessor) | **`28-ai-service-user-form.png`** | proves a service identity is Role=User, Accounting=No, Sales=No |
+| any **chat composer** shot | **`25-chat-composer-attach-button.png`** | the composer now has a paperclip |
+| — (new, no predecessor) | **`24-discuss-image-attachment.png`** | the only image showing a picture reaching the agent |
+| any **widget-in-context** shot | **`29-widget-in-context.png`** | panel over Noura's own purchase list, SAR totals, Arabic UI |
+| any **draft RFQ** shot | **`14-draft-rfq-form.png`** | reference is now `P00070`; 312.00 SR unchanged |
+| any **RFQ list** shot | **`13-purchase-rfq-list.png`** | same |
+| any **audit log** shot | **`19-audit-log.png`** | 169 rows; still shows the ALLOWED-then-DENIED pair |
+| any **handoff queue** shot | **`20-handoffs.png`** | `AIH/2026/00025` Accepted + 2 cancelled artefacts |
+| any **conversation** shot | `03`, `05`, **`06`**, `07`, `09`, `10`, `11`, `12` | all reshot; `06` is new and carries the 312.00 SAR draft |
+
+**Unchanged in meaning, safe to keep if the old one is legible:** `00-apps`,
+`15-manufacturing-orders`, `16-manufacturing-order-form`, `17-inventory-overview`,
+`21-gm-profile-read-only`, `22-stock-on-hand`, `23-quality-checks`. All were
+recaptured anyway so the whole pack comes from one database.
+
+⚠️ **Every record reference changed** (`P00070`, `AIH/2026/00025`, 169 audit
+rows). Replace figures wholesale rather than checking them one at a time.
+
+### 0f. Handoff notification — new capability, landing after this pack
+
+**The guide has no wrong text about this; it simply has none** — the same shape
+as 0d for image input.
+
+Raising a handoff now notifies the receiving side instead of leaving a row for
+somebody to find: the request is posted to the handoff's own chatter, a
+`mail.activity` is scheduled for the receiving department's reviewer, the systray
+activity clock carries it, the chat launcher shows a count badge and opens itself
+once, and the receiving agent is entered automatically with a `HANDOFF` trigger.
+A new denial reason `HANDOFF_CASCADE_BLOCKED` holds it to one hop.
+
+**What the guide must say carefully:** `Allow Autonomous` becomes **True for the
+profiles that RECEIVE work** (procurement and manufacturing). On its own that tick
+reads as "the agent now acts by itself", which is wrong. It permits exactly one
+thing — opening work another department queued, once — and the daily cron stays
+inactive. Say both halves or neither.
+
+⚠️ **This is not in the current screenshot pack** (captured at `89b707e`; the
+handoff work is `baaec43`). `SCREENSHOT_INDEX.md` has the full recapture list
+under "What is already stale". At the time of writing the flow was **not yet
+verified green on staging**, so do not describe it as shipped until that is
+confirmed.
+
+### 0g. A new denial reason exists
 
 `PROFILE_NOT_ELIGIBLE`, alongside the eighteen the guide may already list plus
 `STATE_NOT_PERMITTED`. Any table of denial reasons is now short by one.
