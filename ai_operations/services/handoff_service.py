@@ -21,6 +21,7 @@ So there are two builders below, named for what they key.
 import logging
 
 from odoo import _, api, models
+from odoo.tools.mail import plaintext2html
 
 from .enums import DenialReason, HandoffState, TriggerType
 from .exceptions import AIAccessDenied
@@ -119,14 +120,19 @@ class AIHandoffService(models.AbstractModel):
                     reference=handoff.name)
         note = _(
             'Type: %(type)s\nRaised by: %(department)s\nPriority: %(priority)s\n'
-            'Details: %(payload)s',
+            '%(details)s',
             type=handoff.type_id.name or handoff.type_id.code,
             department=handoff.from_profile_id.name or '',
             priority=dict(handoff._fields['priority'].selection or []).get(
                 handoff.priority, handoff.priority or ''),
-            payload=handoff.payload or {})
+            details=self._payload_lines(handoff))
 
-        handoff.message_post(body='%s\n%s' % (summary, note))
+        # plaintext2html, not the string itself: both message bodies and
+        # activity notes are HTML fields, so "\n" is not a line break there and
+        # an unescaped value would be markup. The note rendered as one unbroken
+        # run until this was fixed. The field's content type decides, never the
+        # string.
+        handoff.message_post(body=plaintext2html('%s\n%s' % (summary, note)))
 
         # Reuse, do not rebuild: this service already deduplicates, honours the
         # five-a-day ceiling and FAILS CLOSED on an unresolved assignee with an
@@ -134,12 +140,39 @@ class AIHandoffService(models.AbstractModel):
         # to the RECEIVER, not to the agent that raised the work.
         self.env['ai.operations.activity'].create_or_update(
             ctx, 'ai.operations.handoff', handoff.id,
-            summary=summary, note=note,
+            summary=summary, note=plaintext2html(note),
             reason_code='HANDOFF_RECEIVED',
             assignee=receiver.default_review_user_id,
             routing_profile=receiver)
 
         self._open_the_work(ctx, handoff)
+
+    def _payload_lines(self, handoff):
+        """The payload as something a person can act on.
+
+        The values are the entire point of the note, and they were the one
+        thing it did not carry: handing the dict to a lazy ``_()`` rendered it
+        as its comma-joined KEY NAMES, so a receiver opening the activity
+        learned only which fields exist. Rendered here, before translation.
+
+        Every declared field is shown rather than a chosen few, because the
+        payload shape differs per handoff type and a fixed list would go quiet
+        the moment a pack declares a new one. ``product_id`` is resolved to a
+        code because "product_id: 9" is the reference-is-not-an-id problem
+        pointed at a human this time.
+        """
+        payload = handoff.payload or {}
+        if not payload:
+            return _('Details: none declared.')
+        lines = [_('Details:')]
+        for field, value in payload.items():
+            if field == 'product_id' and value:
+                product = self.env['product.product'].browse(int(value)).exists()
+                if product:
+                    value = '%s (%s)' % (product.display_name,
+                                         product.default_code or value)
+            lines.append('  %s: %s' % (field, value if value != '' else '-'))
+        return '\n'.join(lines)
 
     def _open_the_work(self, ctx, handoff):
         """Let the receiving agent read its own new item and prepare a draft.

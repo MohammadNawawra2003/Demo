@@ -1939,3 +1939,68 @@ the audit log. So this is a bounded wrong answer, which is the posture Level 2
 true on this path, and a value or size threshold is a Document B/C policy decision
 rather than something to invent inside a scoped change. Recorded here rather than
 patched.
+
+### 2026-09-09 — the notification told the receiver which fields exist
+
+Caught by the peer session on a customer-facing screenshot, not by a test.
+
+The activity and chatter note rendered as:
+
+    Type: Material Shortage Raised by: Manufacturing Intelligence Priority:
+    Normal Details: product_id, qty_required, qty_available, qty_shortage,
+    uom_id, required_date, origin_ref, warehouse_id, and priority
+
+Two defects in one string, both of them the same mistake in different clothes:
+**a value was handed to a formatter that had its own idea of what to do with it.**
+
+The payload dict reached the `%(payload)s` slot of a lazy `_()`, which renders an
+iterable as its comma-joined members with an Oxford "and" — so a person opening the
+activity was told which KEYS the payload has and nothing about what it says. No
+quantity, no product, no order. The whole point of the notification is the values.
+Rendered now before translation, every declared field rather than a chosen few
+(payload shape differs per handoff type, and a fixed list goes quiet the moment a
+pack declares a new one), with `product_id` resolved to a product code — because
+"product_id: 9" is the reference-is-not-an-id problem pointed at a human this time.
+
+And the `\n` separators did nothing, because `mail.activity.note` and a message body
+are **HTML fields**. Same family as the trap that once shipped literal `<b>` into the
+widget: the field's content type decides, never the string. Both now go through
+`plaintext2html`, which supplies the `<br/>` and escapes the values.
+
+Two tests cover it — one asserts the quantities and the order reference are present
+and that the field-name list is not, the other asserts the note contains `<br` and no
+raw newline. Both would have failed before this.
+
+### 2026-09-09 — the refusal scene stops refusing once a draft exists (NOT fixed)
+
+Also from the peer's rebuild, and left alone deliberately.
+
+`procurement.prepare_draft_rfq` returns an existing order on its idempotency key
+**before** `check_variance`, `consume_write` and the create — and the key contains the
+vendor. So `fahad.p`, who may not create a purchase order, asking for the identical
+Jeddah Plastic draft after one already exists takes the idempotent branch, writes
+nothing, is never refused, and gets the reference back. Measured both ways:
+
+    fahad + Jeddah Plastic Industries -> ALLOWED, returned P00023 (idempotent_hit)
+    fahad + Riyadh PET Co.            -> USER_ACL_DENIED
+
+**No bypass and no leak**: `_render_rfq` returns a record he may already read, and
+nothing he could not do was done. What is wrong is narrower and still real — a tool
+classified `DRAFT_WRITE` / `CREATE_DRAFT` answers a caller whose own ACL forbids that
+action, so on this one path the USER term of
+`EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` is never applied to the declared
+action. It is pre-existing; this round makes it more likely to be met, because step 3
+now drafts the Jeddah order automatically rather than waiting for a presenter.
+
+**The fix is one check** — resolve the declared action against the execution user's
+ACL before the idempotency lookup, so a caller who cannot create is refused whether or
+not a matching draft happens to exist. It is a tightening, in the safe direction, and
+it would make the demo's strongest scene independent of database state instead of
+dependent on which vendor has no draft yet.
+
+It is **not** applied here. Changing when the guard evaluates a declared action is
+guard semantics, and it deserves the same explicit decision as the variance threshold
+above rather than arriving as a side effect of a notification round. Two unrequested
+guard changes in one scoped change is how an architecture drifts. The runbook has been
+pointed at Riyadh PET Co. by its owner, which makes the scene work today; that is a
+data-dependent workaround for a logic gap and should be read as one.

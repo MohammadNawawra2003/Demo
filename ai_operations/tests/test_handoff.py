@@ -241,6 +241,34 @@ class TestHandoffs(AIOperationsCommon):
         bodies = handoff.message_ids.mapped('body')
         self.assertTrue(any(handoff.name in (body or '') for body in bodies))
 
+    def test_the_note_carries_the_values_not_the_field_names(self):
+        """It shipped rendering the payload as its comma-joined KEY NAMES.
+
+        The dict reached a lazy ``_()`` and came back as "product_id,
+        qty_required, qty_available, ... and priority" -- so a receiver opening
+        the activity was told which fields exist and nothing else. It was on a
+        customer-facing screen before anyone read it.
+        """
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        note = self._activities_for(handoff).note or ''
+
+        self.assertIn('486', note, "the shortage quantity is the whole point")
+        self.assertIn('1000', note)
+        self.assertIn('MO-00842', note, "the receiver needs the order reference")
+        self.assertNotIn('qty_shortage, uom_id', note,
+                         "the payload rendered as a list of field names again")
+
+    def test_the_note_breaks_into_lines_in_an_html_field(self):
+        """``mail.activity.note`` and a message body are HTML, so "\\n" is not a
+        line break there and the whole note rendered as one run. The field's
+        content type decides, never the string."""
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        note = self._activities_for(handoff).note or ''
+        self.assertIn('<br', note)
+        self.assertNotIn('\n', note.strip('\n'))
+
     def test_an_idempotent_hit_does_not_raise_a_second_notification(self):
         """The dedup search carries no state filter, so a CANCELLED handoff
         keeps answering its key. Notifying on the second raise would put a dead

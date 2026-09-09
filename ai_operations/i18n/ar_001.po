@@ -167,9 +167,19 @@ msgid ""
 "Type: %(type)s\n"
 "Raised by: %(department)s\n"
 "Priority: %(priority)s\n"
-"Details: %(payload)s"
+"%(details)s"
 msgstr ""
 "النوع: %(type)s\n"
 "رفعه: %(department)s\n"
 "الأولوية: %(priority)s\n"
-"التفاصيل: %(payload)s"
+"%(details)s"
+
+#. module: ai_operations
+#: code:addons/ai_operations/services/handoff_service.py:0
+msgid "Details:"
+msgstr "التفاصيل:"
+
+#. module: ai_operations
+#: code:addons/ai_operations/services/handoff_service.py:0
+msgid "Details: none declared."
+msgstr "التفاصيل: لا توجد حقول معلنة."
