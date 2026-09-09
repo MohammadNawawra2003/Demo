@@ -82,62 +82,118 @@ What the guide should say, and should not overstate:
 
 ### 0e. Which new screenshot replaces which old one
 
-The pack was rebuilt on 2026-09-09 against `89b707e` and lives in
-`~/ai_operations-screenshots/` (28 images, with `SCREENSHOT_INDEX.md`). Use this
-table to swap images rather than hunting through both sets.
+The pack was rebuilt on 2026-09-09 against **`c60202c`** — the handoff-notification
+round, not the earlier `89b707e` capture — and lives in
+`~/ai_operations-screenshots/` (**31 images**, with `SCREENSHOT_INDEX.md`). Use
+this table to swap images rather than hunting through both sets.
 
 | Old guide image | Replace with | Why |
 |---|---|---|
 | any **agent selector / picker** shot listing several agents | **`01-eligibility-noura-procurement-only.png`** + **`02-eligibility-khalid-manufacturing-only.png`** | the selector no longer lists other people's agents; each employee gets one |
-| any **Agent Profiles list** | **`18-agent-profiles.png`** | now carries the **Allowed Users** column — this single image answers George's question |
+| any **Agent Profiles list** | **`18-agent-profiles.png`** | now carries the **Allowed Users** column AND the `Allow Autonomous` ticks — read 0f before captioning that column |
 | any **Agent Profile form** | **`26-agent-profile-allowed-users.png`** | ALLOWED USERS is now a group on the form |
 | any **user list** used to explain the `AI /` accounts | **`27-ai-service-users.png`** | now shows the **AI Service User** marker column |
 | — (new, no predecessor) | **`28-ai-service-user-form.png`** | proves a service identity is Role=User, Accounting=No, Sales=No |
 | any **chat composer** shot | **`25-chat-composer-attach-button.png`** | the composer now has a paperclip |
 | — (new, no predecessor) | **`24-discuss-image-attachment.png`** | the only image showing a picture reaching the agent |
 | any **widget-in-context** shot | **`29-widget-in-context.png`** | panel over Noura's own purchase list, SAR totals, Arabic UI |
-| any **draft RFQ** shot | **`14-draft-rfq-form.png`** | reference is now `P00070`; 312.00 SR unchanged |
-| any **RFQ list** shot | **`13-purchase-rfq-list.png`** | same |
-| any **audit log** shot | **`19-audit-log.png`** | 169 rows; still shows the ALLOWED-then-DENIED pair |
-| any **handoff queue** shot | **`20-handoffs.png`** | `AIH/2026/00025` Accepted + 2 cancelled artefacts |
-| any **conversation** shot | `03`, `05`, **`06`**, `07`, `09`, `10`, `11`, `12` | all reshot; `06` is new and carries the 312.00 SAR draft |
+| any **draft RFQ** shot | **`14-draft-rfq-form.png`** | the buyer is now **`AI / Procurement`**, not Noura, and the activity beside it is the approval request |
+| any **RFQ list** shot | **`13-purchase-rfq-list.png`** | same, plus the activity summary now shows in the list |
+| any **audit log** shot | **`19-audit-log.png`** | still shows the ALLOWED-then-DENIED pair |
+| any **handoff queue** shot | **`20-handoffs.png`** | one row, **Completed**, not a queue of things waiting |
+| any **conversation** shot | `03`, `05`, **`06`**, `07`, `09`, `10`, `11`, `12` | all reshot against the automatic flow |
+
+**New images with no predecessor in any earlier pack** — these are the answer to
+George's question and the guide has nothing to swap them for:
+
+| File | What it is for |
+|---|---|
+| **`04-systray-activity-counter.png`** | the three counters on Noura's bar: messages, **the AI chat badge**, **the activity clock**. The before-picture is George's own "you have finished all your activities" screenshot |
+| **`08-activity-menu-open.png`** | the activity menu open: two items due today, grouped by model — the handoff and the draft PO |
+| **`30-handoff-form-chatter.png`** | the handoff record with its chatter and the activity **assigned to Noura Al-Harbi by name** |
+| **`31-audit-autonomous-handoff.png`** | the same audit log filtered to the receiving agent: **Execution Mode `Autonomous`, Trigger `Handoff`**, and no interactive user. This is the "who ran it" evidence — the work that started by itself carries the service identity, not an employee's |
 
 **Unchanged in meaning, safe to keep if the old one is legible:** `00-apps`,
 `15-manufacturing-orders`, `16-manufacturing-order-form`, `17-inventory-overview`,
 `21-gm-profile-read-only`, `22-stock-on-hand`, `23-quality-checks`. All were
 recaptured anyway so the whole pack comes from one database.
 
-⚠️ **Every record reference changed** (`P00070`, `AIH/2026/00025`, 169 audit
-rows). Replace figures wholesale rather than checking them one at a time.
+⚠️ **Every record reference changed again.** Replace figures wholesale rather than
+checking them one at a time; the references in a pack are the clone's, never
+staging's.
 
-### 0f. Handoff notification — new capability, landing after this pack
+### 0f. Handoff notification — shipped, verified, and photographed
 
 **The guide has no wrong text about this; it simply has none** — the same shape
-as 0d for image input.
+as 0d for image input. This is no longer "landing after the pack": it is in the
+pack, and it changes the *shape* of the demo, not just its screenshots.
 
 Raising a handoff now notifies the receiving side instead of leaving a row for
 somebody to find: the request is posted to the handoff's own chatter, a
 `mail.activity` is scheduled for the receiving department's reviewer, the systray
 activity clock carries it, the chat launcher shows a count badge and opens itself
-once, and the receiving agent is entered automatically with a `HANDOFF` trigger.
-A new denial reason `HANDOFF_CASCADE_BLOCKED` holds it to one hop.
+once, and the receiving agent is entered automatically with a `HANDOFF` trigger
+under its own service identity. A new denial reason `HANDOFF_CASCADE_BLOCKED`
+holds it to one hop.
 
-**What the guide must say carefully:** `Allow Autonomous` becomes **True for the
-profiles that RECEIVE work** (procurement and manufacturing). On its own that tick
-reads as "the agent now acts by itself", which is wrong. It permits exactly one
-thing — opening work another department queued, once — and the daily cron stays
-inactive. Say both halves or neither.
+**Consequences for any walkthrough the guide contains:**
 
-⚠️ **This is not in the current screenshot pack** (captured at `89b707e`; the
-handoff work is `baaec43`). `SCREENSHOT_INDEX.md` has the full recapture list
-under "What is already stale". At the time of writing the flow was **not yet
-verified green on staging**, so do not describe it as shipped until that is
-confirmed.
+1. **Nobody copies a handoff number any more.** Any instruction to "write down
+   the reference for the next step" is now wrong.
+2. **Supplier comparison and RFQ drafting are no longer steps a person drives.**
+   The receiving agent does both the moment the work lands. The old step 6 is
+   gone; the runbook's steps 7–14 renumbered to 6–13.
+3. **`Allow Autonomous` is now True for procurement, manufacturing and
+   inventory** — the three that receive work. On its own that tick reads as "the
+   agent now acts by itself", which is wrong. It permits exactly one thing:
+   opening work another department queued, **once**. The daily cron stays
+   inactive. **Say both halves or neither.**
+
+⚠️⚠️⚠️ **And one warning the guide must carry, because it is the difference
+between a 312 SAR demo and a 10,782 SAR one.** The handoff step names no
+manufacturing order — the agent knows the scenario order only from the previous
+step's conversation, and the demo reset empties that conversation. Run it
+standalone and the agent picks from **100 open orders**, 14 of them genuinely
+short of the same component, with the scenario order **20th** in the list it is
+handed. Measured: 138,240 units against `WIP/MO/00223` instead of 4,000 against
+`RM/MO/00002`. Neither the guard nor the tool can catch this — a legitimate
+request about a legitimate order is not something a permission check refuses,
+and the tool's own correction did its job (it replaced the model's claimed
+230,400 with that order's real gap). **It is an ordering rule, and it belongs in
+the guide as one.**
 
 ### 0g. A new denial reason exists
 
-`PROFILE_NOT_ELIGIBLE`, alongside the eighteen the guide may already list plus
-`STATE_NOT_PERMITTED`. Any table of denial reasons is now short by one.
+**Two**, not one: `PROFILE_NOT_ELIGIBLE` and `HANDOFF_CASCADE_BLOCKED`,
+alongside the eighteen the guide may already list plus `STATE_NOT_PERMITTED`.
+Any table of denial reasons is now short by two.
+
+### 0h. The refusal scene needs a different vendor now, and the reason matters
+
+The guide's read-only-user refusal asks Fahad to draft a purchase order for
+**Jeddah Plastic Industries**. That request now **succeeds**.
+
+`prepare_draft_rfq` returns an existing order on its idempotency key before it
+reaches the write, and the key contains the vendor. The handoff step already
+drafts the Jeddah order automatically, so Fahad's identical request takes the
+idempotent branch, writes nothing, is never refused, and gets the reference
+back. Measured on a clean build:
+
+| Who | Vendor | Result |
+|---|---|---|
+| `fahad.p` | Jeddah Plastic Industries | **ALLOWED**, returned the existing draft |
+| `fahad.p` | Riyadh PET Co. | **`USER_ACL_DENIED`** |
+
+The runbook now names **Riyadh PET Co.**, which has no draft, so the scene works
+before and after the handoff step. **The guide must change the vendor too**, or
+its strongest page documents a refusal that does not happen.
+
+Nothing leaks — Fahad can read purchase orders anyway — but be accurate about
+what the defect is: a `CREATE_DRAFT`-classified tool answers a caller whose own
+ACL forbids that action, because the USER term is never applied to the declared
+action on that one path. It is recorded in `DEVIATIONS.md` with the fix and the
+reason the fix is not in this round. **Do not present the vendor change as the
+fix** — it is a data-dependent way around a logic gap.
 
 ---
 
@@ -149,7 +205,7 @@ separately. The authoritative sources for the rewrite are:
 - `docs/GEORGE_FULL_AI_OPERATIONS_DEMO.md` — the Arabic runbook, with the exact
   proven prompts and expected answers
 - `docs/SCENARIO_PERMISSION_MATRIX.md` — per-agent permissions and refusals
-- `~/ai_operations-screenshots/SCREENSHOT_INDEX.md` — the 20-image pack
+- `~/ai_operations-screenshots/SCREENSHOT_INDEX.md` — the 31-image pack
 
 ---
 
@@ -167,6 +223,9 @@ separately. The authoritative sources for the rewrite are:
   reference like `RM/MO/00002` to the id every other tool needs. Without it the
   agent read digits out of the reference and worked on the wrong order.
 - `procurement.find_handoff` — scoped to the caller's own queue.
+- `manufacturing.find_product` — resolves a code like `PK-BTL-600` to the id
+  `raise_handoff` needs. Without it the agent passed `product_id: 1` and the
+  handoff reached another department naming the wrong product.
 - `inventory.check_order_components` — answers "is this order short?" per line.
 - `procurement.get_shortage_context` — gained `production_id` and
   `shortage_basis`. **When scoped to an order it now returns only that order's
@@ -198,16 +257,22 @@ needed for a second run, is stale.
 Handoffs are **cancelled**, not deleted, and their idempotency keys released. Two
 CANCELLED rows in the handoff list after a reset are expected.
 
-## 5. Runbook steps were renumbered
+## 5. Runbook steps were renumbered — TWICE, and the second time by more
 
 - Old step 3 was doing step 5's work — 13 tool calls where 2 were intended. It is
   now bounded.
 - Old step 8a was deleted: it produced zero tool calls in five consecutive runs
   and proved nothing.
 - The refusal scene needs its **specific** prompt to be reproducible; a general
-  forbidden question does not reliably reach the same guard check.
+  forbidden question does not reliably reach the same guard check. It also needs
+  the **right vendor** now — see 0h.
+- **2026-09-09, the handoff round:** step 4 became the notification beat, step 5
+  became "what the receiving agent did on its own", and the old step 6 (supplier
+  comparison, drafted by hand) disappeared into it. Everything after shifted down
+  by one: **old 7–14 are now 6–13**, and old steps 8a–8c are **7a–7c**.
 
-Renumber against the current runbook rather than patching the old numbers.
+Renumber against the current runbook rather than patching the old numbers. Do
+not carry any step number across from an older guide without checking it.
 
 ## 6. Every record reference changed, and so did the currency
 
