@@ -131,24 +131,51 @@ class TestManufacturingTools(TransactionCase):
         return self._run('manufacturing.raise_handoff', params)
 
     def test_the_payload_carries_the_orders_figures_not_the_models(self):
-        """check_readiness's docstring is the rule: "the shortage figure you
-        pass onward must be this one". Until now nothing enforced it, and a
-        handoff reached Procurement describing a shortage that did not exist."""
-        readiness = self._run('manufacturing.check_readiness',
-                              {'production_id': self.production.id})
-        measured = next(line for line in readiness['components']
-                        if line['product_id'] == self.bottle.id)
+        """Nothing enforced this, and a handoff reached Procurement describing
+        a shortage that did not exist."""
+        move = self.production.move_raw_ids.filtered(
+            lambda m: m.product_id == self.bottle)
 
         result = self._raise()
         payload = self.env['ai.operations.handoff'].browse(
             result['handoff_id']).payload
 
-        self.assertEqual(payload['qty_required'], measured['required'])
-        self.assertEqual(payload['qty_available'], measured['available'])
-        self.assertEqual(payload['qty_shortage'], measured['shortage'])
+        self.assertEqual(payload['qty_required'], move.product_uom_qty)
+        self.assertEqual(payload['qty_available'], move.quantity)
+        self.assertEqual(payload['qty_shortage'],
+                         max(0.0, move.product_uom_qty - move.quantity))
         self.assertNotEqual(payload['qty_shortage'], 12000.0,
                             "the model's own number reached the next department")
-        self.assertEqual(result['qty_shortage'], measured['shortage'])
+        self.assertEqual(result['qty_shortage'], payload['qty_shortage'])
+
+    def test_the_shortage_is_the_orders_gap_not_company_free_stock(self):
+        """The two answer different questions and only one of them is this one.
+
+        check_readiness nets every reservation against the quant, this order's
+        included, so once 8,000 of a 12,000 requirement are reserved TO this
+        order company-wide free stock is zero and the reading is "12,000 short"
+        while the order is waiting for 4,000. Staging produced exactly that on
+        the first end-to-end run.
+        """
+        move = self.production.move_raw_ids.filtered(
+            lambda m: m.product_id == self.bottle)
+        move.quantity = 100.0                     # reserve some to this order
+
+        result = self._raise()
+        payload = self.env['ai.operations.handoff'].browse(
+            result['handoff_id']).payload
+
+        self.assertEqual(payload['qty_available'], 100.0)
+        self.assertEqual(payload['qty_shortage'],
+                         move.product_uom_qty - 100.0)
+
+        readiness = self._run('manufacturing.check_readiness',
+                              {'production_id': self.production.id})
+        company_wide = next(line for line in readiness['components']
+                            if line['product_id'] == self.bottle.id)
+        self.assertNotEqual(
+            payload['qty_shortage'], company_wide['shortage'],
+            "if these agree the fixture no longer demonstrates the difference")
 
     def test_a_product_that_is_not_a_component_is_refused(self):
         """A fabricated id is a perfectly readable record; it is simply the

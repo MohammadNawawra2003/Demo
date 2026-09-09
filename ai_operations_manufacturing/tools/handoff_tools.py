@@ -8,8 +8,6 @@ from odoo.addons.ai_operations.services.handoff_service import handoff_idempoten
 from odoo.addons.ai_operations.services.registry import ai_tool
 from odoo.addons.ai_operations.services.schema import Bool, Date, Float, Int, Schema, Str
 
-from .tools import check_readiness
-
 
 class RaiseShortageInput(Schema):
     production_id = Int(min=1)
@@ -40,7 +38,8 @@ class RaiseShortageOutput(Schema):
     code='manufacturing.raise_handoff',
     category=ToolCategory.HANDOFF,
     autonomy=AutonomyLevel.PREPARE,
-    models=['ai.operations.handoff', 'mrp.production', 'product.product'],
+    models=['ai.operations.handoff', 'mrp.production', 'product.product',
+            'stock.move'],
     input_schema=RaiseShortageInput,
     output_schema=RaiseShortageOutput,
     idempotent=True,
@@ -66,23 +65,31 @@ def raise_material_shortage(ctx, params):
     # ml bottle shortage the agent had no way to reach an id for PK-BTL-600, so
     # it passed product_id 1 and quantities it had made up -- and the handoff
     # reached another department naming the wrong product, in the wrong volume,
-    # with the wrong code baked into its idempotency key. Every figure below is
-    # now read back out of ``check_readiness``, whose own docstring is the rule
-    # this enforces: "the shortage figure you pass onward must be this one".
+    # with the wrong code baked into its idempotency key.
+    #
+    # Measured on the order's own component line, NOT on company-wide free
+    # stock. The two answer different questions and only one of them is this
+    # one. check_readiness nets every reservation against the quant, including
+    # this order's: with 12,000 required and 8,000 already reserved to it, free
+    # stock is 0 and the company-wide reading is "12,000 short" while the order
+    # still needs 4,000. product_uom_qty minus quantity is what the order is
+    # actually waiting for, and it is the figure the scenario is built on.
     #
     # Note the contrast with prepare_draft_rfq, which keeps an LLM-supplied
     # shortage ON PURPOSE because it feeds check_variance and DL-008. There the
     # number is a claim to be measured. A handoff has no variance control, so
     # here it is simply replaced.
-    readiness = check_readiness(ctx, {'production_id': production.id})
-    component = next((line for line in readiness['components']
-                      if line['product_id'] == product.id), None)
-    if component is None:
+    moves = production.move_raw_ids.filtered(
+        lambda move: move.product_id.id == product.id)
+    if not moves:
         raise AIAccessDenied(
             DenialReason.RECORD_OUT_OF_DOMAIN,
             detail='%s is not a component of %s'
                    % (product.default_code or product.id, production.name),
             model='product.product')
+    qty_required = sum(moves.mapped('product_uom_qty'))
+    qty_available = sum(moves.mapped('quantity'))
+    qty_shortage = max(0.0, qty_required - qty_available)
 
     warehouse_id = params.get('warehouse_id') or (
         production.picking_type_id.warehouse_id.id)
@@ -98,9 +105,9 @@ def raise_material_shortage(ctx, params):
         ctx, 'MATERIAL_SHORTAGE',
         payload={
             'product_id': product.id,
-            'qty_required': component['required'],
-            'qty_available': component['available'],
-            'qty_shortage': component['shortage'],
+            'qty_required': qty_required,
+            'qty_available': qty_available,
+            'qty_shortage': qty_shortage,
             'uom_id': product.uom_id.id,
             'required_date': str(params.get('required_date') or ''),
             'origin_ref': production.name,
@@ -113,6 +120,6 @@ def raise_material_shortage(ctx, params):
         'handoff_id': handoff.id,
         'reference': handoff.name,
         'to_profile': handoff.to_profile_id.code,
-        'qty_shortage': component['shortage'],
+        'qty_shortage': qty_shortage,
         'idempotent_hit': before > 0,
     }
