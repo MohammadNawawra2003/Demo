@@ -255,6 +255,13 @@ class DenialReason(str, Enum):
     #: modelled: every group_ai_user holder was offered every agent whose
     #: company scope overlapped theirs. Guard step 8b, after the company scope.
     PROFILE_NOT_ELIGIBLE      = 'PROFILE_NOT_ELIGIBLE'
+    #: A run started BY a handoff tried to raise another one. Added at
+    #: 19.0.1.27.0 with the HANDOFF trigger: a raised handoff now opens the
+    #: receiving agent, so without this two agents can pass the same work back
+    #: and forth unattended, spending a provider call per bounce and carrying
+    #: one bad payload past the department that produced it. Checked in
+    #: handoff_service.raise_handoff, which every raiser routes through.
+    HANDOFF_CASCADE_BLOCKED   = 'HANDOFF_CASCADE_BLOCKED'
 ```
 
 **Helper for Odoo selections:**

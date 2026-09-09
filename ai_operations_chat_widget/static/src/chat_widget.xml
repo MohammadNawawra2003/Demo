@@ -126,6 +126,15 @@
                     aria-label="AI Operations chat"
                     t-att-class="{ 'o-active': state.open }">
                 <i class="fa fa-comments" role="img"/>
+                <!--
+                    Work handed over by another department. Counted, because
+                    "you have something" and "you have four things" are
+                    different mornings.
+                -->
+                <span t-if="state.waiting"
+                      class="badge rounded-pill text-bg-danger o_ai_chat_badge"
+                      t-esc="state.waiting"
+                      t-att-aria-label="state.waiting + ' incoming requests'"/>
             </button>
         </div>
     </t>

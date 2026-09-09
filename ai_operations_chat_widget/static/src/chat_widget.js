@@ -1,6 +1,7 @@
 /** @odoo-module **/
 
 import { Component, onWillStart, useState, useRef } from "@odoo/owl";
+import { browser } from "@web/core/browser/browser";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
@@ -15,6 +16,16 @@ import { _t } from "@web/core/l10n/translation";
  * is no provider call here, no key, and no tool name: the browser never learns
  * that a vendor exists.
  */
+
+/**
+ * Highest handoff activity this browser has already announced.
+ *
+ * Per browser, not per session: the point is to open once when work arrives,
+ * not once per page load. A user who has seen the item and carried on working
+ * should not have the panel spring open again on every navigation -- that is
+ * the difference between a notification and a nuisance.
+ */
+const SEEN_KEY = "ai_operations_chat_widget.seen_handoff_activity";
 
 /** Current app -> agent profile code. Only a preselection; the user can change it. */
 const APP_TO_PROFILE = {
@@ -53,6 +64,8 @@ export class AiOperationsChatWidget extends Component {
             // would cost more than it is worth.
             pending: null,
             uploading: false,
+            // Work handed over by another department and waiting on this user.
+            waiting: 0,
         });
 
         onWillStart(async () => {
@@ -69,7 +82,52 @@ export class AiOperationsChatWidget extends Component {
             // not be offered a box that will refuse every message.
             this.state.available = profiles.length > 0;
             this.state.profileId = this._preselect(profiles);
+            if (this.state.available) {
+                await this._announceIncoming();
+            }
         });
+    }
+
+    /**
+     * Badge the launcher when another department has handed work over, and open
+     * the panel on it the first time.
+     *
+     * The activity in the systray clock is the durable notification; this is the
+     * one that is hard to miss. It never overrides a preselection the user has
+     * made by hand, because it runs once, at startup.
+     */
+    async _announceIncoming() {
+        let waiting = [];
+        try {
+            waiting = await this.orm.call(
+                "ai.operations.agent.profile", "ai_widget_pending", []
+            );
+        } catch {
+            return;                     // a badge is never worth a broken webclient
+        }
+        if (!waiting.length) {
+            return;
+        }
+        this.state.waiting = waiting.reduce((total, item) => total + item.count, 0);
+
+        const newest = Math.max(...waiting.map((item) => item.activity_id));
+        let seen = 0;
+        try {
+            seen = Number(browser.localStorage.getItem(SEEN_KEY)) || 0;
+        } catch {
+            seen = 0;                   // private window, blocked storage: just badge
+        }
+        if (newest <= seen) {
+            return;
+        }
+        try {
+            browser.localStorage.setItem(SEEN_KEY, String(newest));
+        } catch {
+            // Nothing to do: it opens again next load, which beats never.
+        }
+        this.state.profileId = waiting[0].profile_id;
+        this.state.open = true;
+        await this.loadConversation();
     }
 
     _preselect(profiles) {
@@ -89,6 +147,9 @@ export class AiOperationsChatWidget extends Component {
     async toggle() {
         this.state.open = !this.state.open;
         if (this.state.open) {
+            // Opened it: the badge has done its job. The activity behind it
+            // stays until the work itself is done, which is the clock's business.
+            this.state.waiting = 0;
             await this.loadConversation();
         }
     }

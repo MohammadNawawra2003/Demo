@@ -54,6 +54,12 @@ class AIOperationsHandoff(models.Model):
     """
 
     _name = 'ai.operations.handoff'
+    #: Threaded so the receiving side can be TOLD. An activity's target must be
+    #: mail-threaded or creation reaches ``message_notify`` and raises
+    #: AttributeError -- a crash no permission check catches. It also gives the
+    #: cascade somewhere to narrate itself that is already evidence, rather than
+    #: a chat channel belonging to one employee.
+    _inherit = ['mail.thread', 'mail.activity.mixin']
     _description = 'AI Operations Handoff'
     _order = 'id desc'
 

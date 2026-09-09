@@ -115,6 +115,60 @@ class TestManufacturingTools(TransactionCase):
                         before['short_component_count'] + 1)
         self.assertEqual(after['status'], 'READY')
 
+    # -- what actually crosses to the next department -------------------------
+
+    def _raise(self, **overrides):
+        params = {
+            'production_id': self.production.id,
+            'product_id': self.bottle.id,
+            # The shape from the field: the agent could not resolve a product id
+            # or a quantity, so it supplied its own and said so in its reply.
+            'qty_required': 12000.0,
+            'qty_available': 0.0,
+            'qty_shortage': 12000.0,
+        }
+        params.update(overrides)
+        return self._run('manufacturing.raise_handoff', params)
+
+    def test_the_payload_carries_the_orders_figures_not_the_models(self):
+        """check_readiness's docstring is the rule: "the shortage figure you
+        pass onward must be this one". Until now nothing enforced it, and a
+        handoff reached Procurement describing a shortage that did not exist."""
+        readiness = self._run('manufacturing.check_readiness',
+                              {'production_id': self.production.id})
+        measured = next(line for line in readiness['components']
+                        if line['product_id'] == self.bottle.id)
+
+        result = self._raise()
+        payload = self.env['ai.operations.handoff'].browse(
+            result['handoff_id']).payload
+
+        self.assertEqual(payload['qty_required'], measured['required'])
+        self.assertEqual(payload['qty_available'], measured['available'])
+        self.assertEqual(payload['qty_shortage'], measured['shortage'])
+        self.assertNotEqual(payload['qty_shortage'], 12000.0,
+                            "the model's own number reached the next department")
+        self.assertEqual(result['qty_shortage'], measured['shortage'])
+
+    def test_a_product_that_is_not_a_component_is_refused(self):
+        """A fabricated id is a perfectly readable record; it is simply the
+        wrong one, so no permission check would ever have caught it."""
+        from odoo.addons.ai_operations.services.enums import DenialReason
+        from odoo.addons.ai_operations.services.exceptions import AIAccessDenied
+
+        with self.assertRaises(AIAccessDenied) as caught:
+            self._raise(product_id=self.finished.id)
+        self.assertEqual(caught.exception.reason,
+                         DenialReason.RECORD_OUT_OF_DOMAIN)
+
+    def test_the_pack_can_resolve_a_product_code_to_an_id(self):
+        """The gap that produced the guess: Procurement had find_product and
+        Manufacturing had nothing, so a code like T-BTL-330 was unreachable."""
+        result = self._run('manufacturing.find_product',
+                           {'product_ref': 'T-BTL-330'})
+        self.assertEqual([row['id'] for row in result['products']],
+                         [self.bottle.id])
+
     def test_bom_explosion_returns_what_odoo_computed(self):
         result = self._run('manufacturing.get_bom_explosion',
                            {'product_id': self.finished.id, 'quantity': 10})

@@ -1,6 +1,7 @@
 """Session 9: T-50 to T-57. What crosses between two agents, and what does not."""
 
 import json
+from dataclasses import replace
 
 from odoo import Command
 from odoo.tests import tagged
@@ -209,3 +210,117 @@ class TestHandoffs(AIOperationsCommon):
         with self.assertRaises(AIAccessDenied) as caught:
             self.service.accept(self._ctx(self.raiser_b), handoff.id)
         self.assertEqual(caught.exception.reason, DenialReason.RECORD_OUT_OF_DOMAIN)
+
+    # -- somebody is told -----------------------------------------------------
+
+    def _activities_for(self, handoff):
+        return self.env['mail.activity'].search([
+            ('res_model', '=', 'ai.operations.handoff'),
+            ('res_id', '=', handoff.id),
+            ('ai_reason_code', '=', 'HANDOFF_RECEIVED')])
+
+    def test_raising_puts_the_work_on_the_receivers_desk(self):
+        """The gap George reported: a handoff was raised and nobody was told.
+
+        A queue nobody is notified about is a queue nobody works.
+        """
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        activity = self._activities_for(handoff)
+        self.assertEqual(len(activity), 1)
+        self.assertEqual(activity.user_id, self.receiver.default_review_user_id,
+                         "the item must land on the RECEIVER's desk, not the "
+                         "desk of the agent that raised it")
+        self.assertIn(handoff.name, activity.summary)
+
+    def test_the_handoff_narrates_itself_on_its_own_record(self):
+        """The chatter is where the cascade explains itself, because the record
+        is already evidence and a chat channel belongs to one employee."""
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        bodies = handoff.message_ids.mapped('body')
+        self.assertTrue(any(handoff.name in (body or '') for body in bodies))
+
+    def test_an_idempotent_hit_does_not_raise_a_second_notification(self):
+        """The dedup search carries no state filter, so a CANCELLED handoff
+        keeps answering its key. Notifying on the second raise would put a dead
+        item back on somebody's desk every time the demo is re-run."""
+        key = handoff_idempotency_key(self.company.id, 'shortage', 'PK-BTL-600',
+                                      'RM', '2026-09-09')
+        first = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD),
+            idempotency_key=key)
+        self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD),
+            idempotency_key=key)
+        self.assertEqual(len(self._activities_for(first)), 1)
+
+    def test_the_work_is_still_queued_when_nobody_can_be_assigned(self):
+        """Routing fails closed and the raise survives it. The handoff is the
+        deliverable; the notification is not, and losing the second must never
+        cost the first."""
+        reviewer = self._make_user('kt.hoff.gone', 'Left the company')
+        receiver = self._make_profile(code='kt_hoff_unrouted',
+                                      name='Unrouted receiver',
+                                      default_review_user_id=reviewer.id)
+        self.env['ai.operations.handoff.type'].create({
+            'code': 'TEST_UNROUTED', 'name': 'Unrouted',
+            'to_profile_id': receiver.id, 'payload_schema': SCHEMA})
+        # An active profile must name both routing users, so the way a desk
+        # actually disappears is the person leaving, not the field emptying.
+        reviewer.active = False
+
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_UNROUTED', dict(PAYLOAD))
+
+        self.assertTrue(handoff.exists())
+        self.assertEqual(handoff.state, HandoffState.REQUESTED.value)
+        self.assertFalse(self._activities_for(handoff))
+
+    def test_a_handoff_triggered_run_may_not_raise_a_handoff(self):
+        """One hop. Two agents passing the same work back and forth spend a
+        provider call per bounce and carry one bad payload past the department
+        that produced it."""
+        cascading = replace(self._ctx(self.raiser_a), trigger='HANDOFF')
+        with self.assertRaises(AIAccessDenied) as caught:
+            self.service.raise_handoff(
+                cascading, 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        self.assertEqual(caught.exception.reason,
+                         DenialReason.HANDOFF_CASCADE_BLOCKED)
+
+    def test_raising_opens_the_work_on_the_receiving_agent(self):
+        """The deliverable: the receiving agent is entered, as itself.
+
+        Patched at ``run`` rather than driven for real, for the same reason the
+        cron entry-point test patches it: what is being asserted is the wiring,
+        not the provider.
+        """
+        calls = []
+
+        def fake_run(self, profile_code, trigger, session_id=None,
+                     entry_prompt=None, correlation_id=None, history=None,
+                     images=None):
+            calls.append({'profile_code': profile_code, 'trigger': trigger,
+                          'entry_prompt': entry_prompt,
+                          'correlation_id': correlation_id})
+            return {'status': 'COMPLETED', 'correlation_id': correlation_id}
+
+        self.patch(type(self.env['ai.operations.execution']), 'run', fake_run)
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+
+        self.assertEqual(len(calls), 1, "the receiving agent was never entered")
+        self.assertEqual(calls[0]['profile_code'], self.receiver.code)
+        self.assertEqual(calls[0]['trigger'], 'HANDOFF')
+        self.assertIn(handoff.name, calls[0]['entry_prompt'])
+        self.assertEqual(calls[0]['correlation_id'], 'corr-handoff',
+                         "the cascade is one thread in the audit log")
+
+    def test_a_receiver_that_may_not_run_unattended_still_gets_the_work(self):
+        """``allow_autonomous`` False is a refusal, not a crash. The item is
+        queued and the human is told; only the agent's head start is lost."""
+        self.receiver.allow_autonomous = False
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        self.assertEqual(handoff.state, HandoffState.REQUESTED.value)
+        self.assertEqual(len(self._activities_for(handoff)), 1)

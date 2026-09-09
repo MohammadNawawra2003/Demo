@@ -1818,3 +1818,81 @@ procurement, inventory and accounting packs remain Community-installable.
 **Ruled with the section above on 2026-09-08.** Document C §4's sentence has been corrected
 in place rather than deleted, and Document C §9.3, §18, §19 and §21 with it; the frozen
 wording is kept alongside each correction as history.
+
+---
+
+## 2026-09-09 — a handoff was a row nobody was told about
+
+George raised `AIH/2026/00013` from Manufacturing to Procurement, watched it sit at
+`REQUESTED`, and asked the question the specification had not: *"the employee did not
+receive any notification, or any kind of activity or anything to let him know… we are
+building a flow, notifications should go between departments and agents and the new agent
+receiving the handoff should know what to do."*
+
+He was right, and the gap was total. Nothing in `handoff.py` or `handoff_service.py` posted
+a message, scheduled an activity, notified a partner, sent a mail or pushed a bus event —
+the model was not even mail-threaded. The only way anyone learned that work had been handed
+over was to already know its reference.
+
+**Document C §5.8 is not wrong about this; it is silent.** It defines what may cross between
+two agents and forbids everything else, which is a boundary specification. Nobody wrote the
+delivery half, and the two read the same in a document: "the receiving agent works its
+queue" was satisfied, on paper, by a queue existing.
+
+### What was in place already, and what this really cost
+
+Three things looked like the answer and were not:
+
+* `procurement.find_handoff` **exists**, and reads as a queue lister until you read its
+  input: `handoff_ref` is required and the search is `name =ilike`. It resolves a reference
+  you already hold to an id. It cannot show an agent its own inbox and never could.
+* The **cron** entry point already drove `run(profile, 'CRON', entry_prompt=…)` with
+  procurement's prompt literally beginning *"Work the open handoffs on your queue first"* —
+  disabled, and daily, which is not what "another department is waiting" means.
+* `TriggerType.HANDOFF` was **already declared** in `enums.py` and constructed by nothing.
+  The architecture had named this path and never built it.
+
+So the correction is mostly wiring, and the honest statement of the defect is that the
+product shipped a cascade whose last step was "and then somebody notices".
+
+### Applied
+
+`raise_handoff` now, for a row it actually creates:
+
+1. posts the request to the handoff's own chatter — the record is already evidence, and a
+   chat channel belongs to one employee;
+2. schedules a `mail.activity` for the **receiving** profile's `default_review_user_id`
+   through the existing activity service, so it inherits deduplication, the five-a-day
+   ceiling and fail-closed routing unchanged;
+3. enters the receiving agent with `run(receiver, 'HANDOFF', entry_prompt=…)`, sharing the
+   raiser's `correlation_id` so the cascade is one thread in the audit log.
+
+`trigger == HANDOFF` now resolves to `AUTONOMOUS`, which is a one-line change that carries
+the rest for free: the existing `allow_autonomous` gate applies, `resolve_identity` returns
+the profile's own service user with no fallback, and eligibility passes for that user and
+nobody else. New denial reason **`HANDOFF_CASCADE_BLOCKED`** holds it to one hop.
+
+Nothing is widened. The receiving agent runs as the identity it already had, with the tools
+it already held, and is refused exactly what it was refused before.
+
+### Two defects this surfaced that had nothing to do with notification
+
+**`manufacturing.raise_handoff` trusted the model's product id and its quantities.** The
+payload on George's own handoff read `product_id: 1, qty_shortage: 12000` for a PK-BTL-600
+shortage of 4,000, and the agent said so in its reply: *"لم يتوفر لدي معرف المنتج الفعلي
+(product_id) لـ PK-BTL-600 من النظام، فاستخدمت قيمة افتراضية مؤقتة"*. The tool browsed the
+product and never called `check_records` on it — the only handoff raiser of the three that
+did not — and Manufacturing held no `find_product`, so the agent had no way to reach a real
+id. The wrong id then propagated into the idempotency key, which is built from
+`default_code`. Now: the product must be a component of the named order, the figures come
+from `check_readiness`, and `manufacturing.find_product` exists. Deliberately the **opposite**
+of `prepare_draft_rfq`, which keeps an LLM-supplied shortage on purpose because it feeds
+`check_variance` and DL-008 — there the number is a claim to be measured; a handoff has no
+variance control, so there it is simply replaced.
+
+**`activity_service._validate_override` read `profile.company_ids` as records.** Harmless
+while it only ever saw the caller's own profile; the receiver of a handoff is routinely
+wider — Document C §12 makes Inventory span C1 and C2 deliberately — and Quality raising to
+it crashed with `AccessError` rather than routing. `scoped_company_ids()` was already the
+established fix for this exact shape and is now used here too. **Third instance of the same
+bug**, and the first one found by a test rather than on staging.

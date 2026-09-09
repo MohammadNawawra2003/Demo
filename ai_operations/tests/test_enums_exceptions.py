@@ -65,6 +65,11 @@ class TestEnumsAndExceptions(TransactionCase):
                 # agent, so every AI user was offered every agent in their
                 # companies.
                 'PROFILE_NOT_ELIGIBLE',
+                # Added 19.0.1.27.0 with the HANDOFF trigger. A handoff now
+                # opens the receiving agent, so a run started by one may not
+                # raise another: without this two agents can pass work back and
+                # forth with no human in the loop.
+                'HANDOFF_CASCADE_BLOCKED',
             },
         )
 

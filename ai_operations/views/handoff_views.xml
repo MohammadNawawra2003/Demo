@@ -45,6 +45,12 @@
                     </div>
                     <group string="Payload"><field name="payload"/></group>
                 </sheet>
+                <!--
+                    Where the item on the receiver's clock actually leads. The
+                    activity links here, so without a chatter the notification
+                    opened a record that said nothing about why it had arrived.
+                -->
+                <chatter/>
             </form>
         </field>
     </record>

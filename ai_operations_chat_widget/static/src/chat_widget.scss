@@ -10,7 +10,19 @@
     .o_ai_chat_launcher {
         color: inherit;
         padding: 0 .5rem;
+        position: relative;
         &.o-active { opacity: 1; }
+    }
+
+    // Sits on the icon the way the systray's own counters do, rather than
+    // widening the button and shifting everything to its left.
+    .o_ai_chat_badge {
+        position: absolute;
+        top: 0;
+        inset-inline-end: .1rem;
+        font-size: .6rem;
+        line-height: 1;
+        padding: .2rem .3rem;
     }
 
     .o_ai_chat_panel {

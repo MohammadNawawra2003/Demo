@@ -18,10 +18,14 @@ One format was doing two jobs with opposite requirements:
 So there are two builders below, named for what they key.
 """
 
-from odoo import api, models
+import logging
 
-from .enums import DenialReason, HandoffState
+from odoo import _, api, models
+
+from .enums import DenialReason, HandoffState, TriggerType
 from .exceptions import AIAccessDenied
+
+_logger = logging.getLogger(__name__)
 
 
 def record_idempotency_key(profile_code, company_id, purpose, product_ref,
@@ -52,6 +56,16 @@ class AIHandoffService(models.AbstractModel):
         HandoffType = self.env['ai.operations.handoff.type']
         Handoff = self.env['ai.operations.handoff']
 
+        # One hop. A run STARTED by a handoff may not raise another, or two
+        # agents can pass the same work back and forth with nobody watching --
+        # every hop a provider call, and one bad payload escaping the department
+        # that produced it. Checked here because all three raisers
+        # (manufacturing, inventory, quality) come through this one function.
+        if ctx.trigger == TriggerType.HANDOFF.value:
+            raise AIAccessDenied(
+                DenialReason.HANDOFF_CASCADE_BLOCKED,
+                detail='a run triggered by a handoff may not raise one')
+
         handoff_type = HandoffType.search([('code', '=', type_code)], limit=1)
         if not handoff_type:
             raise AIAccessDenied(
@@ -70,7 +84,7 @@ class AIHandoffService(models.AbstractModel):
                     detail='handoff already queued for %s' % receiver.code)
                 return existing
 
-        return Handoff.create({
+        handoff = Handoff.create({
             'type_id': handoff_type.id,
             'from_profile_id': ctx.profile.id,
             'to_profile_id': receiver.id,
@@ -84,6 +98,89 @@ class AIHandoffService(models.AbstractModel):
             'idempotency_key': idempotency_key,
             'company_id': ctx.company_ids[0] if ctx.company_ids else False,
         })
+        # Only for a row that was actually created. The idempotent branch above
+        # returns before this: the dedup search carries no state filter, so a
+        # CANCELLED handoff keeps answering its key, and notifying there would
+        # put a dead item on someone's desk every time a demo is re-run.
+        self._notify_receiver(ctx, handoff)
+        return handoff
+
+    def _notify_receiver(self, ctx, handoff):
+        """Tell the receiving side, then let its agent open the work.
+
+        A queue nobody is told about is a queue nobody works. Three things
+        happen here and each one degrades on its own without taking the raise
+        down with it -- the handoff is the deliverable, the notification is not.
+        """
+        receiver = handoff.to_profile_id
+        summary = _('Incoming request from %(department)s: %(reference)s',
+                    department=(handoff.from_profile_id.name
+                                or _('another department')),
+                    reference=handoff.name)
+        note = _(
+            'Type: %(type)s\nRaised by: %(department)s\nPriority: %(priority)s\n'
+            'Details: %(payload)s',
+            type=handoff.type_id.name or handoff.type_id.code,
+            department=handoff.from_profile_id.name or '',
+            priority=dict(handoff._fields['priority'].selection or []).get(
+                handoff.priority, handoff.priority or ''),
+            payload=handoff.payload or {})
+
+        handoff.message_post(body='%s\n%s' % (summary, note))
+
+        # Reuse, do not rebuild: this service already deduplicates, honours the
+        # five-a-day ceiling and FAILS CLOSED on an unresolved assignee with an
+        # audited denial. The one thing it cannot know is that the desk belongs
+        # to the RECEIVER, not to the agent that raised the work.
+        self.env['ai.operations.activity'].create_or_update(
+            ctx, 'ai.operations.handoff', handoff.id,
+            summary=summary, note=note,
+            reason_code='HANDOFF_RECEIVED',
+            assignee=receiver.default_review_user_id,
+            routing_profile=receiver)
+
+        self._open_the_work(ctx, handoff)
+
+    def _open_the_work(self, ctx, handoff):
+        """Let the receiving agent read its own new item and prepare a draft.
+
+        Document C 9's autonomous branch, entered by handoff rather than by
+        cron. The identity is the receiver's own service user, resolved inside
+        ``run()`` -- never the raiser, never an administrator, never ``sudo()``.
+
+        A refusal here is not a failure of the raise. The work is queued and the
+        human has been told; an agent that cannot start is exactly the
+        fail-closed outcome, and it is already audited by the runtime.
+        """
+        receiver = handoff.to_profile_id
+        try:
+            self.env['ai.operations.execution'].run(
+                receiver.code, TriggerType.HANDOFF.value,
+                entry_prompt=self._entry_prompt(handoff),
+                correlation_id=ctx.correlation_id)
+        except AIAccessDenied as denial:
+            _logger.info(
+                "ai_operations: %s did not open %s: %s",
+                receiver.code, handoff.name, denial.detail)
+
+    def _entry_prompt(self, handoff):
+        """Composed here, from the record -- never by the model.
+
+        Naming the tools and forbidding the rest is not decoration. The same
+        step driven by a vague sentence spent thirteen tool calls against a cap
+        of eight, and drafted the handoff's quantity instead of the order's.
+        """
+        return (
+            'Handoff %(reference)s of type %(type)s is on your queue, raised by '
+            '%(department)s. Payload: %(payload)s.\n'
+            'Accept it, prepare a draft purchase order for the shortage it '
+            'reports, put the draft on a human desk for approval, then close '
+            'the handoff. Use the deterministic figure from the payload; do not '
+            'invent quantities. Do not raise a handoff of your own.'
+            % {'reference': handoff.name,
+               'type': handoff.type_id.code,
+               'department': handoff.from_profile_id.code or 'another department',
+               'payload': handoff.payload or {}})
 
     @api.model
     def accept(self, ctx, handoff_id):

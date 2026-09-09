@@ -165,10 +165,26 @@ class TestDemoConfiguration(TransactionCase):
         for profile in (self.procurement, self.manufacturing):
             self.assertEqual(int(profile.max_autonomy_level), 2)
 
-    def test_autonomous_running_stays_off_until_a_credential_exists(self):
+    def test_autonomous_running_is_for_receiving_work_and_nothing_else(self):
+        """It used to be off everywhere, to keep a daily vendor call from
+        arming itself on a staging database. That risk is the CRON's, and the
+        cron still ships inactive and is still never switched on here. What the
+        flag now permits is one thing: a department opening work another
+        department put on its queue, once.
+        """
         for profile in (self.procurement, self.manufacturing):
-            self.assertFalse(profile.allow_autonomous)
             self.assertTrue(profile.allow_interactive)
+            receives = self.env['ai.operations.handoff.type'].search_count(
+                [('to_profile_id', '=', profile.id)])
+            self.assertEqual(bool(profile.allow_autonomous), bool(receives),
+                             "%s may run unattended only if work is routed to "
+                             "it" % profile.code)
+
+    def test_the_daily_cron_is_still_not_armed(self):
+        """The half of the old rule that still holds, kept as its own test so
+        widening allow_autonomous can never quietly take it with it."""
+        cron = self.env.ref('ai_operations_procurement.cron_ai_procurement')
+        self.assertFalse(cron.active)
 
     def test_every_profile_has_a_partner_to_speak_as(self):
         for profile in (self.procurement, self.manufacturing):

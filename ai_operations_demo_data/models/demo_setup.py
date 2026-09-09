@@ -122,6 +122,7 @@ ASSIGNMENTS = {
         ('inventory.raise_handoff', 2),
     ],
     'manufacturing': [
+        ('manufacturing.find_product', 4),
         ('manufacturing.check_readiness', 4),
         ('manufacturing.get_open_mos', 4),
         ('manufacturing.get_capacity_load', 4),
@@ -297,10 +298,14 @@ class AIOperationsDemoSetup(models.AbstractModel):
     def _configure_profile(self, code, company):
         """Everything C §5.1 demands of an *active* profile, and no more.
 
-        ``allow_autonomous`` stays False: the cron is the only autonomous
-        trigger, it ships inactive, and turning it on is a deliberate act once a
-        credential exists. Setting it here would arm a daily vendor call on a
-        staging database.
+        ``allow_autonomous`` is on for the departments that RECEIVE handed-over
+        work, and off everywhere else. It used to be off for everybody, and the
+        reason given was that turning it on would arm a daily vendor call on a
+        staging database. That reason was about the **cron**, and the cron is a
+        separate record that still ships ``active=False`` and is still never
+        touched by ``_configure_crons``. What this flag now permits is one
+        thing: an agent opening work another agent put on its queue, once,
+        immediately, with the kernel refusing a second hop.
         """
         reviewer, escalation, service = (self._user(login)
                                          for login in ROUTING[code])
@@ -313,6 +318,12 @@ class AIOperationsDemoSetup(models.AbstractModel):
         # Who may use this agent. See AGENT_USERS for why this is not CHANNELS.
         allowed = self.env['res.users'].browse(
             [self._user(login).id for login in AGENT_USERS[code]])
+        # Read off the shipped handoff types rather than listed here, so a pack
+        # that starts routing work to a new department does not also need
+        # somebody to remember this line.
+        receives_handoffs = bool(
+            self.env['ai.operations.handoff.type'].search_count(
+                [('to_profile_id', '=', profile.id)]))
         profile.write({
             'company_ids': [(6, 0, companies.ids)],
             'user_ids': [(6, 0, allowed.ids)],
@@ -323,7 +334,7 @@ class AIOperationsDemoSetup(models.AbstractModel):
             'provider_code': PROVIDER,
             'model_code': MODEL,
             'allow_interactive': True,
-            'allow_autonomous': False,
+            'allow_autonomous': receives_handoffs,
             # A read-only agent stays at the QUERY floor and gets no write
             # budget. Writing '2' and 2 here for every profile would have
             # promoted the General Manager and the Accountant to draft-write

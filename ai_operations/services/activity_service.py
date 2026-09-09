@@ -61,9 +61,16 @@ class AIActivityService(models.AbstractModel):
         return user
 
     @api.model
-    def _validate_override(self, ctx, user):
+    def _validate_override(self, ctx, user, routing_profile=None):
         """A pack-supplied assignee faces exactly the checks a configured one
-        does. Same reasons, same audit, same fail-closed outcome."""
+        does. Same reasons, same audit, same fail-closed outcome.
+
+        ``routing_profile`` is whose scope the desk has to sit inside. It is
+        ``ctx.profile`` for an agent putting work on a human's desk in its own
+        department, and the RECEIVER for a handoff -- where measuring the
+        purchasing officer against Manufacturing's companies refuses every
+        correctly routed item, which is exactly what it did.
+        """
         if not user or not user.active:
             raise AIAccessDenied(
                 DenialReason.ASSIGNEE_UNRESOLVED,
@@ -72,8 +79,16 @@ class AIActivityService(models.AbstractModel):
             raise AIAccessDenied(
                 DenialReason.ASSIGNEE_UNRESOLVED,
                 detail='%s is a portal user' % user.login)
-        profile = ctx.profile
-        if profile.company_ids and not (user.company_ids & profile.company_ids):
+        profile = routing_profile or ctx.profile
+        # scoped_company_ids(), not company_ids: reading the x2many as records
+        # filters it on `active`, which fetches res.company and trips the
+        # multi-company rule for any user not in every company the profile
+        # spans. That was harmless while this only ever saw the caller's own
+        # profile; the receiver of a handoff is routinely wider -- Inventory
+        # spans C1 and C2 by design -- and Quality raising to it crashed with
+        # AccessError instead of routing.
+        scope = profile.scoped_company_ids()
+        if scope and not (set(user.company_ids.ids) & set(scope)):
             raise AIAccessDenied(
                 DenialReason.ASSIGNEE_UNRESOLVED,
                 detail='%s is outside the effective company scope' % user.login)
@@ -82,7 +97,7 @@ class AIActivityService(models.AbstractModel):
     @api.model
     def create_or_update(self, ctx, model_name, res_id, summary, note,
                          reason_code, severity=SEVERITY_ATTENTION,
-                         escalate=False, assignee=None):
+                         escalate=False, assignee=None, routing_profile=None):
         """The one path a tool pack uses. Returns the activity, or None when the
         assignee could not be resolved — the run continues without it."""
         Activity = self.env['mail.activity']
@@ -96,7 +111,8 @@ class AIActivityService(models.AbstractModel):
             # user a pack passed in. That was the one path by which an AI task
             # could land on an archived user, or outside the effective company
             # scope, with no ASSIGNEE_UNRESOLVED row and no audit.
-            user = (self._validate_override(ctx, assignee) if assignee
+            user = (self._validate_override(ctx, assignee, routing_profile)
+                    if assignee
                     else self.resolve_assignee(ctx, escalate=escalate))
         except AIAccessDenied as denial:
             audit.record_decision(
@@ -112,8 +128,8 @@ class AIActivityService(models.AbstractModel):
         if severity == SEVERITY_CRITICAL and not escalate:
             escalate = True
             try:
-                user = self._validate_override(ctx, assignee) if assignee \
-                    else self.resolve_assignee(ctx, escalate=True)
+                user = self._validate_override(ctx, assignee, routing_profile) \
+                    if assignee else self.resolve_assignee(ctx, escalate=True)
             except AIAccessDenied:
                 pass
 
@@ -146,7 +162,8 @@ class AIActivityService(models.AbstractModel):
             'user_id': user.id,
             'summary': summary,
             'note': note,
-            'activity_type_id': self._activity_type(ctx).id,
+            'activity_type_id': self._activity_type(
+                ctx, routing_profile.code if routing_profile else None).id,
             'ai_severity': severity,
             'ai_dedup_key': key,
             'ai_profile_code': ctx.profile.code,
@@ -214,9 +231,17 @@ class AIActivityService(models.AbstractModel):
     }
 
     @api.model
-    def _activity_type(self, ctx):
+    def _activity_type(self, ctx, profile_code=None):
+        """``profile_code`` overrides whose flavour of item this is.
+
+        Handoff notification lands on the RECEIVER's desk, so it must carry the
+        receiver's type: an "AI Production Alert" in a purchasing officer's
+        inbox is filed under the wrong agent by the very filter B 12 added the
+        four types for.
+        """
         Type = self.env['mail.activity.type']
-        name = self.ACTIVITY_TYPE_NAMES.get(ctx.profile.code, 'AI Review Required')
+        name = self.ACTIVITY_TYPE_NAMES.get(profile_code or ctx.profile.code,
+                                            'AI Review Required')
         existing = Type.search([('name', '=', name),
                                 ('ai_generated', '=', True)], limit=1)
         if existing:

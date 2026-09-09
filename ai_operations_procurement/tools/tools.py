@@ -15,7 +15,9 @@ from odoo.addons.ai_operations.services.handoff_service import (
     record_idempotency_key,
 )
 from odoo.addons.ai_operations.services.registry import ai_tool
-from odoo.addons.ai_operations.tools import activity_mixin, production_mixin
+from odoo.addons.ai_operations.tools import (
+    activity_mixin, product_mixin, production_mixin,
+)
 
 from . import schemas
 from odoo.addons.ai_operations.services.schema import (
@@ -43,21 +45,7 @@ def find_product(ctx, params):
     code like "PK-BTL-330" is not an id, and guessing one reaches a record that
     either does not exist or is not yours, which is refused.
     """
-    Product = ctx.model('product.product')
-    product_ref = params['product_ref']
-    products = Product.search(
-        ['|', ('default_code', '=ilike', product_ref),
-         ('name', 'ilike', product_ref)],
-        limit=10)
-    ctx.check_records('product.product', products.ids)
-    return {
-        'products': [{
-            'id': product.id,
-            'code': product.default_code or '',
-            'name': product.display_name,
-            'uom': product.uom_id.name or '',
-        } for product in products],
-    }
+    return product_mixin.find_product(ctx, params)
 
 
 @ai_tool(

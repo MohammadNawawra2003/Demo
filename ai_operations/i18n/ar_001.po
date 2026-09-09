@@ -150,3 +150,26 @@ msgid ""
 "have answered."
 msgstr ""
 "ما زلت أعمل على الرسالة السابقة. من فضلك أعد إرسال هذه الرسالة بعد أن أجيب."
+
+#. module: ai_operations
+#: code:addons/ai_operations/services/handoff_service.py:0
+msgid "Incoming request from %(department)s: %(reference)s"
+msgstr "طلب وارد من %(department)s: %(reference)s"
+
+#. module: ai_operations
+#: code:addons/ai_operations/services/handoff_service.py:0
+msgid "another department"
+msgstr "قسم آخر"
+
+#. module: ai_operations
+#: code:addons/ai_operations/services/handoff_service.py:0
+msgid ""
+"Type: %(type)s\n"
+"Raised by: %(department)s\n"
+"Priority: %(priority)s\n"
+"Details: %(payload)s"
+msgstr ""
+"النوع: %(type)s\n"
+"رفعه: %(department)s\n"
+"الأولوية: %(priority)s\n"
+"التفاصيل: %(payload)s"

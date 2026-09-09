@@ -46,6 +46,51 @@ class AIOperationsAgentProfile(models.Model):
                  'name': profile.name,
                  'code': profile.code} for profile in profiles]
 
+    @api.model
+    def ai_widget_pending(self):
+        """Work that arrived from another department and is waiting on this user.
+
+        The systray clock already shows it -- this is the same activity, read
+        back so the launcher can carry a badge and open itself once instead of
+        waiting to be noticed. Read as the current user through the ORM, so it
+        surfaces nothing the user could not already open: the activities are
+        theirs, and the profile search applies the record rule and the
+        eligibility domain exactly as ``ai_widget_profiles`` does.
+
+        The receiving agent is read off the handoff, not off the activity's
+        ``ai_profile_code`` -- that field names the agent that RAISED the work,
+        which is the department the user is not in.
+        """
+        if not self.env.user._has_group('ai_operations.group_ai_user'):
+            return []
+        activities = self.env['mail.activity'].search([
+            ('user_id', '=', self.env.user.id),
+            ('res_model', '=', 'ai.operations.handoff'),
+            ('ai_reason_code', '=', 'HANDOFF_RECEIVED'),
+        ])
+        if not activities:
+            return []
+
+        handoffs = self.env['ai.operations.handoff'].browse(
+            activities.mapped('res_id')).exists()
+        eligible = self.search([('allow_interactive', '=', True),
+                                ('partner_id', '!=', False),
+                                ('user_ids', 'in', self.env.user.id)])
+        pending = []
+        for profile in eligible:
+            mine = handoffs.filtered(lambda h: h.to_profile_id == profile)
+            if not mine:
+                continue
+            pending.append({
+                'profile_id': profile.id,
+                'code': profile.code,
+                'count': len(mine),
+                'reference': mine[0].name,
+                'activity_id': max(activities.filtered(
+                    lambda a: a.res_id in mine.ids).ids),
+            })
+        return pending
+
     #: How many turns the panel shows when it opens. A display bound, not a
     #: security one: what the model is given is bounded separately by the
     #: runtime, and this is only what the user can scroll back through.

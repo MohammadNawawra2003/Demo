@@ -9,9 +9,28 @@ import datetime
 
 from odoo.addons.ai_operations.services.enums import AutonomyLevel, ToolCategory
 from odoo.addons.ai_operations.services.registry import ai_tool
-from odoo.addons.ai_operations.tools import activity_mixin
+from odoo.addons.ai_operations.tools import activity_mixin, product_mixin
 
 from . import schemas
+
+
+@ai_tool(
+    code='manufacturing.find_product',
+    category=ToolCategory.READ,
+    autonomy=AutonomyLevel.QUERY,
+    models=['product.product'],
+    input_schema=schemas.FindProductInput,
+    output_schema=schemas.FindProductOutput,
+    max_results=10,
+)
+def find_product(ctx, params):
+    """Resolve a component code or name to the id the other tools need.
+
+    Call this before handing a shortage to another department. A code like
+    "PK-BTL-600" is not an id; this pack had no way to convert one and the
+    agent filled the gap with a guess.
+    """
+    return product_mixin.find_product(ctx, params)
 
 
 @ai_tool(

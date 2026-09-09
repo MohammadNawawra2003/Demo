@@ -476,7 +476,26 @@ One model. Execution audit and policy decisions are **not** split.
 | `error` | Text |
 
 **Denial reasons** (closed set, used by the test matrix):
-`UNKNOWN_TOOL`, `TOOL_DISABLED`, `TOOL_NOT_ASSIGNED`, `PROFILE_INACTIVE`, `AUTONOMY_INSUFFICIENT`, `NO_SERVICE_USER`, `MODEL_NOT_PERMITTED`, `OPERATION_NOT_PERMITTED`, `RECORD_OUT_OF_DOMAIN`, `COMPANY_OUT_OF_SCOPE`, `ACTION_NOT_PERMITTED`, `USER_ACL_DENIED`, `SCHEMA_INVALID`, `HANDOFF_SCHEMA_VIOLATION`, `BOUND_EXCEEDED`, `BLOCKLIST_HIT`, `BUDGET_EXCEEDED`, `ASSIGNEE_UNRESOLVED`, **`STATE_NOT_PERMITTED`**, **`PROFILE_NOT_ELIGIBLE`**.
+`UNKNOWN_TOOL`, `TOOL_DISABLED`, `TOOL_NOT_ASSIGNED`, `PROFILE_INACTIVE`, `AUTONOMY_INSUFFICIENT`, `NO_SERVICE_USER`, `MODEL_NOT_PERMITTED`, `OPERATION_NOT_PERMITTED`, `RECORD_OUT_OF_DOMAIN`, `COMPANY_OUT_OF_SCOPE`, `ACTION_NOT_PERMITTED`, `USER_ACL_DENIED`, `SCHEMA_INVALID`, `HANDOFF_SCHEMA_VIOLATION`, `BOUND_EXCEEDED`, `BLOCKLIST_HIT`, `BUDGET_EXCEEDED`, `ASSIGNEE_UNRESOLVED`, **`STATE_NOT_PERMITTED`**, **`PROFILE_NOT_ELIGIBLE`**,
+**`HANDOFF_CASCADE_BLOCKED`**.
+
+> **`HANDOFF_CASCADE_BLOCKED` was added at 19.0.1.27.0, post-freeze**, with the `HANDOFF`
+> trigger. §5.8 said agents never call each other and that a handoff is a queue item, and it was
+> literally true: nothing told the receiving side a queue item had arrived. A handoff was a row
+> that existed and waited to be found by somebody who already knew its number. Raising one now
+> notifies the receiving department's reviewer and enters the receiving agent through the same
+> `run()` the cron uses, with `trigger = HANDOFF` resolving to `AUTONOMOUS` and therefore to that
+> profile's own service user.
+>
+> That makes one hop into a cascade unless something stops it, so this reason stops it: a run
+> whose trigger is `HANDOFF` may not raise a handoff. It is checked in
+> `handoff_service.raise_handoff`, the one function all three raisers route through, rather than
+> in each pack — the same placement argument as every other guard here.
+>
+> **It widens nothing.** The receiving agent runs as the identity it already had, holds the tools
+> it already held, and is refused exactly what it was refused before; `EFFECTIVE = USER ∩ AGENT ∩
+> TOOL ∩ ACTION ∩ COMPANY` is untouched. What changed is that the work is now delivered rather
+> than left to be discovered.
 
 > **`PROFILE_NOT_ELIGIBLE` was added at 19.0.1.26.0, post-freeze.** The specification never
 > modelled which employees may use which agent: §5.1's field list has a company scope, a

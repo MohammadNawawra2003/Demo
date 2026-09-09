@@ -15,6 +15,18 @@ from odoo.addons.ai_operations.services.schema import (
 )
 
 
+class FindProductInput(Schema):
+    #: Not 'query'. The kernel refuses that name outright, so a parameter the
+    #: LLM fills can never be mistaken for a domain or an expression.
+    product_ref = Str(max_length=64)
+
+
+class FindProductOutput(Schema):
+    products = List(Nested({
+        'id': Int(), 'code': Str(), 'name': Str(), 'uom': Str(),
+    }), max_items=10)
+
+
 class ReadinessInput(Schema):
     production_id = Int(min=1)
 

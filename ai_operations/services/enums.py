@@ -144,6 +144,12 @@ class DenialReason(str, Enum):
     #: hides it; this is what stops a direct call, a pre-bound channel or a
     #: forged id reaching the tool loop anyway.
     PROFILE_NOT_ELIGIBLE     = 'PROFILE_NOT_ELIGIBLE'
+    #: A run started BY a handoff tried to raise another one. Added at
+    #: 19.0.1.27.0 with the HANDOFF trigger: without it two agents can hand the
+    #: same work back and forth unattended, each hop spending a provider call
+    #: and widening the blast radius of one bad payload past the department that
+    #: produced it. One hop is the whole guarantee.
+    HANDOFF_CASCADE_BLOCKED  = 'HANDOFF_CASCADE_BLOCKED'
 
 
 def to_selection(enum_cls):
