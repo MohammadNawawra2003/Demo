@@ -25,6 +25,24 @@ class TestXmlHygiene(TransactionCase):
         return [path for path in root.rglob('*.xml')
                 if '/docs/' not in str(path) and '.git' not in str(path)]
 
+    def test_the_audit_list_can_show_who_actually_executed(self):
+        """``service_user_id`` must stay reachable in the audit list.
+
+        It is the only column separating "an employee ran this" from "the
+        service identity ran this", and ``column_invisible`` put it beyond the
+        optional-columns menu as well as off the screen. A list filtered to an
+        autonomous run then showed the person who RAISED the work under
+        Interactive User, with no way to see who executed it -- an answer to a
+        question it was not answering, in a screenshot bound for the guide.
+        """
+        arch = self.env.ref('ai_operations.view_ai_audit_log_list').arch
+        tree = ElementTree.fromstring(arch)
+        field = tree.find(".//field[@name='service_user_id']")
+        self.assertIsNotNone(field, "the audit list dropped service_user_id")
+        self.assertNotIn('column_invisible', field.attrib,
+                         "service_user_id is unreachable from the list again")
+        self.assertEqual(field.attrib.get('optional'), 'hide')
+
     def test_every_xml_file_parses(self):
         broken = []
         for path in self._xml_files():

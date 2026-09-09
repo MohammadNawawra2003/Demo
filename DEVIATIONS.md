@@ -2004,3 +2004,35 @@ above rather than arriving as a side effect of a notification round. Two unreque
 guard changes in one scoped change is how an architecture drifts. The runbook has been
 pointed at Riyadh PET Co. by its owner, which makes the scene work today; that is a
 data-dependent workaround for a logic gap and should be read as one.
+
+### 2026-09-09 — the audit list named the raiser, not the identity that ran it
+
+Found by the peer session while photographing the audit log filtered to
+`procurement.accept_handoff`, expecting an image that showed the service identity.
+Every row of the automatic chain read **Interactive User = Khalid Al-Shehri**, the
+person who raised the work.
+
+Nothing was recorded wrongly. `open_entry` stores the caller in `user_id` and the
+executing identity in `service_user_id`, and both are correct: for a handoff-triggered
+run the caller is genuine provenance — an employee's action is what produced the queue
+item. The defect was in the **list view**, where `service_user_id` carried
+`column_invisible="1"`, which puts a column beyond the optional-columns menu as well
+as off the screen. So the one field distinguishing *"an employee ran this"* from
+*"the service identity ran this"* was unreachable, on precisely the rows where the
+distinction is the point, while a column labelled Interactive User sat there looking
+like the answer. Only the form showed it, as **Autonomous Identity**.
+
+Now `optional="hide"`: off by default, switchable by anyone auditing. A test asserts
+the attribute, because a screenshot that says the opposite of the truth is worse than
+no screenshot and this one was already taken.
+
+Worth naming the shape rather than just the fix: rows where the caller and the
+executor differ were previously reachable only through a cron that ships inactive, so
+the gap could not be met. Delivering the handoff made them routine. **A field being
+correct is not the same as it being legible, and this round is what made the
+difference visible.**
+
+⚠ Unchanged and still open, now legible in a customer-facing image:
+`audit_log.token_input` / `token_output` are 0 on those rows. That is the documented
+gap — `execution.py` reads `getattr(ctx, 'usage', None)` and `ExecutionContext` has no
+such field — and it belongs in DO NOT CLAIM rather than being explained away.

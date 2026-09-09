@@ -15,7 +15,19 @@
                 <field name="decision"/>
                 <field name="denial_reason"/>
                 <field name="user_id"/>
-                <field name="service_user_id" column_invisible="1"/>
+                <!--
+                    optional, not column_invisible. This is the only column
+                    that separates "an employee ran this" from "the service
+                    identity ran this", and column_invisible put it beyond the
+                    optional-columns menu as well as off the screen. A list
+                    filtered to an autonomous run therefore showed the person
+                    who RAISED the work in the Interactive User column, and
+                    offered no way to see who executed it: an answer to a
+                    question it was not answering. Rows where the two differ
+                    used to be reachable only through a cron that ships
+                    inactive; a handoff now produces them routinely.
+                -->
+                <field name="service_user_id" optional="hide"/>
                 <field name="execution_mode"/>
                 <field name="trigger"/>
                 <field name="variance_pct" optional="hide"/>
