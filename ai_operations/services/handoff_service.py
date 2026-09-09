@@ -167,10 +167,12 @@ class AIHandoffService(models.AbstractModel):
         lines = [_('Details:')]
         for field, value in payload.items():
             if field == 'product_id' and value:
+                # display_name already carries the internal reference as
+                # "[PK-BTL-600] Empty PET bottle 600 ml"; appending the code
+                # again printed it twice on the receiver's screen.
                 product = self.env['product.product'].browse(int(value)).exists()
                 if product:
-                    value = '%s (%s)' % (product.display_name,
-                                         product.default_code or value)
+                    value = product.display_name
             lines.append('  %s: %s' % (field, value if value != '' else '-'))
         return '\n'.join(lines)
 
