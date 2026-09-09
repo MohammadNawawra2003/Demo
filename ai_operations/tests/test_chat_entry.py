@@ -38,6 +38,10 @@ class TestChatEntryPoint(AIOperationsCommon):
         cls.employee = cls._make_user('ai.test.chat.employee', 'Chat Employee')
         cls.employee.write({'group_ids': [
             Command.link(cls.env.ref('ai_operations.group_ai_user').id)]})
+        # An employee who chats to the agent is by definition one who may use
+        # it. Eligibility fails closed, so leaving this out would deny the whole
+        # surface rather than the one case a test means to deny.
+        cls.profile.write({'user_ids': [Command.link(cls.employee.id)]})
         cls.stranger = cls._make_user('ai.test.chat.stranger', 'No AI Group')
 
     # ------------------------------------------------------------------
@@ -84,10 +88,12 @@ class TestChatEntryPoint(AIOperationsCommon):
         calls = []
 
         def fake_run(self, profile_code, trigger, session_id=None,
-                     entry_prompt=None, correlation_id=None, history=None):
+                     entry_prompt=None, correlation_id=None, history=None,
+                     images=None):
             calls.append({'profile_code': profile_code, 'trigger': trigger,
                           'session_id': session_id, 'entry_prompt': entry_prompt,
-                          'history': history, 'uid': self.env.uid})
+                          'history': history, 'images': images,
+                          'uid': self.env.uid})
             return {'status': 'COMPLETED', 'content': 'ack', 'correlation_id': 'c'}
 
         self.patch(type(self.env['ai.operations.execution']), 'run', fake_run)
@@ -140,6 +146,29 @@ class TestChatEntryPoint(AIOperationsCommon):
         self.assertIn('How many pallets?', calls[0]['entry_prompt'])
         self.assertNotIn('<p>', calls[0]['entry_prompt'],
                          "raw HTML reached the model's context")
+
+    def test_a_pasted_data_uri_never_reaches_the_prompt(self):
+        """A live leak, found while adding image support.
+
+        html2plaintext rewrites <img> to "Image [n]" and then appends every src
+        VERBATIM at the end of the text. For a pasted inline image that src is
+        the entire base64 data URI, so the bytes were already travelling to the
+        vendor as prose -- unvalidated, unbounded, uncounted, and replayed on
+        every later turn until MAX_HISTORY_CHARS cut them off mid-blob.
+        """
+        calls = self._capture_runs()
+        channel = self._channel_of(self._open())
+        blob = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4'
+
+        channel.with_user(self.employee).message_post(
+            body=Markup('<p>what is this? <img src="data:image/png;base64,%s"/></p>'
+                        % blob),
+            message_type='comment', subtype_xmlid='mail.mt_comment')
+
+        prompt = calls[0]['entry_prompt']
+        self.assertIn('what is this?', prompt)
+        self.assertNotIn(blob, prompt, "image bytes reached the model as text")
+        self.assertNotIn('base64', prompt)
 
     def test_the_runtime_really_runs_from_a_posted_message(self):
         """No patching anywhere. The profile has no provider configured, so the
@@ -444,3 +473,115 @@ class TestRunLevelDenialReachesTheUser(TestChatEntryPoint):
         self.assertTrue(denied, "no DENIED row was written")
         self.assertEqual(denied.denial_reason, 'BUDGET_EXCEEDED')
         self.assertIn('ceiling', (denied.denial_detail or '').lower())
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestABoundChannelIsNotEligibility(AIOperationsCommon):
+    """Membership of a bound channel must not be a way in.
+
+    Binding is permanent and membership outlives it. On staging a procurement
+    clerk still had an "Accounting Intelligence" DM from the day every agent was
+    offered to everybody; the record rule stops that agent being offered again,
+    and stops nothing at all about the channel she is already in. Posting there
+    would otherwise start a run for an agent she may not use -- a bypass of the
+    new boundary through a door opened before it existed.
+
+    The second thing asserted here is that it REFUSES rather than crashes.
+    Touching any field of a profile the rule now hides raises AccessError, which
+    reaches the user as a server error dialog instead of a refusal. That is the
+    same shape as the company_ids crash that made every narrow-user Inventory
+    call fail before the guard could refuse it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.agent_partner = cls.env['res.partner'].create({'name': 'Bound Agent'})
+        cls.profile.write({'partner_id': cls.agent_partner.id})
+        cls.clerk = cls._make_user('ai.test.bound.clerk', 'Bound Clerk')
+        cls.clerk.write({'group_ids': [
+            Command.link(cls.env.ref('ai_operations.group_ai_user').id)]})
+        cls.profile.write({'user_ids': [Command.link(cls.clerk.id)]})
+
+    def _bound_channel(self):
+        """A channel opened while eligible, kept after eligibility is removed."""
+        action = self.profile.with_user(self.clerk).action_open_chat()
+        channel = self.env['discuss.channel'].browse(
+            action['params']['channel_id'])
+        self.profile.write({'user_ids': [Command.clear()]})
+        return channel
+
+    def test_an_ineligible_member_is_refused_and_audited(self):
+        """No patching: the refusal must come from the real runtime.
+
+        The check lives inside run(), before the provider is called, so a test
+        that replaced run() would prove nothing at all -- it would be asserting
+        against its own double. What is asserted instead is the evidence the
+        real path leaves: a DENIED row naming the reason.
+        """
+        Log = self.env['ai.operations.audit.log']
+        channel = self._bound_channel()
+        before = Log.search_count([])
+
+        channel.with_user(self.clerk).message_post(
+            body='what are the receivables?', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        self.assertGreater(Log.search_count([]), before,
+                           "an eligibility refusal left no audit trail")
+        denied = Log.search([('decision', '=', 'DENIED')],
+                            order='id desc', limit=1)
+        self.assertEqual(denied.denial_reason, 'PROFILE_NOT_ELIGIBLE')
+
+    def test_the_ineligible_member_is_refused_not_crashed(self):
+        channel = self._bound_channel()
+
+        # No assertRaises: an AccessError here would be the bug.
+        channel.with_user(self.clerk).message_post(
+            body='what are the receivables?', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        last = self.env['mail.message'].search(
+            [('model', '=', 'discuss.channel'), ('res_id', '=', channel.id)],
+            order='id desc', limit=1)
+        self.assertIn(NEUTRAL_DENIAL, last.body or '')
+
+    def test_the_refusal_does_not_loop(self):
+        """The refusal is posted through message_post, which dispatches again.
+
+        Without the guard flag the agent's own refusal is a new turn, which is
+        refused, which posts again. One message in, one message back.
+        """
+        channel = self._bound_channel()
+        before = self.env['mail.message'].search_count(
+            [('model', '=', 'discuss.channel'), ('res_id', '=', channel.id)])
+
+        channel.with_user(self.clerk).message_post(
+            body='hello', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        after = self.env['mail.message'].search_count(
+            [('model', '=', 'discuss.channel'), ('res_id', '=', channel.id)])
+        self.assertEqual(after - before, 2,
+                         "expected the user's message and one refusal")
+
+    def test_an_eligible_member_still_reaches_the_runtime(self):
+        """The control. Without it this class would pass on a dead surface.
+
+        The profile has no provider configured, so reaching the runtime shows
+        up as an ERROR row from the provider -- which only exists if the turn
+        got past eligibility.
+        """
+        Log = self.env['ai.operations.audit.log']
+        action = self.profile.with_user(self.clerk).action_open_chat()
+        channel = self.env['discuss.channel'].browse(
+            action['params']['channel_id'])
+        before = Log.search_count([('event_type', '=', 'ERROR')])
+
+        channel.with_user(self.clerk).message_post(
+            body='what is my scope?', message_type='comment',
+            subtype_xmlid='mail.mt_comment')
+
+        self.assertEqual(
+            Log.search_count([('event_type', '=', 'ERROR')]), before + 1,
+            "an eligible member did not reach the runtime")

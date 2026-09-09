@@ -37,7 +37,15 @@ class TestChatWidgetSecurity(TransactionCase):
             'max_autonomy_level': '2',
             'default_review_user_id': cls.reviewer.id,
             'default_escalation_user_id': cls.escalation.id,
+            'user_ids': [Command.set([cls.employee.id])],
         })
+        # An AI user in the same company who was simply never assigned this
+        # agent. Before eligibility existed there was no such thing: company
+        # membership was the whole test, so every colleague was offered every
+        # agent. This user is what "another department" now means.
+        cls.colleague = cls._user('widget.colleague', cls.company)
+        cls.colleague.write({'group_ids': [
+            Command.link(cls.env.ref('ai_operations.group_ai_user').id)]})
 
     @classmethod
     def _user(cls, login, company):
@@ -61,6 +69,25 @@ class TestChatWidgetSecurity(TransactionCase):
         self.assertNotIn(self.profile.id, [p['id'] for p in profiles],
                          "a profile from another company was offered")
 
+    def test_an_agent_the_user_was_never_assigned_is_not_offered(self):
+        """George's report, as a test.
+
+        He logged in as a procurement clerk and the selector listed Accounting,
+        GM, Inventory, Manufacturing, Procurement and Quality. Company scope was
+        the only filter and every agent shared her company, so every agent was
+        offered. The old assertion here used assertIn, which passes just as
+        happily when a profile the user must not have is also in the list.
+        """
+        profiles = self.Profile.with_user(self.colleague).ai_widget_profiles()
+        self.assertNotIn(
+            self.profile.id, [p['id'] for p in profiles],
+            "an agent nobody assigned to this user was offered to them")
+
+    def test_the_launcher_disappears_when_nothing_is_assigned(self):
+        """An empty list hides the systray launcher entirely (chat_widget.js)."""
+        profiles = self.Profile.with_user(self.colleague).ai_widget_profiles()
+        self.assertEqual(profiles, [])
+
     # -- forging a profile id ------------------------------------------
 
     def test_a_user_without_the_ai_group_cannot_send(self):
@@ -70,6 +97,21 @@ class TestChatWidgetSecurity(TransactionCase):
     def test_a_forged_profile_id_from_another_company_is_refused(self):
         with self.assertRaises(Exception):
             self.profile.with_user(self.outsider).ai_widget_send('hello')
+
+    def test_a_forged_profile_id_for_an_unassigned_agent_is_refused(self):
+        """Not being offered it is not the same as not being able to send to it.
+
+        The selector is client-side; the id is whatever the caller passes. This
+        is the RPC George asked about -- the check that has to hold when the
+        dropdown is bypassed entirely. _ai_widget_channel probes with
+        search_count precisely so the record rule is consulted here too.
+        """
+        with self.assertRaises(AccessError):
+            self.profile.with_user(self.colleague).ai_widget_send('hello')
+
+    def test_an_unassigned_agent_cannot_even_be_opened(self):
+        with self.assertRaises(AccessError):
+            self.profile.with_user(self.colleague).ai_widget_open()
 
     # -- it is the same surface, not a second one ----------------------
 
@@ -103,12 +145,13 @@ class TestChatWidgetSecurity(TransactionCase):
             self.assertNotIn(leak, result['reply'])
 
     def test_history_does_not_cross_between_users(self):
-        colleague = self._user('widget.colleague', self.company)
-        colleague.write({'group_ids': [
-            Command.link(self.env.ref('ai_operations.group_ai_user').id)]})
+        # Both employees are assigned the agent: the property under test is
+        # that two people who may BOTH use it still get their own conversation,
+        # which is a stronger claim than one of them being turned away.
+        self.profile.write({'user_ids': [Command.link(self.colleague.id)]})
 
         mine = self.profile.with_user(self.employee).ai_widget_send('my secret topic')
-        theirs = self.profile.with_user(colleague).ai_widget_send('what were we saying?')
+        theirs = self.profile.with_user(self.colleague).ai_widget_send('what were we saying?')
 
         self.assertNotEqual(mine['channel_id'], theirs['channel_id'],
                             "two employees shared one conversation")

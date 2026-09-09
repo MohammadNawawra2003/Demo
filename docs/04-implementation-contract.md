@@ -250,6 +250,11 @@ class DenialReason(str, Enum):
     #: 19.0.1.18.0: Document B §4.1's "draft only" was declared from the start
     #: and was not enforced until then, so the reason had nowhere to be raised.
     STATE_NOT_PERMITTED       = 'STATE_NOT_PERMITTED'
+    #: The executing identity is not on the profile's Allowed Users. Added at
+    #: 19.0.1.26.0 with agent eligibility, which the specification had never
+    #: modelled: every group_ai_user holder was offered every agent whose
+    #: company scope overlapped theirs. Guard step 8b, after the company scope.
+    PROFILE_NOT_ELIGIBLE      = 'PROFILE_NOT_ELIGIBLE'
 ```
 
 **Helper for Odoo selections:**

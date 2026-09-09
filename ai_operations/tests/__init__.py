@@ -21,3 +21,5 @@ from . import test_matrix_coverage
 from . import test_pack_coverage
 from . import test_resilience
 from . import test_company_scope
+from . import test_eligibility
+from . import test_images

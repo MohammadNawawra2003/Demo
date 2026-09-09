@@ -45,6 +45,11 @@ class TestProfileCompanyScope(TransactionCase):
             'company_ids': [(6, 0, (cls.company_a + cls.company_b).ids)],
             'default_review_user_id': cls.narrow_user.id,
             'default_escalation_user_id': cls.narrow_user.id,
+            # This suite is about the people who USE an agent scoped wider than
+            # themselves, so the narrow user is one of them. Eligibility fails
+            # closed and would otherwise hide the profile from the very user
+            # whose reads this file exists to exercise.
+            'user_ids': [(6, 0, cls.narrow_user.ids)],
         })
 
     def _as_user(self):

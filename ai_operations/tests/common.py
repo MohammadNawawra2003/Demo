@@ -61,6 +61,17 @@ class AIOperationsCommon(TransactionCase):
             'max_autonomy_level': '2',
             'default_review_user_id': cls.reviewer.id,
             'default_escalation_user_id': cls.escalation.id,
+            # A correctly configured profile names who may use it. Eligibility
+            # fails closed, so a fixture that left this empty would deny every
+            # in-company identity the kernel tests drive and turn one new
+            # boundary into several hundred unrelated failures. The outsider is
+            # deliberately NOT here: their denial is the company term, and it
+            # must keep reporting itself as such.
+            'user_ids': [Command.set([
+                cls.reviewer.id, cls.escalation.id,
+                cls.service_user.id, cls.system_user.id,
+                cls.env.user.id,
+            ])],
         }
         values.update(overrides)
         return cls.env['ai.operations.agent.profile'].create(values)

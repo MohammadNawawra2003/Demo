@@ -101,6 +101,54 @@ class TestDemoConfiguration(TransactionCase):
             self.assertEqual(profile.default_escalation_user_id.login, escalation)
             self.assertEqual(profile.service_user_id.login, service)
 
+    def test_every_service_user_is_marked_and_grouped(self):
+        """The two things an install order could silently omit.
+
+        ``alshayeb_demo_water`` builds these identities and declares no
+        dependency on ``ai_operations`` -- deliberately, so the demo database
+        stays a standalone regression baseline. Both writes below were therefore
+        guarded by "if the field/xmlid exists", and both were applied on CREATE
+        only, so building that module first left every service user without the
+        flag that stops a human logging in as it and without the group the guard
+        needs to read its own policy. Re-running never repaired it either,
+        because the builder skipped any login that already existed.
+
+        This module is the one place guaranteed to have both sides installed, so
+        this assertion belongs here and carries no skipTest. The sibling test in
+        alshayeb_demo_water skips when the field is absent, which is correct
+        there and is exactly why it could not catch this.
+        """
+        for _reviewer, _escalation, login in ROUTING.values():
+            service = self.env['res.users'].with_context(
+                active_test=False).search([('login', '=', login)], limit=1)
+            self.assertTrue(service, "service user %s is missing" % login)
+            self.assertTrue(
+                service.is_ai_service_user,
+                "%s can still be logged into: the login control was never "
+                "armed" % login)
+            self.assertTrue(
+                service._has_group('ai_operations.group_ai_user'),
+                "%s cannot read its own policy, so every autonomous run would "
+                "fail on configuration rather than on permission" % login)
+
+    def test_hardening_a_bare_service_user_repairs_it(self):
+        """The repair itself, driven from the state the bad order produces."""
+        service = self.env['res.users'].with_context(
+            active_test=False).search(
+                [('login', '=', ROUTING['procurement'][2])], limit=1)
+        group = self.env.ref('ai_operations.group_ai_user')
+        self.env.cr.execute(
+            "UPDATE res_users SET is_ai_service_user = false WHERE id = %s",
+            (service.id,))
+        service.invalidate_recordset()
+        service.write({'group_ids': [(3, group.id)]})
+        self.assertFalse(service.is_ai_service_user)
+
+        self.env['alshayeb.demo.builder']._harden_service_user(service)
+
+        self.assertTrue(service.is_ai_service_user)
+        self.assertTrue(service._has_group('ai_operations.group_ai_user'))
+
     def test_the_service_users_are_not_administrators(self):
         """C §10, restated here because a demo is where it would slip."""
         for profile in (self.procurement, self.manufacturing):

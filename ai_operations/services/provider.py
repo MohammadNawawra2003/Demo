@@ -118,11 +118,24 @@ def all_providers():
 
 
 class AIProvider(models.AbstractModel):
-    """The whole Phase 1 contract. Three methods.
+    """The whole Phase 1 contract. Three methods, plus one capability flag.
 
-    No embeddings, no vision, no audio, no streaming, no batch. Each is a real
-    feature with its own security surface, and each waits until something
-    actually needs it.
+    No embeddings, no audio, no streaming, no batch. Each is a real feature with
+    its own security surface, and each waits until something actually needs it.
+
+    **Vision arrived at 19.0.1.26.0**, because something needed it: users asked
+    to send the agent a photograph of a damaged pallet or a supplier's quotation
+    rather than retype it. It is expressed here as a message SHAPE and a
+    capability flag, never as vendor syntax -- ``content`` may be a plain string
+    (unchanged, and still what every text turn sends) or a list of blocks::
+
+        [{'type': 'image', 'media_type': 'image/png', 'data': '<base64>'},
+         {'type': 'text', 'text': 'what is wrong with this pallet?'}]
+
+    The adapter translates that into whatever its vendor wants. An adapter that
+    cannot see leaves ``supports_images`` False and never receives an image
+    block: the runtime asks first and tells the user plainly instead of sending
+    bytes into a model that will ignore them.
 
     > **A provider adapter may change how the LLM is called. It may never change
     > security behaviour.** Every adapter runs behind the same ContextBuilder,
@@ -144,6 +157,17 @@ class AIProvider(models.AbstractModel):
         Never returns, logs or renders the credential itself.
         """
         raise NotImplementedError
+
+    @api.model
+    def supports_images(self, model=None):
+        """Whether this adapter can carry an image block to ``model``.
+
+        Optional, and False here on purpose: an adapter written before vision
+        existed keeps working untouched, and the runtime treats silence as "no".
+        A capability that defaults to True would send image bytes to a vendor
+        that drops them and bill the customer for the privilege.
+        """
+        return False
 
     @api.model
     def complete(self, messages, system=None, tools=None, model=None,

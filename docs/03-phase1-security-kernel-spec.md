@@ -476,7 +476,30 @@ One model. Execution audit and policy decisions are **not** split.
 | `error` | Text |
 
 **Denial reasons** (closed set, used by the test matrix):
-`UNKNOWN_TOOL`, `TOOL_DISABLED`, `TOOL_NOT_ASSIGNED`, `PROFILE_INACTIVE`, `AUTONOMY_INSUFFICIENT`, `NO_SERVICE_USER`, `MODEL_NOT_PERMITTED`, `OPERATION_NOT_PERMITTED`, `RECORD_OUT_OF_DOMAIN`, `COMPANY_OUT_OF_SCOPE`, `ACTION_NOT_PERMITTED`, `USER_ACL_DENIED`, `SCHEMA_INVALID`, `HANDOFF_SCHEMA_VIOLATION`, `BOUND_EXCEEDED`, `BLOCKLIST_HIT`, `BUDGET_EXCEEDED`, `ASSIGNEE_UNRESOLVED`, **`STATE_NOT_PERMITTED`**.
+`UNKNOWN_TOOL`, `TOOL_DISABLED`, `TOOL_NOT_ASSIGNED`, `PROFILE_INACTIVE`, `AUTONOMY_INSUFFICIENT`, `NO_SERVICE_USER`, `MODEL_NOT_PERMITTED`, `OPERATION_NOT_PERMITTED`, `RECORD_OUT_OF_DOMAIN`, `COMPANY_OUT_OF_SCOPE`, `ACTION_NOT_PERMITTED`, `USER_ACL_DENIED`, `SCHEMA_INVALID`, `HANDOFF_SCHEMA_VIOLATION`, `BOUND_EXCEEDED`, `BLOCKLIST_HIT`, `BUDGET_EXCEEDED`, `ASSIGNEE_UNRESOLVED`, **`STATE_NOT_PERMITTED`**, **`PROFILE_NOT_ELIGIBLE`**.
+
+> **`PROFILE_NOT_ELIGIBLE` was added at 19.0.1.26.0, post-freeze.** The specification never
+> modelled which employees may use which agent: §5.1's field list has a company scope, a
+> service user and three routing users, and no notion of an audience. The consequence was that
+> any holder of `group_ai_user` was offered every active profile whose company scope overlapped
+> their own — a procurement clerk was offered the Accountant. Nothing leaked, because the guard
+> still refused whatever that clerk's own ACLs refused, but an offer is a claim and this one was
+> false.
+>
+> `user_ids` on the profile now carries the audience, and it is enforced twice, because the two
+> mechanisms fail in different ways. A record rule scopes **discovery** — the selector, the form,
+> any RPC read — and a rule cannot see a direct `execution.run()`, a `discuss.channel` bound
+> before the rule existed, or a caller who passes the id. Guard step **8b** scopes **execution**,
+> and a dropdown never consults the guard. Neither is sufficient alone.
+>
+> It only ever subtracts: `EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` is unchanged and
+> gains an eligibility term ahead of it. Two identities are eligible without being listed — the
+> profile's own service user, because an autonomous run has no human to assign, and a security
+> administrator, because whoever configures an agent must be able to test it. An empty
+> `user_ids` denies everybody; reading it as "everyone" would silently restore the behaviour it
+> replaces. It is checked **after** the company scope deliberately: company is the coarser
+> boundary and the more useful answer, and renaming every existing company denial would have
+> made the audit trail worse.
 
 > **`STATE_NOT_PERMITTED` was added at 19.0.1.18.0, post-freeze.** The eighteen above are the
 > frozen set. §5.2's `state_restriction` on a *model* permission — Document B §4.1's "draft

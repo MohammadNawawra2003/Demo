@@ -138,6 +138,12 @@ class DenialReason(str, Enum):
     #: The model permission's own state_restriction refused a write. Document B
     #: §4.1's "draft only" was declared and never enforced until 19.0.1.18.0.
     STATE_NOT_PERMITTED      = 'STATE_NOT_PERMITTED'
+    #: The executing user is not on the profile's Allowed Users. Added at
+    #: 19.0.1.19.0: agent eligibility was never modelled, so every group_ai_user
+    #: holder was offered every profile in their companies. The record rule
+    #: hides it; this is what stops a direct call, a pre-bound channel or a
+    #: forged id reaching the tool loop anyway.
+    PROFILE_NOT_ELIGIBLE     = 'PROFILE_NOT_ELIGIBLE'
 
 
 def to_selection(enum_cls):

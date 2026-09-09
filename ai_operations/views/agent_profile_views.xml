@@ -9,6 +9,7 @@
                 <field name="name"/>
                 <field name="code"/>
                 <field name="company_ids" widget="many2many_tags"/>
+                <field name="user_ids" widget="many2many_tags"/>
                 <field name="max_autonomy_level"/>
                 <field name="allow_interactive"/>
                 <field name="allow_autonomous"/>
@@ -48,6 +49,16 @@
                     </div>
                     <field name="active" invisible="1"/>
                     <group>
+                        <group string="Allowed Users">
+                            <!--
+                                Who may use this agent. Empty means nobody but a
+                                security administrator: eligibility fails closed
+                                like every other term of the intersection.
+                            -->
+                            <field name="user_ids" widget="many2many_tags"
+                                   nolabel="1" colspan="2"
+                                   placeholder="Employees who may open this agent"/>
+                        </group>
                         <group string="Scope">
                             <field name="company_ids" widget="many2many_tags"/>
                             <field name="max_autonomy_level"/>

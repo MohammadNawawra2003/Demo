@@ -1254,9 +1254,15 @@ module.
 1. `check_bound` treats a zero deterministic baseline as variance 0.0 — neither escalated nor
    refused. The contract is **silent**, so this is an implementation choice, not a requirement.
    Recommended: escalate rather than deny. **George's ruling.**
-2. Any `group_ai_user` holder is offered every active profile in their companies. There is no
+2. ~~Any `group_ai_user` holder is offered every active profile in their companies. There is no
    per-user agent eligibility in the architecture; restricting a persona would be a new concept.
-   **Product decision.**
+   **Product decision.**~~ **DECIDED 2026-09-09, and built (19.0.1.26.0).** George opened the
+   selector as a procurement clerk, saw all six agents, and asked where an administrator assigns
+   an agent to an employee. There was nowhere: `user_ids` did not exist. It does now, enforced
+   by a record rule for discovery and by guard step 8b for execution — the two fail differently
+   and neither covers the other. Empty means nobody; the service user and a security
+   administrator are eligible without being listed. See `docs/03-phase1-security-kernel-spec.md`
+   §5.9 for the reasoning and `PROFILE_NOT_ELIGIBLE` for the reason code.
 3. DL-001 credential storage for production remains open.
 
 ---

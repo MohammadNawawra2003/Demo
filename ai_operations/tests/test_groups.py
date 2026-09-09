@@ -119,8 +119,30 @@ class TestSecurityGroups(AIOperationsCommon):
         user.write({
             'group_ids': [Command.link(self.env.ref('ai_operations.group_ai_user').id)],
         })
+        # Assigned, because that is now the precondition for the guard ever
+        # running this profile for this user. The property under test is
+        # unchanged: whoever the guard executes as must be able to read the
+        # policy being enforced against them, without sudo().
+        self.profile.write({'user_ids': [Command.link(user.id)]})
         self.assertTrue(self.profile.with_user(user).name)
         self.assertTrue(self.permission.with_user(user).model_id)
+
+    def test_an_unassigned_ai_user_can_read_but_not_use_the_policy(self):
+        """Reading policy and using an agent are separate questions.
+
+        Eligibility is deliberately not a record rule: scoping reads on this
+        table broke the kernel's own cross-profile mechanics, because raising a
+        handoff reads the receiving agent's profile. So an unassigned AI user
+        can still read the configuration -- and is refused when they try to open
+        or run the agent, which is where the decision actually is.
+        """
+        user = self._make_user('ai.test.unassigned', 'Unassigned AI User')
+        user.write({
+            'group_ids': [Command.link(self.env.ref('ai_operations.group_ai_user').id)],
+        })
+        self.assertTrue(self.profile.with_user(user).name)
+        self.assertFalse(
+            self.env['ai.operations.security'].is_eligible(self.profile, user))
 
     @mute_logger('odoo.addons.base.models.ir_model')
     def test_plain_ai_user_cannot_write_policy(self):

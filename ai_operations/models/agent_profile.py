@@ -75,6 +75,18 @@ class AIOperationsAgentProfile(models.Model):
         help="Identity the agent posts under on its chat channel (Session 12).",
     )
 
+    user_ids = fields.Many2many(
+        'res.users', 'ai_operations_profile_user_rel', 'profile_id', 'user_id',
+        string='Allowed Users',
+        help="Which employees may use this agent. Eligibility is a boundary, "
+             "not a convenience: it is enforced by a record rule (so the agent "
+             "is not offered, opened or read) AND by the guard (so no direct "
+             "call, no pre-bound channel and no forged id can reach the tool "
+             "loop). It only ever SUBTRACTS -- an eligible user still faces "
+             "USER n AGENT n TOOL n ACTION n COMPANY unchanged. Leave empty and "
+             "nobody but a security administrator can use the agent.",
+    )
+
     service_user_id = fields.Many2one(
         'res.users', string='Service User', ondelete='restrict',
         help="Autonomous execution identity. Never an administrator.",
@@ -284,6 +296,15 @@ class AIOperationsAgentProfile(models.Model):
             raise AccessError(
                 "Opening a conversation with an agent requires the "
                 "AI Operations / User group."
+            )
+        # Eligibility, at the one door both surfaces go through. The widget and
+        # Discuss both land here, so refusing here refuses both -- including a
+        # forged profile id, which is the whole point: not being offered an
+        # agent in a dropdown is not the same as not being able to open it.
+        if not self.env['ai.operations.security'].is_eligible(self, self.env.user):
+            raise AccessError(
+                "%s has not been assigned to you. An administrator sets this "
+                "on the agent's Allowed Users." % self.name
             )
         if not self.partner_id:
             raise UserError(

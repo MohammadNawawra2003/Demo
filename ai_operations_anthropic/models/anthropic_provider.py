@@ -74,6 +74,17 @@ class AnthropicProvider(models.AbstractModel):
         return list(MODELS)
 
     @api.model
+    def supports_images(self, model=None):
+        """Every model this adapter declares can read an image.
+
+        Asserted against the declared tuple rather than assumed for anything
+        the caller passes: a model this adapter does not offer is not a model
+        it can make promises about.
+        """
+        codes = [code for code, _label in MODELS]
+        return (model or (codes[0] if codes else None)) in codes
+
+    @api.model
     def health_check(self):
         """(usable, neutral reason). Never returns or logs the credential."""
         if not self._credential():
@@ -217,9 +228,45 @@ class AnthropicProvider(models.AbstractModel):
                 vendor.append({'role': 'assistant', 'content': blocks})
             else:
                 vendor.append({'role': role or 'user',
-                               'content': message.get('content') or ''})
+                               'content': AnthropicProvider._vendor_content(
+                                   message.get('content'))})
         flush()
         return vendor
+
+    @staticmethod
+    def _vendor_content(content):
+        """A neutral ``content`` in this vendor's shape.
+
+        A plain string stays a plain string, which is what every text turn is
+        and what this method must not disturb. A list is the kernel's neutral
+        block form, and only ``image`` differs from the vendor's: the kernel
+        says ``media_type``/``data`` flat, Anthropic nests them under ``source``
+        with a ``type`` of its own. Images are placed exactly where the kernel
+        put them, which is before the text, because that is what the vendor's
+        own guidance asks for.
+
+        An unknown block type is dropped rather than forwarded. The kernel and
+        the adapter version independently, and a block this adapter does not
+        understand is one it cannot promise the vendor will.
+        """
+        if not isinstance(content, list):
+            return content or ''
+        blocks = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get('type') == 'text':
+                blocks.append({'type': 'text', 'text': block.get('text') or ''})
+            elif block.get('type') == 'image':
+                blocks.append({
+                    'type': 'image',
+                    'source': {
+                        'type': 'base64',
+                        'media_type': block.get('media_type'),
+                        'data': block.get('data'),
+                    },
+                })
+        return blocks or ''
 
     @staticmethod
     def _normalise(raw, name_map=None):

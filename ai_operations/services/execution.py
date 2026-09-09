@@ -161,6 +161,31 @@ class AIExecutionRunner(models.AbstractModel):
     MAX_HISTORY_CHARS = 12000
 
     @api.model
+    def _entry_content(self, entry_prompt, images):
+        """This turn's content: a plain string, or blocks when images came too.
+
+        Images ride on the CURRENT turn only, and ``_sanitise_history`` keeps
+        dropping anything that is not a string, so an image is never replayed.
+        That is deliberate on two counts. It bounds cost -- MAX_HISTORY_TURNS
+        and MAX_HISTORY_CHARS are a turn count and a character count, and an
+        image has no characters, so replayed images would grow the bill with
+        nothing to stop them. And it bounds exposure: a photograph sent once is
+        sent once, not re-uploaded to the vendor on every later question.
+
+        # ponytail: no per-turn image replay. The ceiling is that a follow-up
+        # about an earlier picture needs the picture again; the upgrade path is
+        # to keep image blocks in history and cap them by count.
+
+        The image goes BEFORE the text, which is what the vendor guidance asks
+        for and what the neutral shape therefore preserves.
+        """
+        text = entry_prompt or ''
+        if not images:
+            return text
+        from .images import to_provider_blocks
+        return to_provider_blocks(images) + [{'type': 'text', 'text': text}]
+
+    @api.model
     def _sanitise_history(self, history):
         """History is **text**, and nothing else survives this.
 
@@ -204,7 +229,7 @@ class AIExecutionRunner(models.AbstractModel):
 
     @api.model
     def run(self, profile_code, trigger, session_id=None, entry_prompt=None,
-            correlation_id=None, history=None):
+            correlation_id=None, history=None, images=None):
         """Resolve, budget, loop, close. Never raises into a cron.
 
         A provider failure is audited and returns cleanly: core ERP must never
@@ -259,6 +284,13 @@ class AIExecutionRunner(models.AbstractModel):
         # the customer could see and an auditor could not. Verified by driving a
         # profile over its ceiling and watching zero rows appear.
         try:
+            # 2b. May this identity use this agent at all? The guard asks the
+            # same question again per tool call, but a run that never reaches a
+            # tool would otherwise spend a provider call -- and an answer the
+            # model produced without calling anything would come back with no
+            # refusal at all. Asked here, before the provider, and audited like
+            # every other run-level denial.
+            security.check_eligibility(profile, identity)        # 2b
             security.check_token_ceiling(profile)                # 4
         except AIAccessDenied as denial:
             audit.open_entry(
@@ -278,7 +310,8 @@ class AIExecutionRunner(models.AbstractModel):
             return {'status': 'FAILED', 'reason': 'provider', 'correlation_id': correlation_id}
 
         messages = self._sanitise_history(history)
-        messages.append({'role': 'user', 'content': entry_prompt or ''})
+        messages.append({'role': 'user',
+                         'content': self._entry_content(entry_prompt, images)})
         # Whether the guard refused anything during this run. The surface uses
         # it to decide what the USER is told, which must not depend on what the
         # model chooses to say afterwards.

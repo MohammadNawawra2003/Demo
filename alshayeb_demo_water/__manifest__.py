@@ -1,6 +1,6 @@
 {
     'name': 'Naqaa Water — Demo Company',
-    'version': '19.0.1.7.0',
+    'version': '19.0.1.8.0',
     'category': 'Productivity/AI',
     'summary': 'The archetype Saudi bottled-water company the AI platform is '
                'built, demonstrated and security-tested against',

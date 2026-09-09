@@ -837,8 +837,15 @@ class AlshayebDemoBuilder(models.AbstractModel):
         to log in: the mechanism is the absence of every credential."""
         Users = self.env['res.users']
         for login, name, _code, company_keys, group_xmlids in bp.SERVICE_USERS:
-            if Users.with_context(active_test=False).search(
-                    [('login', '=', login)], limit=1):
+            existing = Users.with_context(active_test=False).search(
+                [('login', '=', login)], limit=1)
+            if existing:
+                # Skipping the CREATE is right; skipping the hardening was not.
+                # This module deliberately does not depend on ai_operations, so
+                # it can be built first -- and then both of the things below are
+                # silently absent and nothing ever repairs them, because this
+                # loop used to `continue` here. See _harden_service_user.
+                self._harden_service_user(existing)
                 continue
             company_ids = [companies[key].id for key in company_keys]
             group_ids = []
@@ -860,10 +867,37 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 'company_ids': [(6, 0, company_ids)],
                 'group_ids': [(4, gid) for gid in group_ids],
             })
+            self._harden_service_user(user)
+
+    def _harden_service_user(self, user):
+        """The two things that exist only once ``ai_operations`` is loaded.
+
+        Both are conditional on the field or the xmlid resolving, and both used
+        to be applied on CREATE only. That is a conditional which can fire only
+        in the case where it is not needed: this module declares no dependency
+        on ``ai_operations`` -- deliberately, because the demo database is the
+        regression baseline and must install standalone -- so the order in which
+        the two branches load is unconstrained, and installing this one first
+        left every service identity
+
+          * without ``is_ai_service_user``, so the login control that makes an
+            agent identity unusable by a human was never armed, and
+          * without ``group_ai_user``, which is mandatory: the guard reads its
+            own policy as the executing identity and sudo() is banned.
+
+        Re-asserting them on every build is what makes the repair reachable. A
+        generator may dedupe what it ADDS; it must never skip what it REPAIRS.
+        Both writes are idempotent and one-way -- the flag is only ever set,
+        never cleared, so this can never re-open a login.
+        """
+        ai_user = self.env.ref('ai_operations.group_ai_user',
+                               raise_if_not_found=False)
+        if ai_user and ai_user not in user.group_ids:
+            user.write({'group_ids': [(4, ai_user.id)]})
+        if 'is_ai_service_user' in user._fields and not user.is_ai_service_user:
             # Strip the credential Odoo may have set, then mark it, so the
             # constraint on res.users has nothing to object to.
             self.env.cr.execute(
                 "UPDATE res_users SET password = NULL WHERE id = %s", (user.id,))
             user.invalidate_recordset()
-            if 'is_ai_service_user' in user._fields:
-                user.is_ai_service_user = True
+            user.is_ai_service_user = True

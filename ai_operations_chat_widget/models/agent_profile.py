@@ -29,11 +29,19 @@ class AIOperationsAgentProfile(models.Model):
         without ``group_ai_user`` is offered nothing, which is what hides the
         launcher: a tool call would be refused anyway, so a launcher would only
         promise something the guard would take away.
+
+        Eligibility IS applied here, by domain, because there is no record rule
+        for it -- one was tried and it broke the kernel's own cross-profile
+        reads (see security/ir_rule.xml). Company scope answers "does this agent
+        belong to my part of the business"; ``user_ids`` answers "was it given
+        to me", and only the second one stopped a procurement clerk being
+        offered the Accountant.
         """
         if not self.env.user._has_group('ai_operations.group_ai_user'):
             return []
         profiles = self.search([('allow_interactive', '=', True),
-                                ('partner_id', '!=', False)])
+                                ('partner_id', '!=', False),
+                                ('user_ids', 'in', self.env.user.id)])
         return [{'id': profile.id,
                  'name': profile.name,
                  'code': profile.code} for profile in profiles]
@@ -102,7 +110,7 @@ class AIOperationsAgentProfile(models.Model):
             'messages': self._ai_widget_messages(channel),
         }
 
-    def ai_widget_send(self, body):
+    def ai_widget_send(self, body, attachment_ids=None):
         """One turn, through the conversation Discuss already uses.
 
         ``action_open_chat`` is reused rather than reimplemented: it carries the
@@ -113,13 +121,21 @@ class AIOperationsAgentProfile(models.Model):
 
         The body is posted as a plain string, which ``mail`` escapes, so a
         message cannot carry markup into anyone's conversation.
+
+        ``attachment_ids`` are passed straight to ``message_post`` and are NOT
+        trusted here: whether the caller may read them is decided later, as the
+        posting user, in the dispatcher. Core does not decide it -- for an
+        internal user ``_process_attachments_for_post`` links whatever ids it is
+        given -- so posting one that belongs to somebody else succeeds and then
+        gets refused at the point where it would have been read.
         """
         self.ensure_one()
         channel = self._ai_widget_channel()
 
         before = channel.message_ids.ids
         channel.message_post(body=body or '', message_type='comment',
-                             subtype_xmlid='mail.mt_comment')
+                             subtype_xmlid='mail.mt_comment',
+                             attachment_ids=list(attachment_ids or []))
 
         reply = channel.message_ids.filtered(
             lambda message: message.id not in before

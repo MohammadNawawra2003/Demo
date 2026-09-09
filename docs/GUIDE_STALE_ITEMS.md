@@ -1,7 +1,93 @@
 # What is now stale in the existing user guide
 
-Input for the guide rewrite. This lists **only what changed** between the guide's
-material and commit `75829b6`, so the rewrite does not have to re-derive it.
+Input for the guide rewrite. This lists **only what changed**, so the rewrite does
+not have to re-derive it.
+
+---
+
+## 0. 2026-09-09 — George's feedback round. Read this section first.
+
+Four changes from this round, and the first one invalidates **every screenshot of
+the agent selector in the guide**.
+
+### 0a. Each employee now sees only the agents assigned to them
+
+**Was:** the chat selector listed all six agents to every AI user. That is what
+George's screenshot shows — Noura Al-Harbi, a procurement clerk, being offered
+Accounting Intelligence.
+
+**Now:** an Agent Profile carries **Allowed Users**, and an employee is offered
+only the agents naming them. Noura sees **Procurement Intelligence** and nothing
+else. The demo assignment is one agent per employee, with `fahad.p` also on
+Procurement because the refusal scene needs him to reach the guard.
+
+**What this makes stale:**
+- any screenshot of the chat selector showing more than one agent
+- any sentence saying the selector lists the agents "available in your company"
+- any instruction to "pick the agent you need from the list"
+
+**What it does not change:** nothing about security. The guard already refused
+what the employee's own permissions refused; that is unchanged and is still what
+`EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY` means. Eligibility is a new
+term ahead of it that can only subtract. If the guide claims the old behaviour
+was a security hole, that is wrong and worse than saying nothing — it was a
+usability and administration gap.
+
+### 0b. Agent Profiles has a new field an administrator will look for
+
+**Allowed Users** on the Agent Profile form (and in the list view). This is the
+answer to "how do I know which users this agent belongs to?" — a question the
+product previously could not answer at all. Worth a screenshot.
+
+### 0c. The six `AI /` users are explained on screen now
+
+`AI / Accounting`, `AI / General Manager`, `AI / Inventory`, `AI / Manufacturing`,
+`AI / Procurement`, `AI / Quality` are **service identities, not employees**. They
+exist so an autonomous run has an identity that is not an administrator and not
+`sudo()`, and they cannot be logged into — two independent mechanisms enforce it.
+
+They now carry a visible **AI Service User** marker on the user form and a filter
+in the user list. If the guide lists them among staff, or omits them and leaves a
+reader to find six unexplained accounts, fix that. **They must not be deleted:**
+the ORM blocks it, and `ai_operations_demo_data` becomes unupgradeable without
+them.
+
+### 0d. Users can send the agent an image
+
+**New capability, so the guide has no wrong text about it — it simply has none.**
+
+A user can attach a picture in the chat widget (paperclip beside the composer)
+or in Discuss, and the agent receives and reads it. Worth a screenshot of the
+composer with an attachment queued, and one of an answer about an image.
+
+What the guide should say, and should not overstate:
+
+- **JPEG, PNG, GIF and WebP only.** Anything else is refused with a sentence
+  naming the reason. A PDF is not an image and is not sent.
+- **Up to 4 images per message**, 5 MB each. Larger files are refused, not
+  silently truncated.
+- **Images are downscaled before sending** (longest edge 1568 px). This is a
+  cost control — an image is billed as input tokens — not a quality choice.
+  Fine print in a photograph may not survive it. Say so rather than let a
+  customer discover it.
+- **An image is not remembered.** It travels with the message it was attached
+  to and is not replayed on later turns, so a follow-up question about the same
+  picture needs the picture again. This is deliberate and bounds both cost and
+  exposure.
+- **The agent's permissions do not change because an image is attached.**
+  Sending a photograph of an invoice does not let a procurement agent read
+  accounting. The picture is input, not authority.
+- **Voice is not supported.** If anyone asks, it was not requested and was not
+  built.
+
+### 0e. A new denial reason exists
+
+`PROFILE_NOT_ELIGIBLE`, alongside the eighteen the guide may already list plus
+`STATE_NOT_PERMITTED`. Any table of denial reasons is now short by one.
+
+---
+
+Everything below predates this round.
 
 The guide itself is deliberately **not** regenerated here — that is being done
 separately. The authoritative sources for the rewrite are:

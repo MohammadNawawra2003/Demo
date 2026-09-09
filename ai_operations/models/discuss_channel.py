@@ -19,8 +19,16 @@ from odoo import _, fields, models
 from odoo.exceptions import UserError
 from odoo.tools import html2plaintext
 
+import re
+
+from ..services import images as images_service
 from ..services.enums import TriggerType
 from ..services.exceptions import AIAccessDenied, NEUTRAL_DENIAL
+
+#: A pasted inline image arrives as a data: URI that html2plaintext appends to
+#: the text. Matched broadly on purpose: anything of this shape is bytes, not
+#: prose, and has no business in a prompt.
+_DATA_URI = re.compile(r'data:[^;,\s]+;base64,[A-Za-z0-9+/=]+')
 
 _logger = logging.getLogger(__name__)
 
@@ -64,14 +72,17 @@ class DiscussChannel(models.Model):
                            "Please send this again once I have answered."))
             return
 
+        images, rejected = self._ai_images(message, profile)
+
         self.ai_run_active = True
         try:
             result = self.env['ai.operations.execution'].run(
                 profile.code,
                 TriggerType.CHAT.value,
                 session_id=self.id,
-                entry_prompt=html2plaintext(message.body or ''),
+                entry_prompt=self._ai_prompt(message),
                 history=self._ai_history(message),
+                images=images,
             )
         except AIAccessDenied as denial:
             # A denial raised BEFORE the tool loop -- an inactive profile at
@@ -87,13 +98,71 @@ class DiscussChannel(models.Model):
             # str() is the neutral text by construction (see AIAccessDenied), so
             # this cannot leak a reason even if a future denial carries a new
             # one. The audit row was already written before the raise.
-            self._ai_say(str(denial))
+            self._ai_say(self._ai_with_notes(str(denial), rejected))
             return
         finally:
             # A provider outage must not wedge the channel forever.
             self.ai_run_active = False
 
-        self._ai_say(self._ai_body(result))
+        self._ai_say(self._ai_with_notes(self._ai_body(result), rejected))
+
+    # -- images -----------------------------------------------------------
+
+    def _ai_images(self, message, profile):
+        """This turn's attachments, validated, as neutral image blocks.
+
+        Runs as the POSTING user, never sudo. Odoo will not do this for us:
+        ``mail.thread._process_attachments_for_post`` links attachment ids in
+        sudo and performs no ownership check at all for an internal user, and
+        says in its own docstring that the caller must.
+        """
+        attachments = message.attachment_ids
+        if not attachments:
+            return [], []
+        provider = None
+        try:
+            provider = self.env['ai.operations.execution']._provider_for(profile)
+        except Exception:
+            # A dead provider is the runtime's problem to report, not ours. We
+            # simply cannot ask it whether it reads images, so we do not send
+            # any and let the run fail the way it already fails.
+            return [], []
+        blocks, rejected = images_service.collect(
+            attachments, message.create_uid or self.env.user,
+            model=profile.model_code, provider=provider)
+        if blocks:
+            # Metadata only, and deliberately to the server log rather than to
+            # ai.operations.audit.log: that model records TOOL CALLS, and has
+            # never recorded a prompt. Putting the user's message content into
+            # it -- which is what an image is -- would change what the audit
+            # trail is for. What an incident needs is that an image was sent,
+            # by whom, how big and of what type, and that is exactly this.
+            _logger.info(
+                "ai_operations: channel %s profile %s sent %d image(s) as %s: %s",
+                self.id, profile.code, len(blocks),
+                (message.create_uid or self.env.user).login,
+                images_service.audit_summary(blocks))
+        return blocks, rejected
+
+    def _ai_prompt(self, message):
+        """The message body as text, without smuggling the image in twice.
+
+        ``html2plaintext`` rewrites <img> to "Image [n]" and then appends every
+        src verbatim at the end of the string. For a pasted inline image that
+        src is the whole base64 data URI, so the bytes were already reaching the
+        vendor as TEXT -- unvalidated, unbounded, uncounted, and replayed on
+        every later turn until MAX_HISTORY_CHARS cut them off mid-blob. They
+        travel as a proper image block now, so the text copy is removed.
+        """
+        text = html2plaintext(message.body or '')
+        return _DATA_URI.sub('[image]', text)
+
+    @staticmethod
+    def _ai_with_notes(body, rejected):
+        """Append anything the user needs to know about their attachments."""
+        if not rejected:
+            return body
+        return '\n\n'.join([body] + list(rejected)) if body else '\n'.join(rejected)
 
     def _ai_history(self, message):
         """The earlier turns of **this** conversation, and nothing else.

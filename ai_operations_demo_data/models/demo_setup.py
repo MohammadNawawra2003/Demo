@@ -173,6 +173,29 @@ CHANNELS = {
     'accounting': ('AI / Accounting Intelligence', ['omar.f']),
 }
 
+#: profile code -> logins allowed to USE the agent.
+#:
+#: Deliberately its own map rather than CHANNELS. A channel is a display
+#: convenience; eligibility is a boundary, and deriving one from the other
+#: quietly said "you may use the agents somebody made you a channel for". That
+#: was wrong the moment it was written: `huda.q` has no demo channel and is the
+#: only Quality user who can raise QUALITY_HOLD_PRODUCTION, because `rania.q`
+#: cannot read mrp.production. Deriving eligibility from CHANNELS cut her off
+#: from the agent her own scenario needs, and Document B's recall test caught it.
+#:
+#: `fahad.p` is here on purpose. He is read-only on purchase, so the request
+#: that succeeds for `noura.p` is refused for him at guard step 10 -- the
+#: sharpest scene in the demo. It needs him to REACH the guard, so hiding the
+#: agent from him would replace a demonstrated boundary with an empty dropdown.
+AGENT_USERS = {
+    'procurement': ['noura.p', 'fahad.p'],
+    'inventory': ['mansour.i'],
+    'manufacturing': ['khalid.m'],
+    'quality': ['rania.q', 'huda.q'],
+    'gm': ['faisal.gm'],
+    'accounting': ['omar.f'],
+}
+
 #: The two source records the scenarios read, and the keys that make them
 #: idempotent. SEED_ORIGIN is what makes them recognisable in a list view.
 SEED_ORIGIN = 'AI-DEMO'
@@ -200,6 +223,7 @@ class AIOperationsDemoSetup(models.AbstractModel):
     @api.model
     def build_all(self):
         company = self._company()
+        self._repair_service_users()
         profiles = {}
         for code in ROUTING:
             profiles[code] = self._configure_profile(code, company)
@@ -251,6 +275,25 @@ class AIOperationsDemoSetup(models.AbstractModel):
     # -- configuration ----------------------------------------------------
 
     @api.model
+    def _repair_service_users(self):
+        """Arm the service identities that an install order may have left bare.
+
+        ``alshayeb_demo_water`` builds the six ``AI /`` identities and declares
+        no dependency on ``ai_operations``, so it can load first -- and when it
+        does, neither ``is_ai_service_user`` nor ``group_ai_user`` exists yet to
+        be set. Upgrading that module now repairs its own work, but only if
+        somebody upgrades it; installing it standalone and adding the product
+        afterwards never would.
+
+        This module is the one place guaranteed to have both sides installed, so
+        it re-asserts the hardening here. The logic itself is not duplicated --
+        it belongs to the builder that owns these users.
+        """
+        builder = self.env['alshayeb.demo.builder']
+        for _reviewer, _escalation, login in ROUTING.values():
+            builder._harden_service_user(self._user(login))
+
+    @api.model
     def _configure_profile(self, code, company):
         """Everything C §5.1 demands of an *active* profile, and no more.
 
@@ -267,8 +310,12 @@ class AIOperationsDemoSetup(models.AbstractModel):
             distribution = self.env['res.company'].search(
                 [('name', '=', DISTRIBUTION_COMPANY)], limit=1)
             companies = company | distribution
+        # Who may use this agent. See AGENT_USERS for why this is not CHANNELS.
+        allowed = self.env['res.users'].browse(
+            [self._user(login).id for login in AGENT_USERS[code]])
         profile.write({
             'company_ids': [(6, 0, companies.ids)],
+            'user_ids': [(6, 0, allowed.ids)],
             'default_review_user_id': reviewer.id,
             'default_escalation_user_id': escalation.id,
             'service_user_id': service.id,

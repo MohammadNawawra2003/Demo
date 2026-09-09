@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Make the service identities legible.
+
+        The six "AI / <Department>" logins are agent execution identities, not
+        employees, and two independent mechanisms already stop anyone logging in
+        as them: the constraint on res.users (no password, no API key, internal
+        only) and the _check_credentials override, which reads the column
+        directly so it holds whatever the ACLs say.
+
+        What was missing is that nothing SAID so on screen. The flag existed in
+        Python and appeared in no view at all, so an administrator looking at the
+        user list saw six accounts with no explanation and reasonably asked
+        whether they should be deleted. Read-only on purpose: this is a statement
+        of what the record is, not a switch. It is set when the identity is
+        built, and clearing it here would only re-arm a login nobody wants.
+    -->
+    <record id="view_users_form_ai_service" model="ir.ui.view">
+        <field name="name">res.users.form.ai.service</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <field name="login" position="after">
+                <field name="is_ai_service_user" readonly="1"
+                       invisible="not is_ai_service_user"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="view_users_list_ai_service" model="ir.ui.view">
+        <field name="name">res.users.list.ai.service</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_tree"/>
+        <field name="arch" type="xml">
+            <field name="login" position="after">
+                <field name="is_ai_service_user" optional="hide"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="view_users_search_ai_service" model="ir.ui.view">
+        <field name="name">res.users.search.ai.service</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <filter name="ai_service_users" string="AI Service Users"
+                        domain="[('is_ai_service_user', '=', True)]"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

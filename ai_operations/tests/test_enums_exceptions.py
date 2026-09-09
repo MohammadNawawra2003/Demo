@@ -60,6 +60,11 @@ class TestEnumsAndExceptions(TransactionCase):
                 # permission's own state_restriction, which Document B 4.1
                 # ("draft only") declared and nothing had ever read.
                 'STATE_NOT_PERMITTED',
+                # Added 19.0.1.26.0 with agent eligibility. Until then the
+                # architecture had no notion of which employees may use which
+                # agent, so every AI user was offered every agent in their
+                # companies.
+                'PROFILE_NOT_ELIGIBLE',
             },
         )
 

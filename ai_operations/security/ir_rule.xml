@@ -14,6 +14,25 @@
         <field name="global" eval="True"/>
     </record>
 
+    <!--
+        Agent eligibility is deliberately NOT a record rule.
+
+        It was one, briefly, and the kernel's own mechanics broke on it. A
+        record rule scoping ai.operations.agent.profile to ('user_ids','in',
+        user.id) also hides every profile a user is not assigned, including the
+        RECEIVER of a handoff they are entitled to raise. Khalid raising a
+        material shortage to Procurement reads the target profile's code, and
+        that read became an AccessError: a crash the user sees as a server
+        error, not a refusal, in the middle of the flagship demo path. Routing
+        users, audit rows and handoffs all legitimately reference profiles their
+        reader does not own.
+
+        So eligibility is enforced where a decision is actually being made:
+        ai_widget_profiles' domain for the selector, action_open_chat for
+        opening one, and check_eligibility inside the runtime for using one.
+        Nothing narrows plain reads of the policy table. See
+        security_service.check_eligibility.
+    -->
     <record id="rule_model_permission_company" model="ir.rule">
         <field name="name">AI model permission: follows its profile</field>
         <field name="model_id" ref="model_ai_operations_model_permission"/>

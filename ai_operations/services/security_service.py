@@ -104,6 +104,11 @@ class AISecurityService(models.AbstractModel):
 
         identity = self.resolve_identity(profile, execution_mode)  # 7
         company_ids = self.resolve_companies(profile, identity)    # 8
+        # After the company scope, deliberately. Company is the coarser and more
+        # fundamental boundary, and a caller outside it should keep hearing so
+        # rather than being told about an eligibility list that would not have
+        # helped them either.
+        self.check_eligibility(profile, identity)                  # 8b
 
         validated = self.check_schema(spec, params)                # 9
 
@@ -156,6 +161,50 @@ class AISecurityService(models.AbstractModel):
             raise AIAccessDenied(
                 DenialReason.PROFILE_INACTIVE,
                 detail='profile missing or archived')
+
+    def check_eligibility(self, profile, identity):
+        """Step 8b. Whether this identity may use this agent at all.
+
+        Eligibility was never modelled: any group_ai_user holder was offered
+        every active profile in their companies, so a procurement clerk was
+        offered the Accounting agent. The record rule on the profile now scopes
+        DISCOVERY, and this scopes EXECUTION -- because a rule cannot see a
+        direct execution.run(), a discuss.channel that is already bound to a
+        profile, or a caller who obtained the record some other way.
+
+        It only ever subtracts. An eligible identity still faces every other
+        term of USER n AGENT n TOOL n ACTION n COMPANY unchanged.
+
+        Two identities are eligible without being listed, and both are
+        deliberate: the profile's own service user, because an autonomous run
+        has no human to assign, and a security administrator, because the
+        person configuring the agent has to be able to test it.
+        """
+        if self.is_eligible(profile, identity):
+            return
+        raise AIAccessDenied(
+            DenialReason.PROFILE_NOT_ELIGIBLE,
+            detail='%s is not an allowed user of agent %s' % (
+                identity.login, profile.code))
+
+    def is_eligible(self, profile, identity):
+        """The same question, as a boolean, for the surfaces that open a chat.
+
+        A door asks "may I show this?" and the guard asks "may I run this?".
+        Same answer, two callers, one definition -- so the selector, the open
+        action and the runtime cannot drift apart.
+        """
+        if not identity or not profile:
+            return False
+        if identity.id == profile.service_user_id.id:
+            return True
+        if identity._has_group('ai_operations.group_ai_security_admin'):
+            return True
+        # Read the ids, never the records. Instantiating an x2many filters it on
+        # ``active``, which fetches the res.users rows -- the same trap that made
+        # every narrow-user tool call crash on company_ids instead of refusing.
+        # See scoped_company_ids() on the profile for the full story.
+        return identity.id in profile.with_context(active_test=False).user_ids.ids
 
     def check_token_ceiling(self, profile):
         """Step 5. Fails closed: over budget, the run stops."""

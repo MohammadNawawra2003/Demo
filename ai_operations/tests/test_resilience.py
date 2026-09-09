@@ -39,6 +39,11 @@ class TestResilience(TransactionCase):
             'timeout_seconds': 120,
             'default_review_user_id': reviewer.id,
             'default_escalation_user_id': manager.id,
+            # These tests drive run() as the test user, so that user is one of
+            # the agent's own. Eligibility fails closed and would otherwise
+            # refuse before the provider is ever reached, which is precisely
+            # the thing this file exists to exercise.
+            'user_ids': [Command.set([cls.env.user.id])],
         })
 
     # -- T-90: the provider is dead and Odoo does not care ----------------

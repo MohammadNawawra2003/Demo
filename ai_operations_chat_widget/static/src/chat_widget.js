@@ -31,6 +31,7 @@ export class AiOperationsChatWidget extends Component {
 
     setup() {
         this.orm = useService("orm");
+        this.http = useService("http");
         this.menuService = useService("menu");
         this.actionService = useService("action");
         this.threadRef = useRef("thread");
@@ -47,6 +48,11 @@ export class AiOperationsChatWidget extends Component {
             messages: [],
             draft: "",
             lastFailed: null,
+            // One image per turn from the widget. Discuss can attach more; this
+            // surface is a single-line composer and a queue of thumbnails in it
+            // would cost more than it is worth.
+            pending: null,
+            uploading: false,
         });
 
         onWillStart(async () => {
@@ -168,17 +174,66 @@ export class AiOperationsChatWidget extends Component {
         }
     }
 
+    /**
+     * Upload the chosen image and hold its attachment id for the next send.
+     *
+     * Uploaded through the ordinary /mail/attachment/upload route rather than
+     * read into the browser and posted as base64: that is the route Discuss
+     * itself uses, so the file becomes a normal ir.attachment with normal
+     * ownership, and the server decides who may read it.
+     */
+    async onFileSelected(ev) {
+        const file = ev.target.files && ev.target.files[0];
+        ev.target.value = "";
+        if (!file || this.state.uploading) {
+            return;
+        }
+        this.state.uploading = true;
+        this.state.error = null;
+        try {
+            const data = new FormData();
+            data.append("ufile", file);
+            data.append("thread_id", this.state.channelId || 0);
+            data.append("thread_model", "discuss.channel");
+            const response = await this.http.post(
+                "/mail/attachment/upload", data, "text"
+            );
+            const parsed = JSON.parse(response.replace(/^\s*/, ""));
+            const attachment = parsed.data
+                ? Object.values(parsed.data["ir.attachment"] || {})[0]
+                : parsed;
+            if (!attachment || !attachment.id) {
+                throw new Error("upload");
+            }
+            this.state.pending = { id: attachment.id, name: file.name };
+        } catch {
+            this.state.error = _t("That image could not be attached.");
+        } finally {
+            this.state.uploading = false;
+        }
+    }
+
+    clearPending() {
+        this.state.pending = null;
+    }
+
     async send() {
         const body = (this.state.draft || "").trim();
+        const pending = this.state.pending;
         // One request at a time: a second send would open a second run against
-        // the same conversation, which the server refuses anyway.
-        if (!body || this.state.sending || !this.state.profileId) {
+        // the same conversation, which the server refuses anyway. An image on
+        // its own is a legitimate turn -- "what is wrong with this?" is often
+        // the picture -- so an empty body is allowed when one is attached.
+        if ((!body && !pending) || this.state.sending || !this.state.profileId) {
             return;
         }
         this.state.draft = "";
+        this.state.pending = null;
         this.state.error = null;
         this.state.messages.push({
-            author: "user", body, date: new Date().toISOString(),
+            author: "user",
+            body: pending ? `${body} [${pending.name}]`.trim() : body,
+            date: new Date().toISOString(),
         });
         this.state.sending = true;
         this._scroll();
@@ -187,7 +242,7 @@ export class AiOperationsChatWidget extends Component {
         try {
             const result = await this.orm.call(
                 "ai.operations.agent.profile", "ai_widget_send",
-                [[this.state.profileId], body]
+                [[this.state.profileId], body, pending ? [pending.id] : []]
             );
             this.state.channelId = result.channel_id;
             reply = result.reply;

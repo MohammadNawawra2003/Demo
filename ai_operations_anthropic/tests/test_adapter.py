@@ -276,3 +276,72 @@ class TestAnthropicAdapter(TransactionCase):
         ])
         self.assertEqual([m['role'] for m in vendor], ['user', 'assistant', 'user'])
         self.assertEqual([b['tool_use_id'] for b in vendor[2]['content']], ['a', 'b'])
+
+
+@tagged('post_install', '-at_install', 'ai_security')
+class TestAnthropicImages(TransactionCase):
+    """The vendor half of image input. Still no network call.
+
+    The kernel speaks a neutral block shape -- media_type and data, flat --
+    because ai_operations/services may not name a vendor (CI check 16a). Turning
+    that into whatever Anthropic wants is exactly this adapter's job, and this
+    is the seam where getting it wrong would be invisible until a live call.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.provider = self.env['ai.operations.provider.anthropic']
+
+    def test_a_text_turn_is_still_a_plain_string(self):
+        """The change must be invisible to every message that has no image."""
+        vendor = adapter.AnthropicProvider._to_vendor_messages(
+            [{'role': 'user', 'content': 'hello'}])
+        self.assertEqual(vendor, [{'role': 'user', 'content': 'hello'}])
+
+    def test_an_image_block_becomes_a_source_block(self):
+        vendor = adapter.AnthropicProvider._to_vendor_messages([{
+            'role': 'user',
+            'content': [
+                {'type': 'image', 'media_type': 'image/png', 'data': 'QUJD'},
+                {'type': 'text', 'text': 'what is this?'},
+            ],
+        }])
+        self.assertEqual(vendor[0]['content'][0], {
+            'type': 'image',
+            'source': {'type': 'base64',
+                       'media_type': 'image/png',
+                       'data': 'QUJD'},
+        })
+        self.assertEqual(vendor[0]['content'][1],
+                         {'type': 'text', 'text': 'what is this?'})
+
+    def test_the_image_precedes_the_text(self):
+        """Vendor guidance, and the kernel already orders it this way."""
+        vendor = adapter.AnthropicProvider._to_vendor_messages([{
+            'role': 'user',
+            'content': [
+                {'type': 'image', 'media_type': 'image/jpeg', 'data': 'QQ=='},
+                {'type': 'text', 'text': 'describe'},
+            ],
+        }])
+        self.assertEqual(vendor[0]['content'][0]['type'], 'image')
+
+    def test_an_unknown_block_type_is_dropped(self):
+        """The kernel and the adapter version independently. A block this
+        adapter does not understand is one it cannot promise the vendor will."""
+        vendor = adapter.AnthropicProvider._to_vendor_messages([{
+            'role': 'user',
+            'content': [
+                {'type': 'audio', 'data': 'QQ=='},
+                {'type': 'text', 'text': 'still here'},
+            ],
+        }])
+        self.assertEqual(vendor[0]['content'],
+                         [{'type': 'text', 'text': 'still here'}])
+
+    def test_every_declared_model_can_read_an_image(self):
+        for code, _label in adapter.MODELS:
+            self.assertTrue(self.provider.supports_images(model=code))
+
+    def test_a_model_this_adapter_does_not_offer_gets_no_promise(self):
+        self.assertFalse(self.provider.supports_images(model='some-other-model'))
