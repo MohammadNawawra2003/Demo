@@ -2078,6 +2078,15 @@ when any of it was written.
   exception classes raises `TypeError`. It also ran as a user the security-admin
   exemption lets through. It now presses the button as a plain AI user and asserts
   `PROFILE_NOT_ELIGIBLE`.
+- **On staging, with the real model, the run could not close the handoff.** It was
+  given only the handoff's reference, so it spent one call on `find_handoff` to get the
+  id and one on an optional `get_open_pos`. Its first `complete_handoff` then put a
+  sentence into `result_ref`, which the schema caps at 64 characters. That came to nine
+  calls against the demo profile's cap of eight. The draft was made (312.00 SAR, created
+  by Noura), but the handoff stayed ACCEPTED, and Noura was told the request needed too
+  many steps. The entry prompt now carries `handoff_id`, numbers the seven steps with one
+  call each, and says `result_ref` is the purchase order reference alone. The cap was
+  not raised, because that would widen a control.
 
 ### 2026-09-10 — two guard tightenings; open items 2 and 3 above are closed
 

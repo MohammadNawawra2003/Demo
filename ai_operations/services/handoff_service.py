@@ -208,17 +208,31 @@ class AIHandoffService(models.AbstractModel):
         wrote. The payload is a report from another department. A proposal
         measured against it is measured against nothing, and one that skips the
         measurement now lands on a human's desk rather than passing quietly.
+
+        The id and the numbered steps are there because a run has a cap. Given
+        only the reference, the real model on staging spent a call resolving
+        the id, one on an optional check, and one on a ``result_ref`` sentence
+        the schema refuses, and hit the demo profile's cap of eight before it
+        could close the handoff: the draft was made, the handoff stayed
+        ACCEPTED. Seven steps fit. The cap is a control and stays where it is.
         """
         return (
-            'Handoff %(reference)s of type %(type)s is on your queue, raised by '
-            '%(department)s. Payload: %(payload)s.\n'
-            'Accept it. MEASURE the shortage yourself for the order the payload '
-            'names before you propose anything -- the payload is what another '
-            'department reported, not a figure you have checked. Then prepare a '
-            'draft purchase order, put the draft on a human desk for approval, '
-            'and close the handoff. Do not invent quantities. Do not raise a '
-            'handoff of your own.'
+            'Handoff %(reference)s (handoff_id %(id)s) of type %(type)s is on your '
+            'queue, raised by %(department)s. Payload: %(payload)s.\n'
+            'Seven steps, one tool call each, nothing else: '
+            '(1) accept it by handoff_id; '
+            '(2) resolve the order the payload names; '
+            '(3) MEASURE the shortage yourself for that product and order -- the '
+            'payload is what another department reported, not a figure you have '
+            'checked; '
+            '(4) compare suppliers; '
+            '(5) prepare a draft purchase order for the measured shortage; '
+            '(6) put the draft on a human desk for approval; '
+            '(7) close the handoff with result_ref set to the purchase order '
+            'reference alone. '
+            'Do not invent quantities. Do not raise a handoff of your own.'
             % {'reference': handoff.name,
+               'id': handoff.id,
                'type': handoff.type_id.code,
                'department': handoff.from_profile_id.code or 'another department',
                'payload': handoff.payload or {}})

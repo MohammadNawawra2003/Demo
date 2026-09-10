@@ -411,6 +411,25 @@ class TestHandoffs(AIOperationsCommon):
         self.assertEqual(calls[0]['user'], self.env.user,
                          "the run did not carry the identity that started it")
 
+    def test_the_entry_prompt_hands_over_the_id_and_every_step(self):
+        """The run has a cap, and the prompt is written to fit it.
+
+        Measured on staging with the real model: given only the reference, the
+        receiver spent a call resolving the id, one on an optional check and one
+        on a ``result_ref`` sentence the schema refuses, and ran out of the demo
+        profile's eight calls before it could close the handoff.
+        """
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        prompt = self.service.entry_prompt(handoff)
+        self.assertIn('handoff_id %s' % handoff.id, prompt,
+                      "the receiver has to spend a call finding the id")
+        positions = [prompt.find('(%d)' % step) for step in range(1, 8)]
+        self.assertNotIn(-1, positions, "a step is missing")
+        self.assertEqual(positions, sorted(positions), "steps out of order")
+        self.assertIn('result_ref set to the purchase order reference alone',
+                      prompt)
+
     def _start_work_returning(self, result):
         def fake_run(self, profile_code, trigger, session_id=None,
                      entry_prompt=None, correlation_id=None, history=None,
