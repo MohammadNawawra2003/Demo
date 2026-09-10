@@ -9,6 +9,7 @@ import {
     models,
     mountWithCleanup,
     onRpc,
+    patchWithCleanup,
 } from "@web/../tests/web_test_helpers";
 import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { AiOperationsChatWidget } from "@ai_operations_chat_widget/chat_widget";
@@ -142,6 +143,58 @@ test("a server failure answers with a neutral sentence, never a traceback", asyn
     const reply = queryFirst(".o_ai_chat_bubble_agent .o_ai_chat_body").textContent;
     expect(reply).not.toInclude("RPC_ERROR");
     expect(reply).not.toInclude("internal");
+});
+
+test("an image upload carries the CSRF token and holds the id Odoo 19 returns", async () => {
+    // George's "That image could not be attached." was two defects in this
+    // one call: Odoo 19's http.post no longer adds csrf_token, so the route
+    // answered 400; and the reply is {data: {attachment_id, store_data}},
+    // which the old parse read as data["ir.attachment"] and found nothing.
+    mockProfiles(TWO_PROFILES);
+    patchWithCleanup(odoo, { csrf_token: "the-csrf-token" });
+    onRpc("/mail/attachment/upload", async (request) => {
+        const body = await request.formData();
+        expect.step(`csrf ${body.get("csrf_token")}`);
+        expect.step(`thread ${body.get("thread_model")} ${body.get("thread_id")}`);
+        return { data: { attachment_id: 42, store_data: { "ir.attachment": [{ id: 42 }] } } };
+    });
+    const widget = await mountWithCleanup(AiOperationsChatWidget);
+    await click(".o_ai_chat_launcher");
+    await animationFrame();
+
+    const file = new File(["png"], "shapes.png", { type: "image/png" });
+    await widget.onFileSelected({ target: { files: [file], value: "" } });
+
+    expect.verifySteps(["csrf the-csrf-token", "thread discuss.channel 7"]);
+    expect(widget.state.pending).toEqual({ id: 42, name: "shapes.png" });
+    expect(widget.state.error).toBe(null);
+});
+
+test("each text takes its direction from its own content inside an RTL page", async () => {
+    // The Arabic UI is RTL. An English sentence inheriting that direction
+    // renders ".That image could not be attached" -- the screenshot.
+    mockProfiles(TWO_PROFILES);
+    const widget = await mountWithCleanup(AiOperationsChatWidget);
+    queryFirst(".o_ai_chat_widget").setAttribute("dir", "rtl");
+    await click(".o_ai_chat_launcher");
+    await animationFrame();
+    const direction = (selector) => getComputedStyle(queryFirst(selector)).direction;
+
+    expect(direction(".o_ai_chat_thread > .text-muted")).toBe("ltr");
+
+    widget.state.messages = [
+        { id: 1, author: "user", body: "ما هي الفواتير المتأخرة؟" },
+        { id: 2, author: "agent", body: "Refused: you may not do that." },
+    ];
+    widget.state.error = "That image could not be attached.";
+    await animationFrame();
+
+    const bodies = queryAll(".o_ai_chat_body");
+    expect(getComputedStyle(bodies[0]).direction).toBe("rtl");
+    expect(getComputedStyle(bodies[1]).direction).toBe("ltr");
+    expect(direction(".o_ai_chat_panel .alert span")).toBe("ltr");
+    // The page itself stays RTL: only content-bearing elements decide.
+    expect(direction(".o_ai_chat_panel")).toBe("rtl");
 });
 
 test("switching agent does not carry the transcript across", async () => {

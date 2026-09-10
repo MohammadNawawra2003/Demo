@@ -59,6 +59,22 @@ class TestImageIntake(AIOperationsCommon):
         self.assertEqual(blocks[0]['media_type'], 'image/png')
         self.assertTrue(blocks[0]['data'])
 
+    def test_jpeg_gif_and_webp_are_accepted_by_their_bytes(self):
+        """The four types the contract names, typed by what the bytes say.
+
+        Every one is declared image/png, which is what a browser sends for a
+        renamed file: the block must carry the sniffed type, never the claim.
+        """
+        from PIL import Image, WebPImagePlugin  # noqa: F401 -- Odoo preinits PIL without WebP
+        for fmt, media_type in (('JPEG', 'image/jpeg'), ('GIF', 'image/gif'),
+                                ('WEBP', 'image/webp')):
+            buffer = io.BytesIO()
+            Image.new('RGB', (40, 40), (30, 200, 30)).save(buffer, format=fmt)
+            blocks, rejected = images_service.collect(
+                self._attachment(buffer.getvalue(), name='shot.png'), self.employee)
+            self.assertEqual(rejected, [], fmt)
+            self.assertEqual(blocks[0]['media_type'], media_type, fmt)
+
     def test_a_large_image_is_downscaled(self):
         """Cost control, not cosmetics.
 
@@ -101,6 +117,18 @@ class TestImageIntake(AIOperationsCommon):
         blocks, rejected = images_service.collect(theirs, self.employee)
         self.assertEqual(blocks, [])
         self.assertTrue(rejected)
+
+    def test_an_attachment_on_another_companys_record_is_refused(self):
+        """The COMPANY term. The file is on a record of a company this user is
+        not in, so the record rule that hides the record hides the file."""
+        foreign = self.env['res.partner'].create({
+            'name': 'Foreign Partner', 'company_id': self.other_company.id})
+        theirs = self.env['ir.attachment'].create({
+            'name': 'foreign.png', 'datas': base64.b64encode(_png()),
+            'res_model': 'res.partner', 'res_id': foreign.id})
+        blocks, rejected = images_service.collect(theirs, self.employee)
+        self.assertEqual(blocks, [])
+        self.assertEqual(rejected, ["An attached file could not be read."])
 
     def test_the_refusal_does_not_say_whether_the_file_exists(self):
         """A different message for "not yours" than for "no such file" is an

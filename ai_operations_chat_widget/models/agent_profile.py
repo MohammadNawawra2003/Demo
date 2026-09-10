@@ -168,11 +168,11 @@ class AIOperationsAgentProfile(models.Model):
         message cannot carry markup into anyone's conversation.
 
         ``attachment_ids`` are passed straight to ``message_post`` and are NOT
-        trusted here: whether the caller may read them is decided later, as the
-        posting user, in the dispatcher. Core does not decide it -- for an
-        internal user ``_process_attachments_for_post`` links whatever ids it is
-        given -- so posting one that belongs to somebody else succeeds and then
-        gets refused at the point where it would have been read.
+        trusted here. Odoo 19 refuses the post outright when one of them sits on
+        another record the caller may not read (``mail.message.create`` checks
+        ``read`` on those; test_widget_upload proves it over HTTP), and the
+        dispatcher checks every attachment again, as the posting user, before
+        any byte of it is read.
         """
         self.ensure_one()
         channel = self._ai_widget_channel()

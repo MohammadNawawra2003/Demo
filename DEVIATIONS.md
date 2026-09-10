@@ -2087,6 +2087,12 @@ when any of it was written.
   many steps. The entry prompt now carries `handoff_id`, numbers the seven steps with one
   call each, and says `result_ref` is the purchase order reference alone. The cap was
   not raised, because that would widen a control.
+- **Re-run on staging at `960ee6f`, real model, 2026-09-10 10:50 UTC: passed.** Seven
+  calls in the listed order, no denial, `P00037` 312.00 SAR created by `noura.p` and
+  left in draft, the handoff COMPLETED, Fahad refused for both vendors, reset clean. On
+  the Jeddah request the model retried the refused call until the cap, so Fahad's reply
+  was the "more steps" sentence rather than the fixed refusal. The audit row carries
+  `USER_ACL_DENIED` either way.
 
 ### 2026-09-10 — two guard tightenings; open items 2 and 3 above are closed
 
@@ -2148,10 +2154,82 @@ Two options: stamp `service_user_id` only on autonomous rows, or relabel it *Age
 Service Account*. Either changes the audit log's meaning, so it is the owner's call, not
 this round's. The runbook and `GUIDE_STALE_ITEMS.md` now say to read Execution Mode.
 
-### Open, and not this round's code: chat bubbles have no `dir="auto"`
+### 2026-09-10 — George: "That image could not be attached." (fixed)
 
-Found by the demo-video session. In a right-to-left UI, an English line in the chat
-widget renders with its full stop on the left:
-`.Refused: this request is outside the agent's authorised scope`. The same happens to
-the empty-state hint. Arabic lines render correctly. The fix is `dir="auto"` on
-`.o_ai_chat_body` in `ai_operations_chat_widget`, which this round does not touch.
+George, as `omar.f` in Accounting Intelligence on staging, pressed the paperclip, chose
+an image and got *That image could not be attached.* The staging log holds four
+`POST /mail/attachment/upload` → **400**, each preceded by `No CSRF validation token
+provided`. Reproduced locally in a real browser on the same path before the fix: 400,
+*Session expired (invalid CSRF token)*.
+
+Two defects, stacked, both in `chat_widget.js`, both client-side:
+
+1. **No CSRF token.** The route is `type="http"`, so Odoo checks CSRF on every POST.
+   Odoo 19's `http.post` does not add the token; core's own `file_upload` service
+   appends it itself (`file_upload_service.js:42`). The widget called `http.post` bare,
+   so the request died in `odoo.http` before any AI Operations code ran — for every
+   user and every agent, admin included. Accounting was only where George tried it.
+2. **The reply was parsed for a shape Odoo 19 does not send.** The route answers
+   `{"data": {"store_data": …, "attachment_id": N}}`; the widget read
+   `data["ir.attachment"]`, found nothing and threw. Fixing only the token would have
+   shown George the same sentence.
+
+Why nothing caught it: the widget's upload had no test, the hoot file is not run by
+the Python suite, and the 2026-09-09 image proof on staging uploaded through the shell,
+not the widget. The server half — the per-user access check, magic-number sniffing,
+5 MB, 4 per turn, 1568 px, current turn only — was sound and is unchanged.
+
+**Fix:** append `csrf_token` the way core does, and read `data.attachment_id`. No
+server code changed; no route, ACL, record rule or `sudo()` was added.
+
+**Security reasoning.** The token goes only to the same-origin route Discuss's own
+paperclip uses. The attachment id the widget holds is client data and is not trusted:
+Odoo 19's `mail.message.create` checks `read`, as the user, on any attachment that sits
+on another record, and refuses the whole post (proved over HTTP by
+`test_somebody_elses_attachment_id_is_not_sent`); `services/images.py` then checks
+every attachment again as the posting user before it reads a byte. The `ai_widget_send`
+docstring said core links whatever ids it is given; in Odoo 19 that is untrue, and it is
+corrected. The same overstatement ("would otherwise be posted and read quite happily")
+stays in the `images.py` and `discuss_channel._ai_images` docstrings, which this round
+did not touch: the check they describe is still needed for attachments already on the
+channel. It is simply no longer the only one.
+
+**Tests.**
+- `static/tests/chat_widget.test.js`: the upload carries the token and holds the id
+  Odoo 19 returns; each text takes its direction from its own content inside an RTL
+  parent. Both failed on the old widget in a real browser (`csrf null`, `rtl`); 11/11
+  after. They run in a browser (`/web/tests?filter=ai_operations_chat_widget`), not in
+  the Python suite.
+- `tests/test_widget_upload.py` (HttpCase, as a plain eligible user): no token → 400; a
+  2400 px PNG lands on the user's own channel, the provider receives exactly one
+  `{type, media_type, data}` block downscaled to 1568 px, no audit row carries its
+  bytes, and the next text turn replays no image; somebody else's attachment id is
+  refused and no turn runs; a user who is not in the conversation cannot upload into
+  it (404).
+- `ai_operations/tests/test_images.py`: JPEG, GIF and WebP declared as `image/png` are
+  accepted and typed by their bytes; an attachment on another company's record is
+  refused with the same neutral sentence.
+
+Known limit, pre-existing: Odoo's `image_process` returns WebP bytes untouched, so a
+WebP larger than 1568 px is not downscaled. It is still bounded by 5 MB. Recorded, not
+changed.
+
+### 2026-09-10 — chat widget text direction (fixed)
+
+Found by the demo-video session and visible in George's screenshot: in the Arabic (RTL)
+UI an English line renders with its full stop on the left —
+`.That image could not be attached`, `.Refused: …`, the empty-state hint,
+`…Message the agent`. Nothing in the widget set a direction, so every text inherited
+the page's RTL paragraph direction.
+
+`dir="auto"` now sits on each element that carries text: the agent name, the loading
+and empty-state hints, each bubble body, the error line, the attachment name, and the
+textarea (so its placeholder too). Each takes its direction from its first strong
+character. The panel is not forced LTR. Verified in a real browser as `omar.f`
+(`ar_001`): Arabic bubble `rtl`, English bubble and placeholder `ltr`, and the page
+around the panel still RTL.
+
+Separate, and not fixed: the widget's own strings are English in the Arabic UI because
+`i18n/ar_001.po` files them as `model_terms:ir.ui.view` although they live in a static
+OWL template, so the translation never applies. Odoo's navbar also shows
+`.Naqaa Water Manufacturing Co`, which is core markup, not this module.

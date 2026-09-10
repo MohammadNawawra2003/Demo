@@ -253,20 +253,20 @@ export class AiOperationsChatWidget extends Component {
         this.state.error = null;
         try {
             const data = new FormData();
+            // Odoo 19's http.post does not add the token, and the route is a
+            // CSRF-checked type="http" POST: without it every upload was a 400.
+            // Core's own file_upload service appends it the same way.
+            data.append("csrf_token", odoo.csrf_token);
             data.append("ufile", file);
             data.append("thread_id", this.state.channelId || 0);
             data.append("thread_model", "discuss.channel");
-            const response = await this.http.post(
-                "/mail/attachment/upload", data, "text"
-            );
-            const parsed = JSON.parse(response.replace(/^\s*/, ""));
-            const attachment = parsed.data
-                ? Object.values(parsed.data["ir.attachment"] || {})[0]
-                : parsed;
-            if (!attachment || !attachment.id) {
+            const response = await this.http.post("/mail/attachment/upload", data);
+            // Odoo 19 answers {data: {attachment_id, store_data}}.
+            const attachmentId = response.data && response.data.attachment_id;
+            if (!attachmentId) {
                 throw new Error("upload");
             }
-            this.state.pending = { id: attachment.id, name: file.name };
+            this.state.pending = { id: attachmentId, name: file.name };
         } catch {
             this.state.error = _t("That image could not be attached.");
         } finally {
