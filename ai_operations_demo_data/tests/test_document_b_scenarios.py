@@ -29,10 +29,18 @@ class TestDocumentBScenarios(TransactionCase):
         return self.env['res.users'].with_context(active_test=False).search(
             [('login', '=', login)], limit=1)
 
-    def _call(self, profile, login, code, params):
+    def _call(self, profile, login, code, params, budget=None):
+        """``budget`` shares one run across several calls.
+
+        A scenario that measures with one tool and proposes with another is one
+        RUN, and the deterministic baseline now lives on the run: a tool reads
+        a figure out of the ERP and a later tool in the same run may use it.
+        Calls made without a shared budget are separate runs, which is exactly
+        what the single-tool tests below want.
+        """
         runner = self.env['ai.operations.execution'].with_user(self._user(login))
         return runner.execute_tool(profile, code, params, 'INTERACTIVE', 'CHAT',
-                                   'doc-b')
+                                   'doc-b', budget=budget)
 
     # ==================================================================
     # §3 the roster
@@ -152,27 +160,50 @@ class TestDocumentBScenarios(TransactionCase):
                                 'warehouse_id': warehouse.id})
         self.assertEqual(raised['to_profile'], 'procurement')
 
-        # 12 — Procurement accepts from its own queue.
+        # 12 — Procurement accepts from its own queue. A PERSON does this now:
+        # arrival puts the item on Noura's clock and stops there.
+        from odoo.addons.ai_operations.services.context import RunBudget
+        budget = RunBudget(max_tool_calls=12, max_write_ops=3)
         accepted = self._call(self.procurement, 'noura.p',
                               'procurement.accept_handoff',
-                              {'handoff_id': raised['handoff_id']})
+                              {'handoff_id': raised['handoff_id']},
+                              budget=budget)
         self.assertEqual(accepted['state'], 'ACCEPTED')
         self.assertEqual(accepted['product_id'], component.id)
 
         # 13-18 — the draft, above the routine bound.
+        #
+        # Measured first, and in the SAME run, because §7's escalation only
+        # means something if the baseline is Odoo's figure rather than the
+        # agent's. Steps 17-18 are the design's own statement of this: 620,000
+        # recommended against 486,000 deterministic, +27.6%, "deliberately
+        # breach[ing] the +20% routine bound so the escalation path is
+        # demonstrated rather than described". A run that proposes without
+        # measuring has nothing to breach the bound against, and now escalates
+        # for that reason instead.
         offers = self._call(self.procurement, 'noura.p',
                             'procurement.compare_suppliers',
-                            {'product_id': component.id})['offers']
+                            {'product_id': component.id},
+                            budget=budget)['offers']
         vendor = offers[0]
+        measured = self._call(self.procurement, 'noura.p',
+                              'procurement.get_shortage_context',
+                              {'product_id': component.id,
+                               'production_id': production.id},
+                              budget=budget)
+        shortage = measured['shortage']
+        self.assertGreater(shortage, 0.0, "nothing to measure the draft against")
+        recommended = round(shortage * 1.276)
         draft = self._call(self.procurement, 'noura.p',
                            'procurement.prepare_draft_rfq', {
                                'product_id': component.id,
                                'partner_id': vendor['partner_id'],
-                               'deterministic_shortage': 486000.0,
-                               'recommended_quantity': 620000.0})
+                               'deterministic_shortage': shortage,
+                               'recommended_quantity': recommended},
+                           budget=budget)
         self.assertTrue(draft['approval_required'],
                         "+27.6% did not escalate")
-        self.assertAlmostEqual(draft['variance_pct'], 27.57, places=1)
+        self.assertAlmostEqual(draft['variance_pct'], 27.6, places=0)
 
         # 21-22 — and it lands on a desk, escalated because of the flag.
         activity = self._call(self.procurement, 'noura.p',
@@ -183,7 +214,8 @@ class TestDocumentBScenarios(TransactionCase):
                                           '620,000 / variance +27.6%',
                                   'reason_code': 'SHORTAGE_RFQ',
                                   'severity': 'ATTENTION',
-                                  'escalate': draft['approval_required']})
+                                  'escalate': draft['approval_required']},
+                              budget=budget)
         self.assertFalse(activity['suppressed'], "nothing reached a desk")
         self.assertEqual(activity['assignee'], 'ahmed.q',
                          "the escalation did not go to the manager")
@@ -192,7 +224,8 @@ class TestDocumentBScenarios(TransactionCase):
         closed = self._call(self.procurement, 'noura.p',
                             'procurement.complete_handoff',
                             {'handoff_id': raised['handoff_id'],
-                             'result_ref': draft['reference']})
+                             'result_ref': draft['reference']},
+                            budget=budget)
         self.assertEqual(closed['state'], 'COMPLETED')
 
     def test_row14_the_activity_is_escalated_by_the_approval_flag(self):

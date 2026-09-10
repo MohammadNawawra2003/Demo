@@ -5,6 +5,72 @@ not have to re-derive it.
 
 ---
 
+## 00. 2026-09-10 — the Start Work round. Read this before §0.
+
+It reverses part of what §0's round delivered, so read this first.
+
+### 00a. The receiving department no longer starts by itself
+
+**Was:** the moment Manufacturing raised a handoff, Procurement's agent accepted it,
+compared suppliers, drafted the purchase order and closed the handoff, with nobody
+watching.
+
+**Now:** the receiving employee is *told*: the activity clock, the chat badge, and the
+handoff's chatter all show it, as before. They then open the handoff and press **Start
+Work**. The agent runs **as them**, with their own permissions, and still only prepares
+drafts.
+
+**What this makes stale:**
+- any sentence saying the other department "starts on its own" or "the work is already
+  done when she looks"
+- any screenshot showing a draft purchase order waiting before anyone opened the handoff
+- "two activities arrive with the handoff". One arrives; the purchase-order review
+  activity appears after Start Work.
+
+**Why:** Phase 1 is Level 2 *Prepare*, and Level 2 has a person in it. Work that begins
+unattended belongs to the daily cron, which ships switched off.
+
+### 00b. A new button: Start Work
+
+On the handoff form, hidden once the handoff is Completed, Cancelled or Rejected.
+Pressing it runs the receiving agent and shows its summary as a notification, and the
+form then reloads. An employee not assigned to that agent is refused. Worth a screenshot.
+
+### 00c. The audit trail of a handoff run now names a person
+
+**Was:** Execution Mode **Autonomous**, the run executed as `AI / Procurement`.
+**Now:** Execution Mode **Interactive**, Trigger **Handoff**, and Interactive User is
+the person who pressed Start Work. The draft purchase order is created by that person.
+
+Any caption built on "the automatic work ran as the service identity" is stale.
+
+⚠ **The Autonomous Identity column is not "who ran it".** It holds the agent's
+configured service account on **every** row, ordinary chat included, and always has.
+Who executed is read from **Execution Mode**: Interactive means the Interactive User,
+Autonomous means the service account. A guide sentence that reads Autonomous Identity
+as the executor is wrong for every interactive row.
+
+### 00d. Allow Autonomous is unticked on every agent
+
+It governs the daily cron only.
+
+Stale: "enabled on the agents that receive work".
+
+### 00e. A draft proposed without measuring now arrives flagged
+
+The agent must measure the shortage in the same run before it proposes a quantity. A
+draft proposed without that measurement arrives with **approval required**. A draft
+measured and within the routine bound arrives unflagged, as before.
+
+### 00f. The screenshot pack is stale
+
+It has not been recaptured. It shows the old flow, and every image in it was captured
+left-to-right: the capture machine lacked the tool that converts Odoo's styles for
+Arabic. See the notice at the top of `SCREENSHOT_INDEX.md` in the pack. **Do not
+illustrate the guide from it** until it is rebuilt.
+
+---
+
 ## 0. 2026-09-09 — George's feedback round. Read this section first.
 
 Four changes from this round, and the first one invalidates **every screenshot of

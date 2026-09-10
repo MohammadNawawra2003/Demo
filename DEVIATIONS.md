@@ -2036,3 +2036,113 @@ difference visible.**
 `audit_log.token_input` / `token_output` are 0 on those rows. That is the documented
 gap — `execution.py` reads `getattr(ctx, 'usage', None)` and `ExecutionContext` has no
 such field — and it belongs in DO NOT CLAIM rather than being explained away.
+
+### 2026-09-10 — Start Work: arrival notifies, a person starts the work
+
+This reverses the unattended half of the 2026-09-09 handoff round. Arrival still does
+everything a person needs to find the work: the chatter post, the activity on the
+receiving profile's reviewer, the widget badge and the queue item. It no longer runs the
+receiving agent.
+
+**Why.** Document B §3 caps Phase 1 at Level 2 Prepare and keeps every state transition
+a human action. Accepting a handoff, drafting a purchase order and filing a review
+activity with nobody watching was unattended execution, whatever the records it writes
+are called. §7 step 12 routes the only unattended accept-and-draft through the
+procurement agent's **07:15 cron**, which is a different trigger and ships inactive.
+Nothing frozen asked for work to begin on arrival; `TriggerType.HANDOFF` did not exist
+when any of it was written.
+
+**What changed:**
+- **A Start Work button.** `ai.operations.handoff.action_start_work` puts it on the
+  handoff form, hidden once the item is closed. It runs the receiving agent with trigger
+  `HANDOFF` in **INTERACTIVE** mode, as the person who pressed it, so their eligibility,
+  company scope and ACLs all apply. The trigger is kept because it is provenance, and
+  because the cascade block keys on it. The button returns a notification carrying the
+  same text a chat turn shows (`discuss.channel._ai_body`, so a refusal still reads
+  `NEUTRAL_DENIAL`), followed by `soft_reload`.
+- **`security.resolve_mode(trigger)` is the one place that decides the mode**, and only
+  `CRON` is autonomous. `run()` asks it instead of mapping inline, so the guard and the
+  runner cannot disagree. `_open_the_work` was removed in the same change; a leftover
+  call would have run as the *raiser*.
+- **`allow_autonomous` is `False` on all six demo profiles again.** It governs the cron,
+  and the four crons still ship `active=False`.
+
+**Found while finishing, and fixed:**
+- **The button returned `run()`'s result dict.** The web client passes whatever a button
+  returns to its action service, and a dict with no `type` is an error dialog. The run
+  had finished and committed, and the person who pressed the button was shown a failure.
+  No test could see it, because every test called the method from Python. Two tests now
+  assert the returned action.
+- **The eligibility test for this path could never pass.** Odoo's
+  `TransactionCase.assertRaises` calls `issubclass` on its argument, so a tuple of
+  exception classes raises `TypeError`. It also ran as a user the security-admin
+  exemption lets through. It now presses the button as a plain AI user and asserts
+  `PROFILE_NOT_ELIGIBLE`.
+
+### 2026-09-10 — two guard tightenings; open items 2 and 3 above are closed
+
+**Authorisation before the replay guard.** `prepare_draft_rfq` now calls
+`ctx.check_create('purchase.order', action_code='CREATE_DRAFT')` **before** the
+idempotency lookup. That check covers the agent's model permission, the declared action,
+and the execution user's own `create` ACL. A caller who cannot create a purchase order is
+now refused whether or not a matching draft already exists, and authorisation no longer
+depends on what the database holds. `security.check_create` is general; this is its only
+caller today.
+
+**A baseline is what the run measured.**
+- `get_shortage_context` records the shortage it read on the run, in
+  `RunBudget.measurements` keyed `('shortage', product_id)`.
+- `prepare_draft_rfq` compares the proposal against that recorded figure.
+- `deterministic_shortage` stays in the schema as the model's *claim* (DL-008), but it
+  is no longer the baseline.
+- With no measurement in the run, the baseline is 0.0 and the existing zero-baseline rule
+  escalates. That is George's 2026-09-06 ruling, not a new control.
+- **No monetary threshold was added.** The value/size question in open item 3 is
+  superseded rather than answered: the tautology is removed at its source.
+
+Consequences:
+- **It is keyed by product** because one run can measure several products. An unkeyed
+  figure would apply one product's baseline to another's proposal, and it would look
+  like a working control.
+- **A run that proposes without measuring now escalates** (`approval_required=True`). The
+  handoff entry prompt tells the receiver to measure first.
+- **A variance check cannot tell the right order from a wrong one.** If runbook step 3 is
+  run without step 2 and the agent picks another order, the receiver measures *that*
+  order's real gap and proposes it. That draft is routine, unflagged, and correct for the
+  order it was given. Getting the order right stays the presenter's job, as before.
+
+### Owner's call, not taken: `HANDOFF_CASCADE_BLOCKED` stays keyed on the trigger
+
+With a person pressing Start Work on every hop, the unattended ping-pong this rule was
+written for can no longer happen. The rule is therefore stricter than its own rationale,
+and it costs a receiver the ability to hand work onward inside a run somebody started.
+Narrowing it to `AUTONOMOUS and HANDOFF` would **widen** what an agent may do, and this
+round was not asked for that. It is left as it is; the argument is in the comment at
+`handoff_service.raise_handoff`.
+
+### Open, and not this round's code: "Autonomous Identity" is not the executor
+
+`security.authorize()` passes `service_user=profile.service_user_id` to `open_entry` on
+**every** call, so `audit_log.service_user_id` holds the profile's configured service
+account on every `OPEN` row, interactive chat included. This is pre-existing; a database
+built from `3567600` shows `CHAT / INTERACTIVE` rows carrying it too. The
+2026-09-09 entry above ("the executor in `service_user_id`") is true of **autonomous**
+rows only.
+
+The executor is decided by `execution_mode`. **INTERACTIVE** means `user_id` executed.
+**AUTONOMOUS** means `service_user_id` executed. After this round every handoff run is
+interactive, so the column labelled *Autonomous Identity* now shows `AI / Procurement`
+beside rows that Noura ran. That is the same legibility trap as the column fix above,
+one step on.
+
+Two options: stamp `service_user_id` only on autonomous rows, or relabel it *Agent
+Service Account*. Either changes the audit log's meaning, so it is the owner's call, not
+this round's. The runbook and `GUIDE_STALE_ITEMS.md` now say to read Execution Mode.
+
+### Open, and not this round's code: chat bubbles have no `dir="auto"`
+
+Found by the demo-video session. In a right-to-left UI, an English line in the chat
+widget renders with its full stop on the left:
+`.Refused: this request is outside the agent's authorised scope`. The same happens to
+the empty-state hint. Arabic lines render correctly. The fix is `dir="auto"` on
+`.o_ai_chat_body` in `ai_operations_chat_widget`, which this round does not touch.

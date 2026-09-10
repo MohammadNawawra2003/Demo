@@ -18,15 +18,12 @@ One format was doing two jobs with opposite requirements:
 So there are two builders below, named for what they key.
 """
 
-import logging
 
 from odoo import _, api, models
 from odoo.tools.mail import plaintext2html
 
 from .enums import DenialReason, HandoffState, TriggerType
 from .exceptions import AIAccessDenied
-
-_logger = logging.getLogger(__name__)
 
 
 def record_idempotency_key(profile_code, company_id, purpose, product_ref,
@@ -62,6 +59,14 @@ class AIHandoffService(models.AbstractModel):
         # every hop a provider call, and one bad payload escaping the department
         # that produced it. Checked here because all three raisers
         # (manufacturing, inventory, quality) come through this one function.
+        # Kept on the trigger alone, deliberately, now that a handoff run is
+        # attended. The unattended ping-pong this was written for cannot happen
+        # any more -- every hop needs a person to press the button -- so the
+        # rule is now stricter than its own rationale requires, and it costs a
+        # receiver the ability to hand onward inside the run somebody started.
+        # Narrowing it to `AUTONOMOUS and HANDOFF` would be a widening of what
+        # an agent may do, and this round was not asked for one. Raised in
+        # DEVIATIONS as the owner's call rather than taken here.
         if ctx.trigger == TriggerType.HANDOFF.value:
             raise AIAccessDenied(
                 DenialReason.HANDOFF_CASCADE_BLOCKED,
@@ -145,7 +150,21 @@ class AIHandoffService(models.AbstractModel):
             assignee=receiver.default_review_user_id,
             routing_profile=receiver)
 
-        self._open_the_work(ctx, handoff)
+        # AND IT STOPS THERE. Arrival tells the receiving side; it does not do
+        # the receiving side's work.
+        #
+        # This used to continue into `run(receiver, HANDOFF)`, which accepted
+        # the handoff, drafted a purchase order and filed a review activity
+        # with nobody watching. Document B §3 caps Phase 1 at Level 2 Prepare
+        # and says every state transition stays a human action; §7 routes the
+        # only unattended accept-and-draft through the 07:15 **cron** under the
+        # service identity, which is a different trigger and ships inactive.
+        # Nothing frozen asked for work to begin on arrival -- the HANDOFF
+        # trigger did not exist when any of it was written.
+        #
+        # `ai.operations.handoff.action_start_work` replaces it: a person opens
+        # the item they were told about, and the receiving agent runs
+        # INTERACTIVE under that person's identity.
 
     def _payload_lines(self, handoff):
         """The payload as something a person can act on.
@@ -176,42 +195,29 @@ class AIHandoffService(models.AbstractModel):
             lines.append('  %s: %s' % (field, value if value != '' else '-'))
         return '\n'.join(lines)
 
-    def _open_the_work(self, ctx, handoff):
-        """Let the receiving agent read its own new item and prepare a draft.
-
-        Document C 9's autonomous branch, entered by handoff rather than by
-        cron. The identity is the receiver's own service user, resolved inside
-        ``run()`` -- never the raiser, never an administrator, never ``sudo()``.
-
-        A refusal here is not a failure of the raise. The work is queued and the
-        human has been told; an agent that cannot start is exactly the
-        fail-closed outcome, and it is already audited by the runtime.
-        """
-        receiver = handoff.to_profile_id
-        try:
-            self.env['ai.operations.execution'].run(
-                receiver.code, TriggerType.HANDOFF.value,
-                entry_prompt=self._entry_prompt(handoff),
-                correlation_id=ctx.correlation_id)
-        except AIAccessDenied as denial:
-            _logger.info(
-                "ai_operations: %s did not open %s: %s",
-                receiver.code, handoff.name, denial.detail)
-
-    def _entry_prompt(self, handoff):
+    def entry_prompt(self, handoff):
         """Composed here, from the record -- never by the model.
 
         Naming the tools and forbidding the rest is not decoration. The same
         step driven by a vague sentence spent thirteen tool calls against a cap
         of eight, and drafted the handoff's quantity instead of the order's.
+
+        It used to end "use the deterministic figure from the payload", which
+        instructed the receiver to do the very thing the variance control now
+        refuses to accept: take its baseline from a number the raising tool
+        wrote. The payload is a report from another department. A proposal
+        measured against it is measured against nothing, and one that skips the
+        measurement now lands on a human's desk rather than passing quietly.
         """
         return (
             'Handoff %(reference)s of type %(type)s is on your queue, raised by '
             '%(department)s. Payload: %(payload)s.\n'
-            'Accept it, prepare a draft purchase order for the shortage it '
-            'reports, put the draft on a human desk for approval, then close '
-            'the handoff. Use the deterministic figure from the payload; do not '
-            'invent quantities. Do not raise a handoff of your own.'
+            'Accept it. MEASURE the shortage yourself for the order the payload '
+            'names before you propose anything -- the payload is what another '
+            'department reported, not a figure you have checked. Then prepare a '
+            'draft purchase order, put the draft on a human desk for approval, '
+            'and close the handoff. Do not invent quantities. Do not raise a '
+            'handoff of your own.'
             % {'reference': handoff.name,
                'type': handoff.type_id.code,
                'department': handoff.from_profile_id.code or 'another department',

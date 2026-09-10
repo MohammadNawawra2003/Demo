@@ -22,6 +22,21 @@
         <field name="model">ai.operations.handoff</field>
         <field name="arch" type="xml">
             <form string="Handoff" create="false" edit="false">
+                <!--
+                    The work starts because a person starts it. Arrival puts
+                    this record on the receiving department's clock and stops;
+                    Phase 1 is Level 2 Prepare and Level 2 has a human in it.
+                    Hidden once the item is closed so a finished handoff cannot
+                    be re-run into a second draft.
+                -->
+                <header>
+                    <button name="action_start_work" type="object"
+                            string="Start Work" class="btn-primary"
+                            invisible="state in ('COMPLETED', 'CANCELLED', 'REJECTED')"
+                            help="Open this work with the receiving agent. It runs
+                                  as you, with your permissions, and prepares
+                                  drafts only."/>
+                </header>
                 <sheet>
                     <div class="oe_title"><h1><field name="name"/></h1></div>
                     <group>

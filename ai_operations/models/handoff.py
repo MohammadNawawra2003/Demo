@@ -3,7 +3,13 @@ import json
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
-from ..services.enums import Priority, DenialReason, HandoffState, to_selection
+from ..services.enums import (
+    DenialReason,
+    HandoffState,
+    Priority,
+    TriggerType,
+    to_selection,
+)
 from ..services.exceptions import AIAccessDenied
 
 
@@ -155,3 +161,53 @@ class AIOperationsHandoff(models.Model):
                 raise ValidationError(
                     "%s may not be raised by %s."
                     % (handoff_type.code, handoff.from_profile_id.code))
+
+    def action_start_work(self):
+        """A person opens the work they were told about. Document B §3.
+
+        This is what replaced the receiving agent entering itself on arrival.
+        The difference is not cosmetic: the run carries the identity of whoever
+        pressed the button, so eligibility, the company scope and the user's
+        own ACLs all apply to a real person, and `USER_ACL_DENIED` means what
+        it says on this path for the first time.
+
+        The trigger stays ``HANDOFF``. It is provenance -- the audit row still
+        says this run came from a queue item rather than from a chat -- and it
+        is what the one-hop cascade block keys on. What changed is the mode it
+        resolves to, which is decided in one place: ``security.resolve_mode``.
+
+        It returns an ACTION, never the run's result. A button's return value
+        goes straight to the web client's action service, and a dict with no
+        ``type`` is an error dialog: the run had finished and committed, and the
+        person who pressed the button was shown a failure. The text is the one
+        a chat turn would show (``discuss.channel._ai_body``), so a refusal
+        reads as NEUTRAL_DENIAL here too.
+        """
+        self.ensure_one()
+        security = self.env['ai.operations.security']
+        receiver = self.to_profile_id
+        security.check_profile(receiver)
+        # Asked here as well as inside run(), so that a user who may not use
+        # this agent is refused by the button rather than by a run that has
+        # already opened an audit row and spent a provider call.
+        security.check_eligibility(receiver, self.env.user)
+        result = self.env['ai.operations.execution'].run(
+            receiver.code, TriggerType.HANDOFF.value,
+            session_id='handoff-%s' % self.id,
+            entry_prompt=self.env['ai.operations.handoff.service']
+            .entry_prompt(self),
+            correlation_id=self.correlation_id or None)
+        completed = result.get('status') == 'COMPLETED' and not result.get('refused')
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': receiver.name,
+                'message': self.env['discuss.channel']._ai_body(result),
+                'type': 'success' if completed else 'warning',
+                'sticky': True,
+                # Re-read the form: the handoff it was opened on is closed now,
+                # and the button must not stay offered on it.
+                'next': {'type': 'ir.actions.client', 'tag': 'soft_reload'},
+            },
+        }

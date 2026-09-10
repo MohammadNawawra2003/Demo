@@ -165,20 +165,21 @@ class TestDemoConfiguration(TransactionCase):
         for profile in (self.procurement, self.manufacturing):
             self.assertEqual(int(profile.max_autonomy_level), 2)
 
-    def test_autonomous_running_is_for_receiving_work_and_nothing_else(self):
-        """It used to be off everywhere, to keep a daily vendor call from
-        arming itself on a staging database. That risk is the CRON's, and the
-        cron still ships inactive and is still never switched on here. What the
-        flag now permits is one thing: a department opening work another
-        department put on its queue, once.
+    def test_no_profile_may_run_unattended(self):
+        """Phase 1 is Level 2 Prepare, and Level 2 has a human in it.
+
+        The flag was briefly derived from the shipped handoff types, because a
+        handoff run resolved to AUTONOMOUS and a receiving agent needed it to
+        open work on arrival. Arrival opens nothing now -- a person presses
+        Start Work and the receiver runs INTERACTIVE as them -- so the flag is
+        about the CRON again, and the cron is the daily vendor call this demo
+        database must never arm by itself.
         """
         for profile in (self.procurement, self.manufacturing):
             self.assertTrue(profile.allow_interactive)
-            receives = self.env['ai.operations.handoff.type'].search_count(
-                [('to_profile_id', '=', profile.id)])
-            self.assertEqual(bool(profile.allow_autonomous), bool(receives),
-                             "%s may run unattended only if work is routed to "
-                             "it" % profile.code)
+            self.assertFalse(
+                profile.allow_autonomous,
+                "%s may run with nobody watching" % profile.code)
 
     def test_the_daily_cron_is_still_not_armed(self):
         """The half of the old rule that still holds, kept as its own test so

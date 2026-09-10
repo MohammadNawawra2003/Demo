@@ -142,6 +142,15 @@ def get_shortage_context(ctx, params):
         shortage = max(0.0, order_required - order_reserved)
         basis = 'manufacturing_order'
 
+    # This is the deterministic figure, and it is now recorded as such.
+    #
+    # `prepare_draft_rfq` compares a proposal against a baseline, and the
+    # baseline has to be a number the ERP computed rather than one the model
+    # asserted -- otherwise an agent can supply both sides and the variance
+    # bound measures nothing. Measuring it is this tool's whole job, so the
+    # measurement is noted on the run here, at the point it is read.
+    ctx.record_measurement('shortage', product.id, shortage)
+
     result = {
         'product_id': product.id,
         'product_name': product.display_name,
@@ -368,12 +377,45 @@ def prepare_draft_rfq(ctx, params):
         params.get('required_date') or fields.Date.context_today(Purchase),
     )
 
+    # AUTHORISE FIRST, THEN LOOK.
+    #
+    # The replay guard below returns an existing order without reaching the
+    # ORM, so with the lookup first the only user-level check on this tool --
+    # the ORM refusing the create -- never ran on the path that returned early.
+    # A caller whose own ACL forbids creating a purchase order was handed one
+    # somebody else had created, allowed and audited as allowed. Authorisation
+    # is a property of the caller and the request; it may not depend on what
+    # the database already holds.
+    ctx.check_create('purchase.order', action_code='CREATE_DRAFT')
+
     existing = Purchase.search([('ai_idempotency_key', '=', key)], limit=1)
     if existing:
         return _render_rfq(existing, idempotent_hit=True)
 
-    deterministic = params['deterministic_shortage']
     recommended = params['recommended_quantity']
+
+    # A BASELINE IS SOMETHING THIS RUN MEASURED.
+    #
+    # `deterministic_shortage` stays in the schema and stays LLM-supplied --
+    # DL-008 keeps it there on purpose, because it is a claim the guard then
+    # measures. What changed is that the claim is no longer the baseline it is
+    # measured against.
+    #
+    # It could be. The receiving agent in the handoff flow took BOTH sides of
+    # the comparison out of a payload the RAISING tool authored, so the two
+    # numbers agreed by construction, the variance was 0 whatever the size, and
+    # `approval_required` could not lift. Document B §7 steps 17-18 has the
+    # shape the design intends -- 620,000 recommended against 486,000
+    # deterministic, +27.6%, deliberately breaching the routine bound "so the
+    # escalation path is demonstrated rather than described". A path where the
+    # two are always equal is not a variance control at all.
+    #
+    # So the baseline is the figure a tool measured during this run, and when
+    # no tool measured one there is no baseline. That is not a new rule: an
+    # unmeasured proposal already escalates, by George's ruling of 2026-09-06,
+    # because there is nothing to justify it against.
+    measured = ctx.measured_baseline('shortage', product.id)
+    deterministic = measured if measured is not None else 0.0
 
     # Steps 16 and 17: the ceiling denies, the routine bound escalates.
     variance, approval_required = ctx.check_variance(

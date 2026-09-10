@@ -227,6 +227,25 @@ class AISecurityService(models.AbstractModel):
                        % (required, profile.max_autonomy_level),
                 tool_code=spec.code)
 
+    def resolve_mode(self, trigger):
+        """Which mode a trigger runs in. ONE place decides this.
+
+        Document C §9's table has two triggers and two modes, and the mapping
+        was inline in ``run()``. ``HANDOFF`` arrived post-freeze and was mapped
+        to AUTONOMOUS beside CRON, on the reasoning that neither has a human in
+        it. That was true of the cron and became untrue of the handoff the
+        moment arrival stopped entering the agent by itself: a handoff run is
+        now something a person starts, so it is interactive for the same reason
+        a chat is, and the identity is the person who started it.
+
+        Only ``CRON`` is autonomous. That is the whole rule, and it lives here
+        rather than in the runner so that the guard and the runner cannot
+        disagree about what mode a run is in.
+        """
+        return (ExecutionMode.AUTONOMOUS.value
+                if trigger == TriggerType.CRON.value
+                else ExecutionMode.INTERACTIVE.value)
+
     def resolve_identity(self, profile, execution_mode):
         """Step 7. Never sudo, never a fallback."""
         if execution_mode == ExecutionMode.AUTONOMOUS.value:
@@ -342,6 +361,33 @@ class AISecurityService(models.AbstractModel):
                 detail='record company outside the effective scope',
                 model=model_name)
         return existing
+
+    def check_create(self, ctx, model_name, action_code=None, **action_kwargs):
+        """Authorise a create BEFORE the tool decides whether to perform one.
+
+        ``check_records`` needs ids, and a create has none yet, so the only
+        user-level check on a creating tool used to be the ORM refusing the
+        write itself. That is sound while the tool always writes -- and every
+        creating tool here has a replay guard in front of it, which returns an
+        existing record and never reaches the ORM. Authorisation then depended
+        on whether the work had already been done: the same caller asking the
+        same question was refused on a fresh database and served on one where
+        somebody else had already created the record.
+
+        Authorisation is a property of the caller and the request, never of
+        what the database happens to hold. Call this first, above the
+        idempotency lookup.
+        """
+        self.check_model(ctx.profile, model_name, 'create')        # agent
+        if action_code:
+            self.check_action(ctx, model_name, action_code, **action_kwargs)
+        try:
+            ctx.env[model_name].with_user(ctx.execution_user).check_access('create')
+        except (AccessError, UserError) as error:
+            raise AIAccessDenied(
+                DenialReason.USER_ACL_DENIED,
+                detail='execution user cannot create %s' % model_name,
+                model=model_name) from error
 
     def _check_permission_state(self, ctx, model_name, operation, records):
         """Enforce ``state_restriction`` on the model permission itself."""

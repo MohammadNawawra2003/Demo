@@ -7,8 +7,13 @@ from odoo import Command
 from odoo.tests import tagged
 
 from ..services.context import ExecutionContext, RunBudget
-from ..services.enums import DenialReason, HandoffState
-from ..services.exceptions import AIAccessDenied
+from ..services.enums import (
+    DenialReason,
+    ExecutionMode,
+    HandoffState,
+    TriggerType,
+)
+from ..services.exceptions import AIAccessDenied, NEUTRAL_DENIAL
 from ..services.handoff_service import (
     handoff_idempotency_key,
     record_idempotency_key,
@@ -316,12 +321,69 @@ class TestHandoffs(AIOperationsCommon):
         self.assertEqual(caught.exception.reason,
                          DenialReason.HANDOFF_CASCADE_BLOCKED)
 
-    def test_raising_opens_the_work_on_the_receiving_agent(self):
-        """The deliverable: the receiving agent is entered, as itself.
+    def test_arrival_tells_the_receiver_and_runs_NOTHING(self):
+        """Phase 1 is Level 2 Prepare, and Level 2 has a human in it.
+
+        Arrival may put work on a desk. It may not do the work. An agent that
+        accepts a handoff, drafts a purchase order and files a review activity
+        with nobody watching is executing unattended, whatever the records it
+        writes are called -- and Document B §3 caps Phase 1 below that.
 
         Patched at ``run`` rather than driven for real, for the same reason the
-        cron entry-point test patches it: what is being asserted is the wiring,
-        not the provider.
+        cron entry-point test patches it: what is asserted is the wiring.
+        """
+        calls = []
+
+        def fake_run(self, profile_code, trigger, session_id=None,
+                     entry_prompt=None, correlation_id=None, history=None,
+                     images=None):
+            calls.append(profile_code)
+            return {'status': 'COMPLETED', 'correlation_id': correlation_id}
+
+        self.patch(type(self.env['ai.operations.execution']), 'run', fake_run)
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+
+        self.assertEqual(calls, [], "arrival entered an agent unattended")
+        self.assertEqual(handoff.state, HandoffState.REQUESTED.value,
+                         "arrival moved the handoff's state by itself")
+        # and the notification half is untouched
+        self.assertEqual(len(self._activities_for(handoff)), 1)
+        self.assertTrue(handoff.message_ids)
+
+    def test_arrival_writes_no_business_record_of_its_own(self):
+        """The same claim, stated as a census rather than as a patch.
+
+        A count is the honest form here: patching ``run`` proves nothing was
+        entered through the door we know about, and this proves nothing was
+        written through any other one.
+        """
+        Purchase = self.env['purchase.order'] if 'purchase.order' in self.env \
+            else None
+        before_activities = self.env['mail.activity'].search_count([])
+        before_purchases = Purchase.search_count([]) if Purchase else 0
+
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+
+        after_activities = self.env['mail.activity'].search_count([])
+        self.assertEqual(
+            after_activities - before_activities, 1,
+            "arrival created something besides the one review activity")
+        if Purchase:
+            self.assertEqual(
+                Purchase.search_count([]), before_purchases,
+                "arrival drafted a purchase order with nobody watching")
+        self.assertFalse(handoff.result_model)
+        self.assertFalse(handoff.result_res_id)
+
+    def test_the_human_starts_the_work_and_the_run_is_interactive(self):
+        """The replacement for the unattended entry.
+
+        The button carries the trigger for provenance -- the audit still says
+        this run came from a handoff -- and nothing else about it is
+        autonomous: the identity is the person who pressed it, so their own
+        ACLs and their own eligibility apply.
         """
         calls = []
 
@@ -330,25 +392,106 @@ class TestHandoffs(AIOperationsCommon):
                      images=None):
             calls.append({'profile_code': profile_code, 'trigger': trigger,
                           'entry_prompt': entry_prompt,
-                          'correlation_id': correlation_id})
+                          'user': self.env.user})
             return {'status': 'COMPLETED', 'correlation_id': correlation_id}
 
         self.patch(type(self.env['ai.operations.execution']), 'run', fake_run)
         handoff = self.service.raise_handoff(
             self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        self.assertEqual(calls, [])
 
-        self.assertEqual(len(calls), 1, "the receiving agent was never entered")
+        self.receiver.user_ids = [Command.link(self.env.user.id)]
+        handoff.action_start_work()
+
+        self.assertEqual(len(calls), 1, "the button did not enter the agent")
         self.assertEqual(calls[0]['profile_code'], self.receiver.code)
-        self.assertEqual(calls[0]['trigger'], 'HANDOFF')
+        self.assertEqual(calls[0]['trigger'], 'HANDOFF',
+                         "provenance was lost when the entry became attended")
         self.assertIn(handoff.name, calls[0]['entry_prompt'])
-        self.assertEqual(calls[0]['correlation_id'], 'corr-handoff',
-                         "the cascade is one thread in the audit log")
+        self.assertEqual(calls[0]['user'], self.env.user,
+                         "the run did not carry the identity that started it")
 
-    def test_a_receiver_that_may_not_run_unattended_still_gets_the_work(self):
-        """``allow_autonomous`` False is a refusal, not a crash. The item is
-        queued and the human is told; only the agent's head start is lost."""
-        self.receiver.allow_autonomous = False
+    def _start_work_returning(self, result):
+        def fake_run(self, profile_code, trigger, session_id=None,
+                     entry_prompt=None, correlation_id=None, history=None,
+                     images=None):
+            return dict(result, correlation_id=correlation_id)
+
+        self.patch(type(self.env['ai.operations.execution']), 'run', fake_run)
         handoff = self.service.raise_handoff(
             self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
-        self.assertEqual(handoff.state, HandoffState.REQUESTED.value)
-        self.assertEqual(len(self._activities_for(handoff)), 1)
+        self.receiver.user_ids = [Command.link(self.env.user.id)]
+        return handoff.action_start_work()
+
+    def test_start_work_returns_an_action_the_web_client_can_run(self):
+        """A button's return value IS a client action.
+
+        The web client hands whatever a button returns to its action service,
+        and a dict with no ``type`` is an error dialog: the run had finished
+        and committed, and the person who pressed the button was shown a
+        failure. Calling the method from Python, as every test above does,
+        accepts any return value at all.
+        """
+        action = self._start_work_returning(
+            {'status': 'COMPLETED', 'refused': False,
+             'content': 'Drafted P00099 for review.'})
+
+        self.assertEqual(action['type'], 'ir.actions.client')
+        self.assertEqual(action['tag'], 'display_notification')
+        self.assertEqual(action['params']['message'],
+                         'Drafted P00099 for review.')
+        self.assertEqual(action['params']['next']['tag'], 'soft_reload',
+                         "the form never shows the handoff it just closed")
+
+    def test_a_refused_start_work_shows_only_the_neutral_denial(self):
+        """The button is a surface, like the chat, and the same rule holds.
+
+        Whatever the model wrote after a refusal is dropped; the reason lives
+        on the audit row.
+        """
+        action = self._start_work_returning(
+            {'status': 'COMPLETED', 'refused': True,
+             'content': 'You lack purchase rights for that vendor.'})
+
+        self.assertEqual(action['params']['message'], NEUTRAL_DENIAL)
+        self.assertEqual(action['params']['type'], 'warning')
+
+    def test_a_handoff_run_is_INTERACTIVE_and_carries_the_human(self):
+        """The mode itself, at the one place that decides it.
+
+        A HANDOFF run used to resolve to AUTONOMOUS and therefore to the
+        profile's service user. It is now the same mode a chat is, because
+        there is now a human in it -- which is also what makes eligibility and
+        `USER_ACL_DENIED` mean anything on this path.
+        """
+        security = self.env['ai.operations.security']
+        self.assertEqual(
+            security.resolve_mode(TriggerType.HANDOFF.value),
+            ExecutionMode.INTERACTIVE.value)
+        self.assertEqual(
+            security.resolve_mode(TriggerType.CRON.value),
+            ExecutionMode.AUTONOMOUS.value)
+        self.assertEqual(
+            security.resolve_identity(
+                self.receiver, security.resolve_mode(TriggerType.HANDOFF.value)),
+            self.env.user)
+
+    def test_a_receiver_the_starter_may_not_use_is_refused(self):
+        """Eligibility is not decorative on this path either.
+
+        Pressed by a plain AI user the receiving profile does not name. Not by
+        the test's own user: a security administrator is eligible for every
+        agent by design, so a refusal asserted as the superuser asserts
+        nothing. (And one exception class, not a tuple: Odoo's
+        ``assertRaises`` takes ``issubclass`` of its argument.)
+        """
+        handoff = self.service.raise_handoff(
+            self._ctx(self.raiser_a), 'TEST_MATERIAL_SHORTAGE', dict(PAYLOAD))
+        clerk = self._make_user('ai.test.clerk', 'Not On This Agent')
+        clerk.write({'group_ids': [
+            Command.link(self.env.ref('ai_operations.group_ai_user').id)]})
+        self.assertNotIn(clerk, self.receiver.user_ids)
+        with self.assertRaises(AIAccessDenied) as caught:
+            handoff.with_user(clerk).action_start_work()
+        self.assertEqual(caught.exception.reason,
+                         DenialReason.PROFILE_NOT_ELIGIBLE)

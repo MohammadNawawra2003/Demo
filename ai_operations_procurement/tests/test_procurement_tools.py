@@ -137,12 +137,21 @@ class TestProcurementTools(TransactionCase):
         # `key` is now the required_date, because the idempotency key is derived
         # rather than supplied: two calls that must stay distinct need different
         # business facts, not different labels.
-        return self._run('procurement.prepare_draft_rfq', {
+        #
+        # The baseline is SEEDED as a measurement rather than passed as a
+        # parameter, because a parameter is no longer the baseline: these tests
+        # are about the arithmetic of the two bounds, so they state what the run
+        # measured and then propose against it. The tests that cover where a
+        # baseline comes from in the first place are further down.
+        ctx = self._ctx()
+        ctx.record_measurement('shortage', self.bottle.id, deterministic)
+        spec = get_tool('procurement.prepare_draft_rfq')
+        return spec.func(ctx, spec.input_schema.validate({
             'product_id': self.bottle.id, 'partner_id': self.vendor.id,
             'recommended_quantity': recommended,
             'deterministic_shortage': deterministic,
             'required_date': '2026-%02d-%02d' % (
-                (abs(hash(key)) % 12) + 1, (abs(hash(key)) % 27) + 1)})
+                (abs(hash(key)) % 12) + 1, (abs(hash(key)) % 27) + 1)}))
 
     def test_t36_a_draft_within_the_routine_bound_is_not_escalated(self):
         result = self._prepare(400_000, key='within')     # +9.3%
@@ -500,3 +509,117 @@ class TestFindHandoff(TestProcurementTools):
         self.assertEqual(
             result['handoffs'], [],
             "one agent could enumerate another agent's queue by reference")
+
+    # -- authorisation is not a function of what the database already holds --
+
+    def _unauthorised_user(self):
+        """An agent user with no purchase rights at all.
+
+        Deliberately NOT `fahad.p`-shaped: a read-only purchase user still
+        passes `check_access('create')` on nothing, and the point here is a
+        caller whose own ACL forbids the declared action.
+        """
+        user = self.env['res.users'].create({
+            'name': 'Read Only Clerk', 'login': 'proc.readonly',
+            'company_id': self.company.id,
+            'company_ids': [Command.set([self.company.id])],
+            'group_ids': [Command.set([
+                self.env.ref('base.group_user').id,
+                self.env.ref('ai_operations.group_ai_user').id])]})
+        self.profile.user_ids = [Command.link(user.id)]
+        return user
+
+    def _ctx_as(self, user):
+        env = self.env(user=user, context={
+            **self.env.context, 'allowed_company_ids': [self.company.id]})
+        return ExecutionContext(
+            env=env, profile=self.profile.with_env(env),
+            execution_user=user, execution_mode='INTERACTIVE',
+            trigger='CHAT', company_ids=(self.company.id,), autonomy=2,
+            tool_code='test', correlation_id='corr-acl', session_id='s',
+            audit_id=0, policy_version='1.0.0', budget=RunBudget())
+
+    def _prepare_as(self, user, **overrides):
+        params = {
+            'product_id': self.bottle.id, 'partner_id': self.vendor.id,
+            'recommended_quantity': 400_000,
+            'deterministic_shortage': 366_000,
+            'required_date': '2026-11-04'}
+        params.update(overrides)
+        spec = get_tool('procurement.prepare_draft_rfq')
+        return spec.func(self._ctx_as(user), spec.input_schema.validate(params))
+
+    def test_an_unauthorised_caller_is_refused_on_a_FRESH_draft(self):
+        """The ordinary case, and the one that already worked."""
+        user = self._unauthorised_user()
+        with self.assertRaises(AIAccessDenied) as caught:
+            self._prepare_as(user)
+        self.assertEqual(caught.exception.reason, DenialReason.USER_ACL_DENIED)
+
+    def test_an_unauthorised_caller_is_refused_when_the_draft_ALREADY_EXISTS(self):
+        """The defect. Authorisation must not depend on database state.
+
+        `prepare_draft_rfq` returns an existing order on its idempotency key.
+        With the lookup ahead of the authorisation, a caller who may not create
+        a purchase order was handed one that somebody else had created --
+        allowed, audited as allowed, and never refused. The same caller asking
+        the same question got opposite answers depending on whether the work
+        had already been done.
+        """
+        authorised = self._prepare_as(self.env.user)
+        self.assertTrue(authorised['purchase_order_id'])
+
+        user = self._unauthorised_user()
+        with self.assertRaises(AIAccessDenied) as caught:
+            self._prepare_as(user)
+        self.assertEqual(
+            caught.exception.reason, DenialReason.USER_ACL_DENIED,
+            "an existing draft turned a refusal into a disclosure")
+
+    def test_idempotency_still_works_for_a_caller_who_may_create(self):
+        """The fix must not cost the replay protection it sits in front of."""
+        first = self._prepare_as(self.env.user)
+        second = self._prepare_as(self.env.user)
+        self.assertEqual(second['purchase_order_id'], first['purchase_order_id'])
+        self.assertTrue(second['idempotent_hit'])
+        self.assertFalse(first['idempotent_hit'])
+
+    # -- a baseline is something a tool measured, not something the model said --
+
+    def test_a_baseline_the_run_never_measured_does_not_suppress_review(self):
+        """The handoff variance tautology.
+
+        The receiving agent used to take BOTH sides of the comparison from the
+        handoff payload -- a payload the RAISING tool authored. Variance was
+        then 0 by construction and `approval_required` could never lift,
+        whatever the size of the proposal. A number the model copied from its
+        own instructions is not an independent measurement of anything.
+        """
+        result = self._prepare_as(
+            self.env.user, recommended_quantity=620_000,
+            deterministic_shortage=620_000)
+        self.assertTrue(
+            result['approval_required'],
+            "a proposal with no measured basis went to nobody's desk")
+
+    def test_a_baseline_this_run_DID_measure_is_used(self):
+        """And the legitimate path keeps its bound.
+
+        Measure first, then propose: the variance is real and the routine bound
+        applies exactly as before.
+        """
+        ctx = self._ctx_as(self.env.user)
+        measure = get_tool('procurement.get_shortage_context')
+        measured = measure.func(ctx, measure.input_schema.validate(
+            {'product_id': self.bottle.id}))
+        self.assertEqual(measured['shortage'], 366_000)
+
+        spec = get_tool('procurement.prepare_draft_rfq')
+        result = spec.func(ctx, spec.input_schema.validate({
+            'product_id': self.bottle.id, 'partner_id': self.vendor.id,
+            'recommended_quantity': 400_000,
+            'deterministic_shortage': 366_000,
+            'required_date': '2026-11-05'}))
+        self.assertFalse(result['approval_required'])
+        self.assertLess(result['variance_pct'], 20.0)
+        self.assertGreater(result['variance_pct'], 0.0)

@@ -21,6 +21,22 @@ class RunBudget:
         #: assignment and bounds **that tool**. They are two different caps and
         #: conflating them made a tight cap on one tool shrink the entire run.
         self.calls_by_tool = {}
+        #: What tools MEASURED during this run, keyed (kind, record id).
+        #:
+        #: A deterministic baseline is a number the ERP computed and a tool
+        #: read back, not a number the model stated. The two were the same
+        #: parameter until a receiving agent copied both sides of a variance
+        #: comparison out of a handoff payload the raising tool had authored --
+        #: at which point the comparison was 0% by construction and the routine
+        #: bound could never fire. Recorded here rather than passed between
+        #: tools because the run is the only thing that outlives one call.
+        self.measurements = {}
+
+    def record_measurement(self, kind, record_id, value):
+        self.measurements[(kind, int(record_id))] = float(value)
+
+    def measured(self, kind, record_id):
+        return self.measurements.get((kind, int(record_id)))
 
     def consume_tool_call(self, tool_code=None, max_calls_for_tool=0):
         self.tool_calls += 1
@@ -96,6 +112,29 @@ class ExecutionContext:
     def consume_write(self):
         if self.budget is not None:
             self.budget.consume_write()
+
+    def record_measurement(self, kind, record_id, value):
+        """Note that a tool read this figure out of the ERP this run."""
+        if self.budget is not None:
+            self.budget.record_measurement(kind, record_id, value)
+
+    def measured_baseline(self, kind, record_id):
+        """The figure a tool measured this run, or None if none did.
+
+        None is not zero: it means nothing has been measured, which is what
+        `check_variance` treats as having no baseline at all.
+        """
+        if self.budget is None:
+            return None
+        return self.budget.measured(kind, record_id)
+
+    def check_create(self, model_name, action_code=None, **action_kwargs):
+        """Authorise a create before deciding whether to perform one.
+
+        Belongs above any replay guard: see ``security.check_create``.
+        """
+        return self.security.check_create(
+            self, model_name, action_code=action_code, **action_kwargs)
 
     def check_variance(self, deterministic, proposed, model_name=None,
                        action_code=None, category_ref=None):

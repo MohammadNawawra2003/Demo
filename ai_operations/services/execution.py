@@ -243,15 +243,12 @@ class AIExecutionRunner(models.AbstractModel):
         audit = self.env['ai.operations.audit']
 
         security.check_profile(profile)                          # 1
-        # A handoff-triggered run is autonomous for the same reason a cron one
-        # is: there is no human in it. That single fact then carries everything
-        # else for free -- the allow_autonomous gate below, resolve_identity
-        # picking the profile's own service user, and eligibility passing for
-        # that user and nobody else.
-        execution_mode = (ExecutionMode.AUTONOMOUS.value
-                          if trigger in (TriggerType.CRON.value,
-                                         TriggerType.HANDOFF.value)
-                          else ExecutionMode.INTERACTIVE.value)
+        # The guard decides the mode, not the runner. A handoff run used to be
+        # autonomous "for the same reason a cron one is: there is no human in
+        # it" -- which stopped being true when arrival stopped entering the
+        # agent by itself. A person starts the work now, so the run carries
+        # that person: their ACLs, their eligibility, their company scope.
+        execution_mode = security.resolve_mode(trigger)
 
         if execution_mode == ExecutionMode.AUTONOMOUS.value and not profile.allow_autonomous:
             raise AIAccessDenied(DenialReason.PROFILE_INACTIVE,
