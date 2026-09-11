@@ -15,6 +15,20 @@ VAT_RATE = 15.0                 # §2/§15 standard rate
 #: per company, so a second tax called plain 'VAT 15%' collides rather than
 #: being merely redundant.
 VAT_TAX_NAME = 'Naqaa VAT 15% (Sales)'
+#: Input VAT, for the supplier bills the Accountant agent drafts (DL-010).
+PURCHASE_VAT_TAX_NAME = 'Naqaa VAT 15% (Purchases)'
+#: Operating expenses a supplier bill books to, each carrying the input VAT --
+#: Odoo takes a bill line's tax from its account. Kept apart from CHART_ACCOUNTS
+#: on purpose: _build_charts keys that list by account_type, so a second
+#: 'expense' there would silently repoint the purchase journal and the product
+#: category away from Cost of Goods Sold.
+OPEX_ACCOUNTS = [
+    ('610000', 'Rent Expense'),
+    ('620000', 'Utilities Expense'),
+    ('630000', 'Maintenance Expense'),
+    ('640000', 'Professional Fees'),
+    ('650000', 'General & Administrative Expense'),
+]
 LANG = 'ar_001'                 # §2 primary UI language, English secondary
 FISCAL_YEAR_LAST_DAY = 31       # §2 January – December
 FISCAL_YEAR_LAST_MONTH = '12'

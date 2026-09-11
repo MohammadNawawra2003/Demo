@@ -118,6 +118,7 @@
                                     <field name="state_restriction"/>
                                     <field name="variance_bound_pct"/>
                                     <field name="variance_ceiling_pct"/>
+                                    <field name="max_amount"/>
                                     <field name="risk_level"/>
                                 </list>
                             </field>

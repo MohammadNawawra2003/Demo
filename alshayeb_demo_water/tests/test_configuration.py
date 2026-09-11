@@ -177,6 +177,21 @@ class TestNaqaaConfiguration(TransactionCase):
                  ('amount', '=', bp.VAT_RATE)], limit=1)
             self.assertTrue(tax, "%s has no 15%% sales tax" % company.name)
 
+    def test_supplier_bills_carry_input_vat_through_their_accounts(self):
+        """DL-010. A bill line takes its tax from its account, so without these
+        a bill the Accountant drafts comes out at its pre-tax amount."""
+        for company in (self.c1, self.c2):
+            tax = self.env['account.tax'].with_context(active_test=False).search(
+                [('company_id', '=', company.id), ('type_tax_use', '=', 'purchase'),
+                 ('amount', '=', bp.VAT_RATE)], limit=1)
+            self.assertTrue(tax, "%s has no 15%% purchase tax" % company.name)
+            for code, name in bp.OPEX_ACCOUNTS:
+                account = self.env['account.account'].with_company(company).search(
+                    [('code', '=', code), ('company_ids', 'in', company.id)], limit=1)
+                self.assertTrue(account, "%s has no %s" % (company.name, name))
+                self.assertIn(tax, account.tax_ids,
+                              "%s on %s carries no input VAT" % (code, company.name))
+
     # -- §7 capacity ------------------------------------------------------
 
     def test_the_lines_carry_their_rated_speed(self):

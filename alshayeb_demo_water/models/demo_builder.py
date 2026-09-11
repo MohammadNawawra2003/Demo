@@ -34,6 +34,7 @@ class AlshayebDemoBuilder(models.AbstractModel):
         companies = self._build_companies()
         self._build_charts(companies)
         self._build_taxes(companies)
+        self._build_input_vat(companies)
         category = self._build_product_category()
         self._build_warehouses(companies)
         products = self._build_products(companies, category)
@@ -279,6 +280,51 @@ class AlshayebDemoBuilder(models.AbstractModel):
                 'country_id': country.id if country else False,
             })
         return built
+
+    @api.model
+    def _build_input_vat(self, companies):
+        """DL-010: a purchase VAT, and the operating-expense accounts carrying it.
+
+        Only a sales tax existed, so a supplier's bill could not be recorded
+        with its VAT by anyone, agent or person. Odoo derives a bill line's tax
+        from its account, so putting the tax on these accounts is what makes a
+        drafted bill come out at the document's total without the agent ever
+        choosing a tax. The company default purchase tax is deliberately NOT
+        set: products built after it would inherit it, and every purchase order
+        in the documented scenario would change its total.
+        """
+        Tax = self.env['account.tax']
+        Account = self.env['account.account']
+        country = self.env['res.country'].search([('code', '=', bp.COUNTRY)], limit=1)
+        for key in ('c1', 'c2'):
+            company = companies[key]
+            tax = Tax.with_context(active_test=False).search(
+                [('company_id', '=', company.id), ('type_tax_use', '=', 'purchase'),
+                 ('amount', '=', bp.VAT_RATE)], limit=1)
+            if not tax:
+                # _build_taxes has just made sure the company has a tax group.
+                group = self.env['account.tax.group'].search(
+                    [('company_id', '=', company.id)], limit=1)
+                tax = Tax.create({
+                    'name': '%s — %s' % (bp.PURCHASE_VAT_TAX_NAME, company.name),
+                    'amount': bp.VAT_RATE,
+                    'amount_type': 'percent',
+                    'type_tax_use': 'purchase',
+                    'company_id': company.id,
+                    'tax_group_id': group.id,
+                    'country_id': country.id if country else False,
+                })
+            for code, name in bp.OPEX_ACCOUNTS:
+                account = Account.with_company(company).with_context(
+                    active_test=False).search(
+                    [('code', '=', code), ('company_ids', 'in', company.id)], limit=1)
+                if not account:
+                    Account.with_company(company).create({
+                        'code': code, 'name': name, 'account_type': 'expense',
+                        'tax_ids': [(6, 0, tax.ids)],
+                    })
+                elif not account.tax_ids:
+                    account.tax_ids = [(6, 0, tax.ids)]
 
     # -- §15 costing -----------------------------------------------------
 

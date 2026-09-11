@@ -257,13 +257,33 @@ class TestDemoReset(TransactionCase):
     def test_reset_on_a_clean_database_is_a_no_op(self):
         self.Reset.reset()
         summary = self.Reset.reset()
-        for key in ('purchase_orders_deleted', 'activities_deleted',
+        for key in ('purchase_orders_deleted', 'account_moves_deleted',
+                    'activities_deleted',
                     'handoffs_cancelled', 'quality_alerts_deleted',
                     'messages_deleted'):
             self.assertEqual(
                 summary[key], 0,
                 "a reset with nothing to remove reported %s: %s" % (key, summary))
         self.assertFalse(summary['purchase_orders_cancelled_not_deleted'])
+
+    def test_the_accountants_drafts_go_and_a_persons_stay(self):
+        """DL-010. A bill or entry the agent drafted is residue; one a person
+        entered is not, and carries no key for the reset to find."""
+        Move = self.env['account.move']
+        ours = Move.create({
+            'move_type': 'entry', 'company_id': self.company.id,
+            'ref': 'reset test (agent)',
+            'ai_idempotency_key': 'accounting:%s:journal_entry:reset test:entry:'
+                                  '2026-09-11' % self.company.id})
+        theirs = Move.create({
+            'move_type': 'entry', 'company_id': self.company.id,
+            'ref': 'reset test (person)'})
+        summary = self.Reset.reset()
+        self.assertFalse(ours.exists(), "the agent's draft survived the reset")
+        self.assertTrue(theirs.exists(), "the reset deleted a person's entry")
+        self.assertGreaterEqual(summary['account_moves_deleted'], 1)
+        self.assertFalse(summary['account_moves_not_deleted'])
+        self.assertEqual(summary['steps_failed'], [])
 
     def test_reset_cancels_a_confirmed_order_before_deleting_it(self):
         """The runbook has a human press Confirm, so by reset time it is not a

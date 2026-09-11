@@ -91,6 +91,8 @@ class AIOperationsDemoReset(models.AbstractModel):
         summary = {
             'purchase_orders_deleted': 0,
             'purchase_orders_cancelled_not_deleted': [],
+            'account_moves_deleted': 0,
+            'account_moves_not_deleted': [],
             'activities_deleted': 0,
             'handoffs_cancelled': 0,
             'quality_alerts_deleted': 0,
@@ -116,6 +118,7 @@ class AIOperationsDemoReset(models.AbstractModel):
         # could not run". A failed step is reported and the rest still happen.
         steps = (
             ('purchase orders', self._reset_draft_rfqs, (codes, summary)),
+            ('bills and journal entries', self._reset_ai_moves, (codes, summary)),
             ('activities', self._reset_activities, (codes, summary)),
             ('handoffs', self._reset_handoffs, (codes, summary)),
             ('quality alerts', self._reset_quality_alerts, (summary,)),
@@ -176,6 +179,35 @@ class AIOperationsDemoReset(models.AbstractModel):
             summary['purchase_orders_deleted'] += 1
 
     # -- activities, handoffs, alerts --------------------------------------
+
+    @api.model
+    def _reset_ai_moves(self, codes, summary):
+        """Delete the bills and journal entries the Accountant drafted (DL-010).
+
+        The same marker discipline as the purchase orders: ``ai_idempotency_key``
+        beginning with a demo profile code. A bill a person entered carries no
+        key and is invisible here. One a person confirmed during the demo is
+        reset to draft first, the way Odoo requires; if Odoo refuses, it is
+        reported and left alone rather than forced.
+        """
+        prefixes = tuple('%s:' % code for code in codes)
+        moves = self.env['account.move'].search(
+            [('ai_idempotency_key', '!=', False)]).filtered(
+            lambda m: m.ai_idempotency_key.startswith(prefixes))
+        for move in moves:
+            name = move.display_name
+            # A flushing savepoint, unlike the steps above: account.move.unlink
+            # deletes the lines (and flushes) before Odoo may refuse the move,
+            # and only a flushing savepoint clears the cache on rollback.
+            try:
+                with self.env.cr.savepoint():
+                    if move.state != 'draft':
+                        move.button_draft()
+                    move.unlink()
+            except (UserError, AccessError) as exc:
+                summary['account_moves_not_deleted'].append('%s (%s)' % (name, exc))
+                continue
+            summary['account_moves_deleted'] += 1
 
     @api.model
     def _reset_activities(self, codes, summary):

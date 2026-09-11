@@ -477,3 +477,35 @@ repeated on the final build.
   `ai_operations_anthropic/tests/test_live.py`, tagged `-standard`, which no normal suite runs.
 
 No production deployment. No merge to `main`. No screenshots, no PDF.
+
+## 2026-09-11 — UAT: the Accountant drafts bills and journal entries (DL-010)
+
+Staging UAT, `omar.f`: a rent-bill image with "draft a bill" was answered correctly — "I have no
+write function". The owner had tried to enable it by hand (three unowned rows); a capability is a
+tool, not a row. Ruling and design: `decision-log.md` DL-010.
+
+- Staging: unowned action permissions 10, 11 and model permission 74 deleted via ORM (audited),
+  on the owner's instruction.
+- `ai_operations_accounting` 19.0.1.3.0 — `find_partners`, `find_accounts`,
+  `prepare_draft_vendor_bill`, `prepare_draft_journal_entry`; `account.move.ai_idempotency_key`;
+  pack at autonomy 2 / 2 writes / `CREATE_DRAFT` with `max_amount` 100,000; migration 19.0.1.3.0
+  (pre: unowned collisions; post: profile + `perm_account_move_a`).
+- `ai_operations` 19.0.1.30.0 — Max Amount column on the agent form; `move_id` in WRITE audit rows.
+- `ai_operations_demo_data` 19.0.1.23.0 — Accountant off `READ_ONLY_AGENTS`, four tools enabled;
+  reset deletes agent drafts by key.
+- `alshayeb_demo_water` 19.0.1.9.0 — purchase VAT + operating-expense accounts `610000`–`650000`.
+- **Verified (local, 2026-09-11):** baseline DB built from `e634e0c`; stage's drift re-planted
+  (unowned `account.account` C/W, unowned `CREATE_DRAFT`, `perm_account_move_a` write); `-u` of all
+  twelve with the suite → **786 tests**, migration removed every unowned row, profile 2/2,
+  `perm_account_move_a` read+create only, 100,000 ceiling, eight tools enabled, purchase VAT on
+  `610000`–`650000` in both companies. The one failure there was the executor test written with
+  `assertRaises`, which rolls back its own savepoint (it erased the audit rows it asserted); rewritten
+  with try/except → accounting + demo_data **147/147**; Community-only accounting **30/30**; CI 16/16.
+- Review (odoo-code-reviewer) fixed: bill ceiling now on `amount_total_signed` (company currency);
+  reset uses a flushing savepoint; post-migration also moves the kernel-default 3 writes and the
+  policy version; `__export__` ids count as unowned; executor-path + replay-ACL tests added. Not
+  taken: an empty Max Amount still means no ceiling (kernel behaviour); `ai_idempotency_key` keeps
+  the procurement name.
+- ⚠️ Found, not caused: a fresh local install of the demo fails at `_build_quality_points` when
+  Enterprise's "Main Quality Team" carries a company (local Enterprise 2026-06-19); on staging the
+  team is shared, so staging is unaffected.

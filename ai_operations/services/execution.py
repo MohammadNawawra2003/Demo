@@ -120,7 +120,7 @@ class AIExecutionRunner(models.AbstractModel):
 
     #: Output keys a DRAFT_WRITE tool uses to name what it wrote.
     WRITE_ID_KEYS = ('purchase_order_id', 'order_id', 'alert_id', 'activity_id',
-                     'handoff_id', 'production_id', 'message_id')
+                     'handoff_id', 'production_id', 'message_id', 'move_id')
 
     def _record_tool_write(self, audit, correlation_id, spec, result):
         """One WRITE row per draft a tool created or amended."""

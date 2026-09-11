@@ -49,12 +49,13 @@ COMPANY_SCOPE = {
     'accounting': ('c1',),
 }
 
-#: The read-only agents added by the owner's 2026-09-07 decision. They are
-#: configured like the others EXCEPT that their autonomy stays at the QUERY
+#: The read-only agent added by the owner's 2026-09-07 decision. It is
+#: configured like the others EXCEPT that its autonomy stays at the QUERY
 #: floor: _configure_profile writes '2' for an operational agent, and writing
 #: that here would silently promote a read-only executive agent to draft-write
-#: the moment the demo module ran.
-READ_ONLY_AGENTS = ('gm', 'accounting')
+#: the moment the demo module ran. The Accountant left this list on 2026-09-11
+#: (DL-010): it drafts bills and journal entries now, at Level 2.
+READ_ONLY_AGENTS = ('gm',)
 DISTRIBUTION_COMPANY = 'Naqaa Distribution Co.'
 
 #: profile code -> (reviewer login, escalation login, service user login)
@@ -142,8 +143,9 @@ ASSIGNMENTS = {
         ('quality.create_review_activity', 4),
         ('quality.raise_handoff', 2),
     ],
-    # Six reads and four reads. Not one write, not one handoff, not one
-    # activity -- the two agents added on 2026-09-07 report and nothing else.
+    # Six reads: the General Manager reports and nothing else. The Accountant
+    # has six reads and, since DL-010, two drafting tools -- no handoff, no
+    # activity, and nothing that posts.
     'gm': [
         ('gm.get_operational_summary', 4),
         ('gm.get_stock_exceptions', 4),
@@ -157,6 +159,10 @@ ASSIGNMENTS = {
         ('accounting.get_payable_ageing', 4),
         ('accounting.get_open_invoices', 4),
         ('accounting.get_revenue_by_period', 4),
+        ('accounting.find_partners', 4),
+        ('accounting.find_accounts', 4),
+        ('accounting.prepare_draft_vendor_bill', 2),
+        ('accounting.prepare_draft_journal_entry', 2),
     ],
 }
 

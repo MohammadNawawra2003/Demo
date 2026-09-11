@@ -1,19 +1,19 @@
-"""The Accountant agent reports, and can change nothing. Both halves matter.
+"""The Accountant reports and drafts, and posts nothing. All three halves matter.
 
-George asked for this agent twice, and on 2026-09-07 -- after trying the staging
-demo himself -- asked for it to actually work. It became operational as a
-read-only reporting agent. These tests hold the new line.
+George made this agent operational, read-only, on 2026-09-07. On 2026-09-11 the
+owner asked for it to record a supplier's bill from a picture and to prepare a
+journal entry when one is needed (DL-010), so it now drafts both -- Level 2,
+Prepare, the ceiling the operational agents work at. These tests hold the new
+line:
 
-The previous version of this file asserted that no profile anywhere could reach
-``account.move``. That assertion is now wrong by decision, not by accident, so
-it is replaced rather than deleted: the property that mattered underneath it was
-never "nobody reads accounting", it was
+1. the only thing it may write is a DRAFT ``account.move``, through one action
+   that carries an amount ceiling;
+2. nothing posts, pays, reconciles, taxes or banks -- the ledger machinery stays
+   out of every profile's reach;
+3. the four OPERATIONAL agents still cannot read accounting at all, which is
+   what Document B §11 rows 1, 2 and 4 and §13's X-04 actually test.
 
-1. no agent can *write* accounting, and
-2. the four OPERATIONAL agents still cannot read it, which is what Document B
-   §11 rows 1, 2 and 4 and §13's X-04 actually test.
-
-Both are asserted below, individually, per prohibited capability.
+The drafting itself is exercised in ``test_accounting_drafts.py``.
 """
 
 from odoo.addons.ai_operations.services.enums import AutonomyLevel, ToolCategory
@@ -30,6 +30,19 @@ LEDGER_MACHINERY = {
 
 #: Agents whose refusal of financial data is a Phase 1 acceptance criterion.
 OPERATIONAL_AGENTS = ('procurement', 'inventory', 'manufacturing', 'quality')
+
+READ_TOOLS = {
+    'accounting.get_receivable_ageing',
+    'accounting.get_payable_ageing',
+    'accounting.get_open_invoices',
+    'accounting.get_revenue_by_period',
+    'accounting.find_partners',
+    'accounting.find_accounts',
+}
+DRAFT_TOOLS = {
+    'accounting.prepare_draft_vendor_bill',
+    'accounting.prepare_draft_journal_entry',
+}
 
 
 @tagged('post_install', '-at_install', 'ai_security')
@@ -52,14 +65,9 @@ class TestAccountingRoster(TransactionCase):
         self.assertTrue(self.profile, "the Accountant agent is missing")
         self.assertEqual(self.profile.name, 'Accounting Intelligence')
 
-    def test_it_holds_its_four_read_tools(self):
+    def test_it_holds_its_eight_tools(self):
         codes = {code for code in all_tools() if code.startswith('accounting.')}
-        self.assertEqual(codes, {
-            'accounting.get_receivable_ageing',
-            'accounting.get_payable_ageing',
-            'accounting.get_open_invoices',
-            'accounting.get_revenue_by_period',
-        })
+        self.assertEqual(codes, READ_TOOLS | DRAFT_TOOLS)
         assigned = self.env['ai.operations.tool.assignment'].search(
             [('profile_id', '=', self.profile.id)])
         self.assertEqual(
@@ -67,36 +75,49 @@ class TestAccountingRoster(TransactionCase):
             "the pack registered tools it never assigned; guard step 4 would "
             "deny every one of them")
 
-    # -- and can change nothing --------------------------------------------
+    # -- and can write exactly one thing -----------------------------------
 
-    def test_every_accounting_tool_is_read_only(self):
-        for code in (c for c in all_tools() if c.startswith('accounting.')):
+    def test_reads_are_reads_and_only_the_two_drafts_write(self):
+        for code in READ_TOOLS:
             spec = get_tool(code)
-            self.assertEqual(
-                spec.category, ToolCategory.READ.value,
-                "%s is not a READ tool" % code)
-            self.assertEqual(
-                spec.autonomy, int(AutonomyLevel.QUERY),
-                "%s needs more than QUERY autonomy" % code)
+            self.assertEqual(spec.category, ToolCategory.READ.value,
+                             "%s is not a READ tool" % code)
+            self.assertEqual(spec.autonomy, int(AutonomyLevel.QUERY),
+                             "%s needs more than QUERY autonomy" % code)
+            self.assertFalse(spec.actions, "%s performs an action" % code)
+        for code in DRAFT_TOOLS:
+            spec = get_tool(code)
+            self.assertEqual(spec.category, ToolCategory.DRAFT_WRITE.value)
+            self.assertEqual(spec.autonomy, int(AutonomyLevel.PREPARE))
+            self.assertEqual(spec.actions, (('account.move', 'CREATE_DRAFT'),),
+                             "%s does more than draft an account.move" % code)
 
-    def test_the_profile_holds_no_write_permission_of_any_kind(self):
-        for permission in self._permissions(self.profile):
-            for field in ('perm_create', 'perm_write', 'perm_unlink'):
-                self.assertFalse(
-                    permission[field],
-                    "accounting holds %s on %s"
-                    % (field, permission.model_name))
+    def test_the_only_write_is_creating_an_account_move(self):
+        permissions = self._permissions(self.profile)
+        for permission in permissions:
+            for field in ('perm_write', 'perm_unlink'):
+                self.assertFalse(permission[field], "accounting holds %s on %s"
+                                 % (field, permission.model_name))
+            if permission.model_name != 'account.move':
+                self.assertFalse(permission.perm_create,
+                                 "accounting may create %s" % permission.model_name)
+        move = permissions.filtered(lambda p: p.model_name == 'account.move')
+        self.assertTrue(move.perm_create,
+                        "the Accountant cannot create the drafts its tools make")
 
-    def test_the_profile_holds_no_action_permission(self):
-        """No action permission means guard step 15 has nothing to allow."""
+    def test_the_one_action_is_create_draft_with_a_ceiling(self):
         actions = self.env['ai.operations.action.permission'].search(
             [('profile_id', '=', self.profile.id)])
-        self.assertFalse(
-            actions, "accounting can perform actions: %s"
-                     % actions.mapped('action_code'))
+        self.assertEqual(
+            {(action.model_name, action.action_code) for action in actions},
+            {('account.move', 'CREATE_DRAFT')})
+        for action in actions:
+            self.assertEqual(int(action.autonomy_required), 2)
+            self.assertGreater(action.max_amount, 0,
+                               "a drafting action with no amount ceiling")
 
-    def test_autonomy_is_pinned_at_query(self):
-        self.assertEqual(self.profile.max_autonomy_level, '0')
+    def test_autonomy_is_prepare_and_no_higher(self):
+        self.assertEqual(self.profile.max_autonomy_level, '2')
 
     def test_no_profile_anywhere_can_touch_the_ledger_machinery(self):
         """Posting, paying, reconciling, taxes and bank data.
@@ -110,16 +131,18 @@ class TestAccountingRoster(TransactionCase):
             self.assertFalse(
                 trespass, "%s can reach %s" % (profile.code, sorted(trespass)))
 
-    def test_no_profile_anywhere_can_write_an_accounting_entry(self):
-        """account.move itself: readable by two agents now, writable by none."""
+    def test_only_the_accountant_creates_and_nobody_edits_an_entry(self):
+        """account.move: two agents read it, one drafts it, none edits or
+        deletes one."""
         for profile in self.Profile.search([]):
             for permission in self._permissions(profile).filtered(
                     lambda p: p.model_name == 'account.move'):
-                for field in ('perm_create', 'perm_write', 'perm_unlink'):
-                    self.assertFalse(
-                        permission[field],
-                        "%s holds %s on account.move"
-                        % (profile.code, field))
+                for field in ('perm_write', 'perm_unlink'):
+                    self.assertFalse(permission[field], "%s holds %s on account.move"
+                                     % (profile.code, field))
+                if profile.code != 'accounting':
+                    self.assertFalse(permission.perm_create,
+                                     "%s may create account.move" % profile.code)
 
     # -- the isolation rows Document B is sold on --------------------------
 
@@ -145,12 +168,9 @@ class TestAccountingRoster(TransactionCase):
     def test_activation_carries_its_boundaries(self):
         """An active profile must carry the identity it runs as.
 
-        This asserted ``not active`` until the agent became operational. That
-        was never the property worth holding -- the pack still ships the profile
-        inactive, and the demo module activates it, so asserting on the flag
-        just recorded which module happened to run last. What matters is that an
-        ACTIVE profile has a service user and a company scope, so it can never
-        run as an unbounded identity.
+        The service user stays read-only after DL-010, on purpose: a draft is
+        made as the PERSON who asked, with their own rights, and the service
+        user only ever runs the unattended cron -- which may report, not write.
         """
         if not self.profile.active:
             self.assertFalse(
@@ -166,23 +186,20 @@ class TestAccountingRoster(TransactionCase):
         self.assertFalse(
             self.profile.service_user_id._has_group(
                 'account.group_account_user'),
-            "the Accountant's service user can write accounting; read-only "
-            "means group_account_readonly and nothing above it")
+            "the Accountant's service user can write accounting; drafts are "
+            "made as the person, so the service user stays read-only")
 
 
 @tagged('post_install', '-at_install', 'ai_security')
 class TestAccountantSystemPrompt(TransactionCase):
     """The description IS the system prompt, so its wording is behaviour.
 
-    ``build_system_prompt`` returns ``profile.description`` verbatim. The
-    original ended "it holds no permission on any of the models those actions
+    ``build_system_prompt`` returns ``profile.description`` verbatim. An earlier
+    wording ended "it holds no permission on any of the models those actions
     need", and on staging the agent dropped the qualifier: three times in seven
     runs it answered that it had no permission to use accounting tools and
     called nothing at all, while holding four assigned and enabled tools.
     Configuration was correct every time. The sentence was not.
-
-    The General Manager is read-only in the same way, says "no WRITE capability
-    of any kind", and has never refused.
     """
 
     def _accounting(self):
@@ -193,20 +210,20 @@ class TestAccountantSystemPrompt(TransactionCase):
         description = (self._accounting().description or '').lower()
         self.assertTrue(description, "the accountant has no system prompt")
         for phrase in ('holds no permission', 'no permission on any',
-                       'without permissions'):
+                       'without permissions', 'no write capability'):
             self.assertNotIn(
                 phrase, description,
-                "the system prompt tells the model it holds no permissions, "
-                "which it reads as 'do not call your tools'")
+                "the system prompt denies a capability the agent now holds")
 
     def test_the_prompt_names_what_it_can_do(self):
         description = (self._accounting().description or '').lower()
-        for capability in ('receivable', 'payable', 'invoice', 'revenue'):
+        for capability in ('receivable', 'payable', 'invoice', 'revenue',
+                           'vendor bill', 'journal entry', 'draft'):
             self.assertIn(
                 capability, description,
-                "a read-only agent's prompt must lead with what it CAN do")
+                "the prompt must lead with what the agent CAN do")
 
-    def test_the_restriction_is_scoped_to_writing(self):
+    def test_the_restriction_is_scoped_to_posting(self):
         description = (self._accounting().description or '').lower()
-        self.assertIn('write', description,
-                      "the restriction must name writing, not permissions")
+        self.assertIn('cannot post', description,
+                      "the prompt must say a draft waits for a person")

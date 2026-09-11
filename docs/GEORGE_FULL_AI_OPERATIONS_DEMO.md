@@ -85,7 +85,13 @@ EFFECTIVE = USER ∩ AGENT ∩ TOOL ∩ ACTION ∩ COMPANY
 | Inventory Intelligence | `mansour.i` | Mansour Al-Ghamdi | 2 | 2 | 10 |
 | Quality Intelligence | `rania.q` | Rania Al-Malki | 2 | 2 | 8 |
 | General Manager Intelligence | `faisal.gm` | Faisal Al-Rasheed | **0** | **0** | 6 |
-| Accounting Intelligence | `omar.f` | Omar Al-Dosari | **0** | **0** | 4 |
+| Accounting Intelligence | `omar.f` | Omar Al-Dosari | 2 | 2 | 8 |
+
+> ✅ **المحاسبة تُحضّر مسودات** (منذ 2026-09-11، DL-010): فاتورة مورّد — من صورة يرفقها
+> الموظف — وقيد يومية. **لا يُرحِّل شيئاً**؛ عمر يراجع ويضغط «تأكيد». سقف المبلغ من
+> **AI Operations ← الإعدادات ← ملفات الوكلاء ← Accounting ← Action Permissions ← Max Amount**
+> (افتراضياً 100,000، ويُقاس على إجمالي الفاتورة **شاملاً** الضريبة). المورّد يجب أن يكون
+> موجوداً مسبقاً — الوكيل لا يُنشئ جهات اتصال.
 
 جميع الوكلاء: المزوّد `anthropic`، النموذج `claude-sonnet-5`، وحدّ **٨ استدعاءات أدوات**
 في الدور الواحد.
@@ -571,6 +577,7 @@ print(summary)
 handoffs_cancelled = 1
 messages_deleted = 2
 purchase_orders_deleted = 1
+account_moves_deleted = 0      # مسودات المحاسبة (DL-010)، إن وُجدت
 token_budget_cleared = 1
 steps_failed = []
 relevelled = {}

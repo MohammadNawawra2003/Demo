@@ -273,3 +273,39 @@ inspected in full on 2026-09-05 — no Environment Variables, Variables or Secre
 
 **Still recommended for production:** a platform with real secrets management. Staging is
 contract-compliant on this mechanism; production should not depend on an observation.
+
+## DL-010 — the Accountant drafts bills and journal entries
+
+**Date:** 2026-09-11. **Supersedes:** the read-only line of the 2026-09-07 owner decision
+(`ai_operations_accounting/data/policy_pack.xml`). **Asked for by:** the owner, during staging
+UAT, after the Accountant correctly answered a rent-bill image with "I have no write function".
+
+**Why configuration could not do it.** Staging had been given `perm_create` on `account.move`,
+`perm_create`/`perm_write` on `account.account` and a free-text "draft bill" action, by hand.
+None of it could work: the pack held no tool that writes, the profile sat at autonomy 0 with 0
+write ops, and `check_action` matches the action code a tool declares, never free text. A
+capability is a registered tool — a deployment act — not a row. The three unowned rows were
+deleted on staging on the owner's instruction (action permissions 10, 11; model permission 74).
+
+**Ruling.**
+
+- **Level 2, Prepare.** Two DRAFT_WRITE tools — `prepare_draft_vendor_bill`,
+  `prepare_draft_journal_entry` — and two lookups, `find_partners` and `find_accounts`. Nothing
+  posts; a person confirms every draft.
+- **One action, `account.move` / `CREATE_DRAFT`, with an amount ceiling** the operator sets on the
+  agent form (Action Permissions → Max Amount; 100,000 by default), in **company currency**. A bill
+  is measured on its total **with** tax once Odoo has computed it (`amount_total_signed`), inside the
+  executor's savepoint, so a refusal leaves no bill; an entry on its debits. An empty Max Amount
+  means no ceiling — kernel behaviour, shared with Procurement.
+- **The ledger machinery stays out of reach.** No profile holds any permission on
+  `account.move.line`, `account.payment`, `account.journal`, `account.tax` or
+  `res.partner.bank`. Lines are written through `account.move` as the person; a bill's tax comes
+  from its account, so the agent never chooses one.
+- **The service user stays `group_account_readonly`.** Drafts are made as the person who asked,
+  with their rights; the unattended cron can report but never draft.
+- **Unchanged:** T-34 — the four operational agents still cannot read accounting.
+
+**Demo data.** Naqaa had a sales VAT only, so no one could record a bill with its VAT.
+`alshayeb_demo_water` 19.0.1.9.0 adds `Naqaa VAT 15% (Purchases)` and five operating-expense
+accounts (`610000`–`650000`) carrying it. The company default purchase tax is deliberately not set:
+products would inherit it and the scenario's purchase-order totals would move.

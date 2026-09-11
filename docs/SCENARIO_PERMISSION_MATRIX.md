@@ -213,22 +213,29 @@ autonomy 2.
 
 ---
 
-## 6. Accounting Intelligence — read-only
+## 6. Accounting Intelligence — reports, and drafts (DL-010, 2026-09-11)
 
 | | |
 |---|---|
 | Demo user | `omar.f` (Omar Al-Dosari) · Channel: AI Demo — Accounting (Omar) |
 | Company | Naqaa Water Manufacturing Co. · Review / escalation `omar.f` / `omar.f` |
-| Autonomy | **0** · `max_write_ops` **0** · action permissions **none** |
+| Autonomy | **2** · `max_write_ops` **2** · action permissions: **`account.move` / `CREATE_DRAFT`, `max_amount` 100,000** |
 
-**Tools (4), all READ:** `get_open_invoices`, `get_payable_ageing`, `get_receivable_ageing`,
-`get_revenue_by_period`
+**Tools (8):** READ — `get_open_invoices`, `get_payable_ageing`, `get_receivable_ageing`,
+`get_revenue_by_period`, `find_partners`, `find_accounts`. DRAFT_WRITE —
+`prepare_draft_vendor_bill`, `prepare_draft_journal_entry`. Neither posts.
 
-**Model permissions — all `perm_read` only:** `account.move`, `res.partner`, `res.currency`.
+**Model permissions:** `account.move` read + **create**; `res.partner`, `res.currency`,
+`account.account` read only. No `perm_write` or `perm_unlink` anywhere.
 
 **Holds none of:** `account.move.line`, `account.payment`, `account.journal`, `account.tax`,
 `res.partner.bank`, `stock.quant`, `mrp.production`, `purchase.order`,
 `ai.operations.handoff`, `mail.activity`, `mail.message`.
+
+A bill's tax comes from its expense account (Naqaa: `610000`–`650000` carry
+`Naqaa VAT 15% (Purchases)`). The ceiling is on a bill's total **with** tax and on an entry's
+debits. Drafts are made **as `omar.f`**, so a user without billing rights is refused
+`USER_ACL_DENIED` whatever the agent holds.
 
 | Prompt | Expected | Staging |
 |---|---|---|
@@ -243,7 +250,7 @@ autonomy 2.
 |---|---|---|---|
 | 1 | No assigned tool names a model its profile lacks | `test_pack_coverage.py`, swept against the live DB | ⏳ PENDING |
 | 2 | The four operational agents still cannot read accounting | `test_t34`, and the absence of `account.move` above | ⏳ PENDING |
-| 3 | GM and Accounting hold zero action permissions | Read from `action_permission_ids` | ⏳ PENDING |
+| 3 | GM holds zero action permissions; Accounting holds exactly one (`account.move` / `CREATE_DRAFT`, with `max_amount`) | Read from `action_permission_ids` | ⏳ PENDING |
 | 4 | Inventory is the only two-company profile | `company_ids` | ⏳ PENDING |
 | 5 | Every refusal shows the frozen neutral text only | `Refused: this request is outside the agent's authorised scope.` | ⏳ PENDING |
 | 6 | The real reason appears in the audit log and nowhere else | `denial_detail` on the audit row | ⏳ PENDING |
